@@ -821,9 +821,6 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     all_streams = []
     binge_group = f"{pure_imdb_id}"
-    sites = ["Serienstream", "MegaKino"]
-    if KINOX_ENABLED:
-        sites.append("Kinox")
     aniworld_enabled = is_animation(meta)
     target_video = _get_cinemeta_episode(meta, season, episode_num) if aniworld_enabled else None
     target_episode_title = (target_video or {}).get("title") if target_video else None
@@ -888,9 +885,11 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
                         _S_TO_INFLIGHT.discard(s_to_key)
                         logger.warning("Could not schedule Serienstream lookup: %s", exc)
 
-        for site in (("MegaKino", "Kinox") if KINOX_ENABLED else ("MegaKino",)):
+        # MegaKino is intentionally movie-only: skip its series lookup to
+        # avoid adding latency and unrelated search traffic to series requests.
+        if KINOX_ENABLED:
             futures.append(_SCRAPE_EXECUTOR.submit(
-                fetch_series_site_streams, site, title, season, episode_num, binge_group
+                fetch_series_site_streams, "Kinox", title, season, episode_num, binge_group
             ))
 
     all_streams.extend(_collect_scrape_results(futures, timeout=12))
