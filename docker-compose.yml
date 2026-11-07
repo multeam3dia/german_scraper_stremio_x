@@ -2,10 +2,12 @@ services:
   german-scraper:
     container_name: german-scraper-stremio
     build:
-      context: .
+      context: https://github.com/multeam3dia/german_scraper_stremio_x.git#feature/aniworld-integration
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
+    expose:
+      - "10000"
     environment:
       PORT: "10000"
       PYTHONUNBUFFERED: "1"
@@ -19,9 +21,8 @@ services:
       retries: 3
       start_period: 90s
     networks:
-      - pangolin
+      - pangolin_frontend
 
 networks:
-  pangolin:
+  pangolin_frontend:
     external: true
-    name: ${PANGOLIN_NETWORK:?Set PANGOLIN_NETWORK to the existing Docker network used by Pangolin}
