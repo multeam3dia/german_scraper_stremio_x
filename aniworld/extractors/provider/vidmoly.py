@@ -127,13 +127,28 @@ def _get_html(embed_url):
     )
     final_url = str(getattr(response, "url", normalized_url))
     html = response.text or ""
-    content_type = getattr(response, "headers", {}).get("Content-Type", "unknown")
+    response_headers = getattr(response, "headers", {}) or {}
+    content_type = response_headers.get("Content-Type", "unknown")
+    raw_content = getattr(response, "content", b"") or b""
+    raw_prefix = raw_content[:16].hex(" ")
+    content_encoding = response_headers.get("Content-Encoding", "identity")
+    content_length = response_headers.get("Content-Length", "unknown")
+    transfer_encoding = response_headers.get("Transfer-Encoding", "unknown")
+    response_encoding = getattr(response, "encoding", None)
     logger.info(
-        "Vidmoly embed response: status=%s final_host=%s html_length=%d content_type=%s",
+        "Vidmoly embed response: status=%s final_host=%s text_length=%d raw_length=%d "
+        "content_type=%s content_encoding=%s content_length=%s transfer_encoding=%s "
+        "response_encoding=%s raw_prefix_hex=%s",
         getattr(response, "status_code", "unknown"),
         urlparse(final_url).netloc,
         len(html),
+        len(raw_content),
         content_type.split(";", 1)[0],
+        content_encoding,
+        content_length,
+        transfer_encoding,
+        response_encoding,
+        raw_prefix,
     )
     if getattr(response, "status_code", 0) >= 400:
         logger.warning(
