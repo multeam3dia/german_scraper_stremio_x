@@ -390,7 +390,12 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                         entry["behaviorHints"]["bingeGroup"] = binge_group
                     streams.append(entry)
                 except Exception as exc:
-                    logger.debug(f"AniWorld provider {provider_name} failed: {exc}")
+                    # Provider exceptions may contain temporary tokens in their URLs.
+                    logger.debug(
+                        "AniWorld provider %s failed (%s)",
+                        provider_name,
+                        type(exc).__name__,
+                    )
     except Exception as exc:
         logger.debug(f"AniWorld episode stream extraction failed: {exc}")
     return streams
