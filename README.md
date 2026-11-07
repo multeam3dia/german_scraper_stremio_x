@@ -40,6 +40,21 @@ The AniWorld-derived models are based on
 [AniWorld-Downloader](https://github.com/phoenixthrush/AniWorld-Downloader).
 The upstream MIT license notice is retained in `LICENSE.AniWorld-Downloader`.
 
+## Kinox integration (currently disabled)
+
+Kinox is currently **not working**: its search/base-URL configuration is broken,
+so searches can fail before a series or movie can be resolved. The integration
+code is retained for future repair, but Kinox is disabled by default and is not
+queried for movies or series.
+
+To explicitly re-enable it for debugging, set this container environment variable:
+
+\`KINOX_ENABLED=true\`
+
+Only the values \"1\", \"true\", \"yes\" and \"on\" (case-insensitive) enable it.
+Re-enabling does not fix the integration; expect lookup failures until the
+Kinox search configuration and provider code have been repaired.
+
 ## Optional SerienStream account login
 
 The addon can optionally sign in to SerienStream automatically before a
