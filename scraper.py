@@ -11,6 +11,7 @@ from aniworld.models.s_to.episode import SerienstreamEpisode
 from aniworld.models.filmpalast_to.episode import FilmPalastEpisode
 from aniworld.models.megakino.series import MegaKinoEpisode
 from aniworld.models.kinox.series import KinoxEpisode
+from aniworld.models.s_to.auth import ensure_serienstream_login
 from aniworld.config import logger, Audio, Subtitles, DEFAULT_USER_AGENT, PROVIDER_HEADERS_W
 
 CINEMETA_URL = "https://v3-cinemeta.strem.io/meta/{type}/{id}.json"
@@ -446,6 +447,9 @@ def fetch_series_site_streams(site_name: str, title: str, season: int, episode_n
     """Search and extract streams for a series from a single site."""
     try:
         if site_name == "Serienstream":
+            # If credentials are configured, refresh the account session before
+            # searching. Login failure is non-fatal; the existing CAPTCHA flow remains.
+            ensure_serienstream_login()
             results = query_s_to(title)
             if not results:
                 logger.info(f"Serienstream: no search results for '{title}'")
