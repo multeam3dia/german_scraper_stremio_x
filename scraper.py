@@ -1,4 +1,5 @@
 import re
+import html
 import time
 import niquests
 from threading import RLock
@@ -133,8 +134,12 @@ def get_german_title(media_type: str, imdb_id: str) -> Optional[str]:
     return None
 
 def clean_for_match(t: str) -> str:
-    """Lowercase and alphanumeric only for title comparison."""
+    """Normalize titles, including HTML-formatted provider search results."""
     if not t: return ""
+    # AniWorld wraps matched search terms in tags such as <em>Naruto</em>.
+    # Decode entities and remove markup before comparing titles.
+    t = html.unescape(str(t))
+    t = re.sub(r"<[^>]*>", " ", t)
     t = re.sub(r'[\(\[].*?[\)\]]', '', t)
     return re.sub(r'\W+', '', t.lower())
 
