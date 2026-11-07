@@ -1,3 +1,4 @@
+import logging
 import re
 from html import unescape
 from urllib.parse import urlparse
@@ -6,6 +7,8 @@ try:
     from ...config import GLOBAL_SESSION
 except ImportError:
     from aniworld.config import GLOBAL_SESSION
+
+logger = logging.getLogger(__name__)
 
 VIDMOLY_BASE_URL = "https://vidmoly.to/"
 VIDMOLY_USER_AGENT = (
@@ -64,14 +67,42 @@ def _get_html(embed_url):
         allow_redirects=True,
         timeout=20,
     )
+    final_url = str(getattr(response, "url", normalized_url))
+    html = response.text or ""
+    content_type = getattr(response, "headers", {}).get("Content-Type", "unknown")
+    logger.info(
+        "Vidmoly embed response: status=%s final_host=%s html_length=%d content_type=%s",
+        getattr(response, "status_code", "unknown"),
+        urlparse(final_url).netloc,
+        len(html),
+        content_type.split(";", 1)[0],
+    )
+    if getattr(response, "status_code", 0) >= 400:
+        logger.warning(
+            "Vidmoly embed request returned HTTP %s (host=%s)",
+            response.status_code,
+            urlparse(final_url).netloc,
+        )
     response.raise_for_status()
-    return response.text or "", str(getattr(response, "url", normalized_url))
+    return html, final_url
 
 
 def _extract_video_url(html, embed_url):
     content = unescape((html or "").replace(r"\\/", "/"))
     match = SOURCES_PATTERN.search(content) or FILE_LINK_PATTERN.search(content)
     if not match:
+        logger.warning(
+            "Vidmoly HLS source not found: host=%s html_length=%d markers=%s",
+            urlparse(embed_url).netloc,
+            len(content),
+            {
+                "sources": "sources" in content.lower(),
+                "file": "file" in content.lower(),
+                "m3u8": ".m3u8" in content.lower(),
+                "jwplayer": "jwplayer" in content.lower(),
+                "player": "player" in content.lower(),
+            },
+        )
         raise ValueError(
             f"Vidmoly HLS source not found (host={urlparse(embed_url).netloc})"
         )
