@@ -401,17 +401,34 @@ def fetch_series_site_streams(site_name: str, title: str, season: int, episode_n
                     logger.warning(f"Serienstream failed for {ep_url}: {exc}")
 
         elif site_name == "MegaKino":
-            results = query_megakino(f"{title} Staffel {season}")
-            if not results: results = query_megakino(title)
-            if not results: return []
-
+            # The season-specific query can return unrelated results. If none
+            # match the requested title, retry with the plain title.
+            results = query_megakino(f"{title} Staffel {season}") or []
             urls = find_best_matches(results, title, season=season)
-            for url in urls[:1]:
+            if not urls:
+                results = query_megakino(title) or []
+                urls = find_best_matches(results, title, season=season)
+            if not urls:
+                returned_titles = [
+                    str(item.get("title") or item.get("name") or "")
+                    for item in results if isinstance(item, dict)
+                ]
+                logger.info(
+                    f"MegaKino: no exact title match for '{title}'. "
+                    f"Search returned: {returned_titles[:10]}"
+                )
+                return []
+
+            for url in urls[:2]:
                 ep_url = f"{url}#mkep={episode_num}"
                 try:
                     episode = MegaKinoEpisode(ep_url)
-                    return extract_streams(episode, site_name, title, binge_group)
-                except Exception: pass
+                    streams = extract_streams(episode, site_name, title, binge_group)
+                    if streams:
+                        return streams
+                    logger.info(f"MegaKino: no German streams at {ep_url}")
+                except Exception as exc:
+                    logger.warning(f"MegaKino failed for {ep_url}: {exc}")
 
         elif site_name == "Kinox":
             results = query_kinox(title)
