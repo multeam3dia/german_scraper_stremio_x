@@ -1,0 +1,27 @@
+services:
+  german-scraper:
+    container_name: german-scraper-stremio
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      PORT: "10000"
+      PYTHONUNBUFFERED: "1"
+    shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/manifest.json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - pangolin
+
+networks:
+  pangolin:
+    external: true
+    name: ${PANGOLIN_NETWORK:?Set PANGOLIN_NETWORK to the existing Docker network used by Pangolin}
