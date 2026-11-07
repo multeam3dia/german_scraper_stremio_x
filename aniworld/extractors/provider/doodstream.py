@@ -50,6 +50,65 @@ def _generate_random_string(length=10):
     return "".join(random.choices(RANDOM_STRING_CHARS, k=length))
 
 
+def _log_embed_structure(embed_html, embed_url):
+    """Log safe structural hints without exposing page contents or query tokens."""
+    html = embed_html or ""
+    tag_counts = {
+        tag: len(re.findall(r"<" + tag + r"\b", html, re.IGNORECASE))
+        for tag in ("script", "iframe", "video", "source", "form", "input")
+    }
+
+    script_srcs = re.findall(
+        r"<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]",
+        html,
+        re.IGNORECASE,
+    )
+    script_files = []
+    for src in script_srcs[:12]:
+        parsed = urlparse(urljoin(embed_url, src))
+        entry = f"{parsed.netloc}/{parsed.path.rsplit('/', 1)[-1]}"
+        if entry not in script_files:
+            script_files.append(entry)
+
+    inline_scripts = re.findall(
+        r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
+        html,
+        re.IGNORECASE | re.DOTALL,
+    )
+    script_text = "\n".join(inline_scripts)
+    markers = (
+        "pass_md5", "token", "file_code", "filecode", "sources",
+        "m3u8", ".mp4", "jwplayer", "eval(", "atob(", "fetch(",
+        "XMLHttpRequest", "/api/", "player",
+    )
+    marker_flags = {
+        marker: marker.lower() in script_text.lower()
+        for marker in markers
+    }
+    iframe_hosts = []
+    iframe_srcs = re.findall(
+        r"<iframe\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]",
+        html,
+        re.IGNORECASE,
+    )
+    for src in iframe_srcs[:8]:
+        host = urlparse(urljoin(embed_url, src)).netloc
+        if host and host not in iframe_hosts:
+            iframe_hosts.append(host)
+
+    logger.warning(
+        "Doodstream embed structure: host=%s tags=%s scripts=%d inline_scripts=%d "
+        "script_files=%s iframe_hosts=%s inline_markers=%s",
+        urlparse(embed_url).netloc,
+        tag_counts,
+        len(script_srcs),
+        len(inline_scripts),
+        script_files,
+        iframe_hosts,
+        marker_flags,
+    )
+
+
 def _get_embed_page(embed_url, headers=None):
     """Fetch HTML content of the embed page."""
     headers = headers or _get_headers()
@@ -85,6 +144,7 @@ def _get_pass_md5_url(embed_html, embed_url):
             bool(re.search(TOKEN_PATTERN, embed_html or "")),
             page_title,
         )
+        _log_embed_structure(embed_html, embed_url)
         raise ValueError(f"pass_md5 URL not found in {embed_url}")
     pass_md5_url = match.group(1)
     if not pass_md5_url.startswith("http"):
