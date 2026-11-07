@@ -44,6 +44,7 @@ def ensure_serienstream_login() -> bool:
         if _last_attempt and now - _last_attempt < _RETRY_AFTER_FAILURE:
             return False
         _last_attempt = now
+        print("SERIENSTREAM-AUTH: automatic login attempt started", flush=True)
 
         handle = None
         try:
@@ -66,6 +67,7 @@ def ensure_serienstream_login() -> bool:
                     wait_until="domcontentloaded",
                     timeout=20000,
                 )
+                print("SERIENSTREAM-AUTH: login page loaded", flush=True)
 
                 # The site labels this field as an e-mail address; accept both
                 # email and text inputs because its markup may vary by release.
@@ -77,6 +79,7 @@ def ensure_serienstream_login() -> bool:
                 ).first
                 password_field = login_form.locator('input[type="password"]').first
                 if email_field.count() == 0 or password_field.count() == 0:
+                    print("SERIENSTREAM-AUTH: login form unavailable", flush=True)
                     logger.warning(
                         "SerienStream login form was not available; "
                         "the site may require verification."
@@ -85,6 +88,7 @@ def ensure_serienstream_login() -> bool:
 
                 email_field.fill(email)
                 password_field.fill(password)
+                print("SERIENSTREAM-AUTH: login form filled; submitting", flush=True)
 
                 submit = login_form.locator('button[type="submit"], input[type="submit"]').first
                 if submit.count():
@@ -105,6 +109,7 @@ def ensure_serienstream_login() -> bool:
 
                 current_path = urlparse(page.url).path.rstrip("/")
                 if current_path == "/login" or page.locator('input[type="password"]').count():
+                    print("SERIENSTREAM-AUTH: login not confirmed; still on login page or password field remains", flush=True)
                     logger.warning(
                         "SerienStream login was not confirmed; check the credentials "
                         "or whether the site presented a verification challenge."
@@ -126,6 +131,7 @@ def ensure_serienstream_login() -> bool:
                     copied += 1
 
                 if copied == 0:
+                    print("SERIENSTREAM-AUTH: no SerienStream session cookies found", flush=True)
                     logger.warning(
                         "SerienStream login page changed, but no session cookies "
                         "could be transferred to the HTTP session."
@@ -133,6 +139,7 @@ def ensure_serienstream_login() -> bool:
                     return False
 
                 _last_success = time.monotonic()
+                print(f"SERIENSTREAM-AUTH: login successful; {copied} session cookies transferred", flush=True)
                 logger.info(
                     "SerienStream account login successful; %d session cookie(s) transferred.",
                     copied,
@@ -140,6 +147,7 @@ def ensure_serienstream_login() -> bool:
                 return True
 
         except Exception as exc:
+            print(f"SERIENSTREAM-AUTH: login attempt failed ({type(exc).__name__})", flush=True)
             logger.warning(
                 "SerienStream automatic login failed (%s); continuing with the existing access path.",
                 type(exc).__name__,
