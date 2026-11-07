@@ -641,11 +641,50 @@ def fetch_aniworld_series_streams(
     return []
 
 def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
-    """Search AniWorld anime film collections and match the requested film title."""
+    """Search AniWorld film collections, including films listed under a franchise series."""
     wanted = clean_for_match(title)
     if not wanted:
         return []
-    for series in _aniworld_candidates(title):
+
+    # Most AniWorld films are nested under their franchise page rather than
+    # indexed as a standalone series. For example, Cinemeta calls this film
+    # "Haikyu!! The Dumpster Battle", while AniWorld lists it as film 10 under
+    # the series "Haikyu!!". Try the full title first, then short leading
+    # franchise prefixes; accept only a candidate whose normalized series name
+    # is a meaningful prefix of the requested film title.
+    candidates = _aniworld_candidates(title)
+    seen_urls = {series.url for series in candidates}
+    words = str(title).strip().split()
+    for word_count in range(1, min(4, len(words)) + 1):
+        prefix = " ".join(words[:word_count])
+        prefix_clean = clean_for_match(prefix)
+        if len(prefix_clean) < 5:
+            continue
+        try:
+            results = query_aniworld(prefix) or []
+            if isinstance(results, dict):
+                results = [results]
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                candidate_title = item.get("title") or item.get("name") or ""
+                candidate_clean = clean_for_match(candidate_title)
+                link = item.get("link") or item.get("url")
+                if (
+                    not link
+                    or len(candidate_clean) < 5
+                    or not wanted.startswith(candidate_clean)
+                ):
+                    continue
+                url = link if link.startswith("http") else f"https://aniworld.to{link if link.startswith('/') else '/' + link}"
+                if url in seen_urls or not AniworldSeries.is_valid_aniworld_series_url(url):
+                    continue
+                seen_urls.add(url)
+                candidates.append(AniworldSeries(url))
+        except Exception as exc:
+            logger.debug("AniWorld movie franchise search failed for %r: %s", prefix, type(exc).__name__)
+
+    for series in candidates:
         try:
             for season in series.seasons:
                 if not season.are_movies:
@@ -659,7 +698,8 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     if streams:
                         return streams
         except Exception as exc:
-            logger.debug(f"AniWorld movie collection processing failed for {series.url}: {exc}")
+            logger.debug("AniWorld movie collection processing failed for %s: %s",
+                         getattr(series, "url", title), type(exc).__name__)
     return []
 
 
