@@ -67,9 +67,9 @@ def find_best_matches(
     title: str,
     year: Optional[int] = None,
     season: Optional[int] = None,
-    allow_season_suffix: bool = False,
+    allow_season_suffix: bool = True,
 ) -> List[str]:
-    """Return only exact title matches, optionally accepting the requested season suffix."""
+    """Match whole normalized titles; never use substring matching (Monk != Bad Monkey)."""
     if not results:
         return []
 
@@ -80,19 +80,16 @@ def find_best_matches(
     candidates = []
 
     def result_title(result: Dict) -> str:
-        # Search providers do not always use the same key for the display title.
         return str(result.get("title") or result.get("name") or result.get("series") or "")
 
     def is_match(res_title: str) -> bool:
         res_clean = clean_for_match(res_title)
         if allow_season_suffix and season:
-            # Remove only the requested season suffix; do not accept a different season.
-            suffix = f"staffel{season}"
-            english_suffix = f"season{season}"
-            if res_clean.endswith(suffix):
-                res_clean = res_clean[:-len(suffix)]
-            elif res_clean.endswith(english_suffix):
-                res_clean = res_clean[:-len(english_suffix)]
+            # Permit only the requested season suffix, never a different season.
+            for suffix in (f"staffel{season}", f"season{season}"):
+                if res_clean.endswith(suffix):
+                    res_clean = res_clean[:-len(suffix)]
+                    break
         return res_clean == title_clean
 
     for res in results:
