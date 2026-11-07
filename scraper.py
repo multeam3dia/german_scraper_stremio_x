@@ -159,6 +159,7 @@ def find_best_matches(
     season: Optional[int] = None,
     allow_season_suffix: bool = True,
     allow_possessive_prefix: bool = False,
+    allow_subtitle_suffix: bool = False,
 ) -> List[str]:
     """Match whole normalized titles; never use substring matching (Monk != Bad Monkey)."""
     if not results:
@@ -183,6 +184,19 @@ def find_best_matches(
                     break
         if res_clean == title_clean:
             return True
+
+        # SerienStream may append a descriptive subtitle to the exact series
+        # title (e.g. "Slow Horses - Ein Fall für Jackson Lamb"). Only accept
+        # an explicit separator after the complete requested title.
+        if allow_subtitle_suffix:
+            decoded_title = html.unescape(str(res_title or "")).strip()
+            subtitle_match = re.match(
+                rf"^{re.escape(str(title).strip())}\\s+[-–—:]\\s+.+$",
+                decoded_title,
+                re.IGNORECASE,
+            )
+            if subtitle_match:
+                return True
 
         # SerienStream sometimes prefixes a show with its author's possessive
         # name (e.g. "Carl Hiaasen’s Bad Monkey"). Accept only that explicit
@@ -721,6 +735,7 @@ def fetch_series_site_streams(site_name: str, title: str, season: int, episode_n
                 season=season,
                 allow_season_suffix=True,
                 allow_possessive_prefix=True,
+                allow_subtitle_suffix=True,
             )
             if not links:
                 returned_titles = [
