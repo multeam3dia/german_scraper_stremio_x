@@ -355,23 +355,35 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                     parsed = urlparse(embed_url)
                     origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "https://aniworld.to"
                     headers = PROVIDER_HEADERS_W.get(provider_name, {})
+                    playback_headers = {}
+                    if provider_name == "Doodstream":
+                        from aniworld.extractors.provider.doodstream import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+                    elif provider_name == "Vidmoly":
+                        from aniworld.extractors.provider.vidmoly import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+
                     is_hls = ".m3u8" in direct_url.lower() or "urlset" in direct_url.lower()
                     if not any(ext in direct_url.lower() for ext in (".mp4", ".m3u8", ".ts")):
                         direct_url += "#.m3u8" if is_hls else "#.mp4"
+
+                    request_headers = {
+                        "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
+                        "Referer": embed_url,
+                        "Origin": origin,
+                        "Accept": "*/*",
+                    }
+                    # Provider extractors may require a different playback UA,
+                    # final embed Referer, or cookies than the AniWorld redirect.
+                    request_headers.update(playback_headers)
+
                     entry = {
                         "name": f"[AniWorld] {provider_name}",
                         "title": f"{display_title} | {language} | {provider_name}",
                         "url": direct_url,
                         "behaviorHints": {
                             "notWebReady": True,
-                            "proxyHeaders": {
-                                "request": {
-                                    "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
-                                    "Referer": embed_url,
-                                    "Origin": origin,
-                                    "Accept": "*/*",
-                                }
-                            },
+                            "proxyHeaders": {"request": request_headers},
                         },
                     }
                     if binge_group:
