@@ -3,257 +3,177 @@ import random
 import re
 import time
 import warnings
+from threading import RLock
 from urllib.parse import urljoin, urlparse
 
 import niquests
 from urllib3.exceptions import InsecureRequestWarning
 
 try:
-    from ...config import DEFAULT_USER_AGENT
+    from ...config import DEFAULT_USER_AGENT, GLOBAL_SESSION
     from ...playwright.captcha import is_captcha_page
 except ImportError:
-    from aniworld.config import DEFAULT_USER_AGENT
+    from aniworld.config import DEFAULT_USER_AGENT, GLOBAL_SESSION
     from aniworld.playwright.captcha import is_captcha_page
 
 warnings.simplefilter("ignore", InsecureRequestWarning)
 logger = logging.getLogger(__name__)
 
-# -----------------------------
-# Constants
-# -----------------------------
 DOODSTREAM_BASE_URL = "https://dood.li"
 RANDOM_STRING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 PASS_MD5_PATTERN = r"""\$\s*\.\s*get\s*\(\s*['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
 PASS_MD5_FALLBACK_PATTERN = r"""['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
-TOKEN_PATTERN = r"token=([a-zA-Z0-9]+)"
+TOKEN_PATTERN = r"[?&]token=([a-zA-Z0-9_-]+)"
+PLAYBACK_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 "
+    "Mobile/15E148 Safari/604.1"
+)
+
+_PLAYBACK_HEADERS = {}
+_PLAYBACK_HEADERS_LOCK = RLock()
 
 
-# -----------------------------
-# Helper Functions
-# -----------------------------
 def _get_headers(referer=None):
-    """Return headers for Doodstream requests."""
     return {
         "User-Agent": DEFAULT_USER_AGENT,
         "Referer": referer or f"{DOODSTREAM_BASE_URL}/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
-
-
-def _extract_regex(pattern, content, name, url):
-    """Extract a regex match or raise ValueError."""
-    match = re.search(pattern, content)
-    if not match:
-        raise ValueError(f"{name} not found in {url}")
-    return match.group(1)
 
 
 def _generate_random_string(length=10):
-    """Generate a random alphanumeric string."""
     return "".join(random.choices(RANDOM_STRING_CHARS, k=length))
 
 
-def _log_embed_structure(embed_html, embed_url):
-    """Log safe structural hints without exposing page contents or query tokens."""
-    html = embed_html or ""
-    tag_counts = {
-        tag: len(re.findall(r"<" + tag + r"\b", html, re.IGNORECASE))
-        for tag in ("script", "iframe", "video", "source", "form", "input")
-    }
-
-    script_srcs = re.findall(
-        r"<script\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]",
-        html,
-        re.IGNORECASE,
-    )
-    script_files = []
-    for src in script_srcs[:12]:
-        parsed = urlparse(urljoin(embed_url, src))
-        entry = f"{parsed.netloc}/{parsed.path.rsplit('/', 1)[-1]}"
-        if entry not in script_files:
-            script_files.append(entry)
-
-    inline_scripts = re.findall(
-        r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
-        html,
-        re.IGNORECASE | re.DOTALL,
-    )
-    script_text = "\n".join(inline_scripts)
-    markers = (
-        "pass_md5", "token", "file_code", "filecode", "sources",
-        "m3u8", ".mp4", "jwplayer", "eval(", "atob(", "fetch(",
-        "XMLHttpRequest", "/api/", "player",
-    )
-    marker_flags = {
-        marker: marker.lower() in script_text.lower()
-        for marker in markers
-    }
-    iframe_hosts = []
-    iframe_srcs = re.findall(
-        r"<iframe\b[^>]*\bsrc\s*=\s*['\"]([^'\"]+)['\"]",
-        html,
-        re.IGNORECASE,
-    )
-    for src in iframe_srcs[:8]:
-        host = urlparse(urljoin(embed_url, src)).netloc
-        if host and host not in iframe_hosts:
-            iframe_hosts.append(host)
-
-    logger.warning(
-        "Doodstream embed structure: host=%s tags=%s scripts=%d inline_scripts=%d "
-        "script_files=%s iframe_hosts=%s inline_markers=%s",
-        urlparse(embed_url).netloc,
-        tag_counts,
-        len(script_srcs),
-        len(inline_scripts),
-        script_files,
-        iframe_hosts,
-        marker_flags,
-    )
+def _extract_pass_md5(html, embed_url):
+    match = re.search(PASS_MD5_PATTERN, html or "")
+    if not match:
+        match = re.search(PASS_MD5_FALLBACK_PATTERN, html or "")
+    if not match:
+        raise ValueError(f"pass_md5 URL not found in {urlparse(embed_url).netloc}")
+    return match.group(1)
 
 
-def _get_embed_page(embed_url, headers=None):
-    """Fetch the embed page, preferring a Chrome TLS fingerprint for Cloudflare."""
-    headers = headers or _get_headers()
-    resp = None
+def _get_cookie_header(session, url):
+    """Return cookies applicable to the final embed host without logging them."""
+    parsed_host = (urlparse(url).hostname or "").lower()
+    jar = getattr(session, "cookies", None)
+    if jar is None:
+        return ""
+    pairs = []
+    try:
+        for cookie in jar:
+            domain = (getattr(cookie, "domain", "") or "").lstrip(".").lower()
+            if not domain or parsed_host == domain or parsed_host.endswith("." + domain):
+                pairs.append(f"{cookie.name}={cookie.value}")
+    except Exception:
+        try:
+            pairs = [f"{key}={value}" for key, value in jar.get_dict().items()]
+        except Exception:
+            return ""
+    return "; ".join(dict.fromkeys(pairs))
 
-    # Match the Chrome fingerprint used by the working VOE extractor. Some
-    # Doodstream aliases serve only a Cloudflare interstitial to plain clients.
+
+def get_playback_headers(embed_url):
+    """Headers Stremio must send when requesting the resolved Doodstream media."""
+    with _PLAYBACK_HEADERS_LOCK:
+        return dict(_PLAYBACK_HEADERS.get(embed_url, {}))
+
+
+def get_direct_link_from_doodstream(embed_url):
+    """Resolve a Doodstream embed using one cookie-preserving browser session."""
+    if not embed_url:
+        raise ValueError("Embed URL cannot be empty")
+
+    request_headers = _get_headers(embed_url)
+    session = None
     try:
         from curl_cffi import requests as curl_requests
 
-        resp = curl_requests.get(
+        session = curl_requests.Session(impersonate="chrome124")
+        response = session.get(
             embed_url,
-            headers=headers,
-            impersonate="chrome124",
+            headers=request_headers,
             allow_redirects=True,
             verify=False,
             timeout=20,
         )
         logger.debug("Doodstream embed fetched with curl_cffi Chrome impersonation")
     except ImportError:
-        logger.debug("curl_cffi unavailable; falling back to niquests")
+        logger.debug("curl_cffi unavailable; using shared Niquests session")
+        session = GLOBAL_SESSION
+        response = session.get(embed_url, headers=request_headers, verify=False, timeout=20)
     except Exception as exc:
-        logger.debug("Doodstream curl_cffi request failed (%s); falling back to niquests", exc)
-        resp = None
+        logger.warning("Doodstream Chrome-impersonated request failed (%s)", exc)
+        raise
 
-    if resp is None:
-        resp = niquests.get(embed_url, headers=headers, verify=False, timeout=20)
-
-    resp.raise_for_status()
-    final_url = str(getattr(resp, "url", embed_url))
-    content_type = resp.headers.get("Content-Type", "")
-    html = resp.text or ""
+    response.raise_for_status()
+    final_url = str(getattr(response, "url", embed_url))
+    html = response.text or ""
     logger.debug(
-        "Doodstream embed response: status=%s final_host=%s content_type=%r html_length=%d",
-        resp.status_code,
+        "Doodstream embed response: status=%s final_host=%s html_length=%d",
+        response.status_code,
         urlparse(final_url).netloc,
-        content_type,
         len(html),
     )
-    if is_captcha_page(html, resp.status_code):
+    if is_captcha_page(html, response.status_code):
         logger.warning(
-            "Doodstream returned a Cloudflare/CAPTCHA page (host=%s); no player HTML available yet",
+            "Doodstream returned a Cloudflare/CAPTCHA page (host=%s)",
             urlparse(final_url).netloc,
         )
-    return html
+        raise ValueError("Doodstream embed returned a CAPTCHA/interstitial page")
 
+    md5_path = _extract_pass_md5(html, final_url)
+    md5_url = urljoin(final_url, md5_path)
+    token_match = re.search(TOKEN_PATTERN, html)
+    token = token_match.group(1) if token_match else md5_url.rstrip("/").rsplit("/", 1)[-1]
+    if not token:
+        raise ValueError("Doodstream token could not be determined")
 
-def _get_pass_md5_url(embed_html, embed_url):
-    """Extract the pass_md5 URL from embed HTML."""
-    match = re.search(PASS_MD5_PATTERN, embed_html)
-    if not match:
-        # Some embed variants use double quotes or omit the $.get wrapper.
-        match = re.search(PASS_MD5_FALLBACK_PATTERN, embed_html)
-    if not match:
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", embed_html, re.IGNORECASE | re.DOTALL)
-        page_title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:120] if title_match else ""
-        logger.warning(
-            "Doodstream pass_md5 missing: embed_host=%s html_length=%d "
-            "contains_pass_md5=%s contains_token=%s page_title=%r",
-            urlparse(embed_url).netloc,
-            len(embed_html or ""),
-            "pass_md5" in (embed_html or ""),
-            bool(re.search(TOKEN_PATTERN, embed_html or "")),
-            page_title,
-        )
-        _log_embed_structure(embed_html, embed_url)
-        raise ValueError(f"pass_md5 URL not found in {embed_url}")
-    pass_md5_url = match.group(1)
-    if not pass_md5_url.startswith("http"):
-        pass_md5_url = urljoin(DOODSTREAM_BASE_URL, pass_md5_url)
-    return pass_md5_url
+    pass_headers = {
+        "User-Agent": request_headers["User-Agent"],
+        "Accept": "*/*",
+        "Range": "bytes=0-",
+        "Referer": final_url,
+    }
+    md5_response = session.get(
+        md5_url,
+        headers=pass_headers,
+        allow_redirects=True,
+        verify=False,
+        timeout=20,
+    )
+    md5_response.raise_for_status()
+    video_prefix = (md5_response.text or "").strip()
+    if not video_prefix:
+        raise ValueError("Empty Doodstream pass_md5 response")
 
+    direct_link = (
+        video_prefix
+        + _generate_random_string(10)
+        + f"?token={token}&expiry={int(time.time() * 1000)}"
+    )
 
-def _get_token(embed_html, embed_url):
-    """Extract the token from embed HTML."""
-    return _extract_regex(TOKEN_PATTERN, embed_html, "token", embed_url)
+    final_origin = f"{urlparse(final_url).scheme}://{urlparse(final_url).netloc}"
+    playback_headers = {
+        "Referer": final_url,
+        "Origin": final_origin,
+        "User-Agent": PLAYBACK_USER_AGENT,
+        "Accept": "*/*",
+    }
+    cookie_header = _get_cookie_header(session, final_url)
+    if cookie_header:
+        playback_headers["Cookie"] = cookie_header
 
+    with _PLAYBACK_HEADERS_LOCK:
+        _PLAYBACK_HEADERS[embed_url] = playback_headers
+        _PLAYBACK_HEADERS[final_url] = playback_headers
 
-# -----------------------------
-# Main Doodstream Functions
-# -----------------------------
-def get_direct_link_from_doodstream(embed_url):
-    """Extract the direct video link from a Doodstream embed URL."""
-    if not embed_url:
-        raise ValueError("Embed URL cannot be empty")
-
-    logging.info(f"Extracting Doodstream direct link from: {embed_url}")
-    headers = _get_headers(embed_url)
-
-    embed_html = _get_embed_page(embed_url, headers)
-    pass_md5_url = _get_pass_md5_url(embed_html, embed_url)
-    token = _get_token(embed_html, embed_url)
-
-    md5_resp = niquests.get(pass_md5_url, headers=headers, verify=False)
-    md5_resp.raise_for_status()
-    video_base_url = md5_resp.text.strip()
-    if not video_base_url:
-        raise ValueError(f"Empty video base URL returned from {pass_md5_url}")
-
-    random_str = _generate_random_string(10)
-    expiry = int(time.time())
-    direct_link = f"{video_base_url}{random_str}?token={token}&expiry={expiry}"
-
-    logging.info("Successfully extracted Doodstream direct link")
+    logger.info("Successfully resolved Doodstream media URL (host=%s)", urlparse(video_prefix).netloc)
     return direct_link
 
 
 def get_preview_image_link_from_doodstream(embed_url):
-    """Get the preview image URL from a Doodstream embed (not implemented)."""
     raise NotImplementedError("Preview image extraction is not implemented yet.")
-
-
-if __name__ == "__main__":
-    # Tested on 2026/01 -> WORKING
-    # Example URLs: https://doodsearch.site
-
-    # logging.basicConfig(level=logging.DEBUG)
-
-    link = input("Enter Doodstream Link: ").strip()
-    if not link:
-        print("Error: No link provided")
-        exit(1)
-
-    try:
-        print("=" * 25)
-
-        direct_link = get_direct_link_from_doodstream(link)
-        print("Direct link:", direct_link)
-        print("=" * 25)
-
-        # Preview image extraction not yet implemented
-        try:
-            preview_img = get_preview_image_link_from_doodstream(link)
-            print("Preview image:", preview_img)
-        except NotImplementedError:
-            print("Preview image: Not implemented")
-        print("=" * 25)
-
-        print(
-            f"mpv --http-header-fields='Referer: {DOODSTREAM_BASE_URL}/' '{direct_link}'"
-        )
-        print("=" * 25)
-
-    except Exception as e:
-        print("Error:", e)
-        exit(1)
