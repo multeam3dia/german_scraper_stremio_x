@@ -40,6 +40,25 @@ The AniWorld-derived models are based on
 [AniWorld-Downloader](https://github.com/phoenixthrush/AniWorld-Downloader).
 The upstream MIT license notice is retained in `LICENSE.AniWorld-Downloader`.
 
+## Optional SerienStream account login
+
+The addon can optionally sign in to SerienStream automatically before a
+SerienStream lookup. Configure these container environment variables:
+
+- `SERIENSTREAM_EMAIL`: the e-mail address used for the SerienStream account.
+- `SERIENSTREAM_PASSWORD`: the account password.
+
+For compatibility, `SERIENSTREAM_USERNAME` is also accepted as an alias for
+`SERIENSTREAM_EMAIL`. The login is attempted only when both values are set.
+The resulting session cookies are kept in the running process and refreshed
+periodically; they are not written to the repository or a cookie file. If login
+fails or the variables are absent, the existing provider/CAPTCHA flow continues.
+
+Treat the password as a secret. Prefer Dockhand's secret/environment facilities
+where available, and do not publish it in a compose file or logs. Automatic
+login does not guarantee that SerienStream will stop presenting CAPTCHA
+challenges.
+
 ## Docker / Dockhand / Pangolin
 
 The container listens on port `10000` and runs FastAPI with one Uvicorn worker.
