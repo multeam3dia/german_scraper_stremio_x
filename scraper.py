@@ -79,28 +79,22 @@ def find_best_matches(results: List[Dict], title: str, year: Optional[int] = Non
 
     def is_strict_match(res_title: str) -> bool:
         res_clean = clean_for_match(res_title)
-        if title_clean == res_clean: return True
-        for ind in sequel_indicators:
-            if ind in res_clean and ind not in title_clean:
-                return False
 
-        # For series, if a season is requested, ensure the title doesn't mention a DIFFERENT season
+        # MegaKino may return titles containing the search term as a substring:
+        # "Bad Monkey" for a search for "Monk". Only accept the same title.
+        # A requested season suffix is allowed, but it must match the requested season.
         if season:
-            other_seasons = [f"staffel{s}" for s in range(1, 30) if s != season] + \
-                            [f"season{s}" for s in range(1, 30) if s != season]
-            for os in other_seasons:
-                if os in res_clean:
-                    return False
-
-        return title_clean in res_clean or res_clean in title_clean
+            res_clean = re.sub(r"(staffel|season)\\d+$", "", res_clean)
+        return bool(title_clean) and res_clean == title_clean
 
     if season:
         season_markers = [f"staffel {season}", f"season {season}", f"staffel-{season}", f"season-{season}"]
         for res in results:
-            res_title = res.get("title", "").lower()
-            if any(marker in res_title for marker in season_markers):
+            res_title = res.get("title", "")
+            if any(marker in res_title.lower() for marker in season_markers) and is_strict_match(res_title):
                 res_url = res.get("url") or res.get("link")
-                if res_url: candidates.append(res_url)
+                if res_url and res_url not in candidates:
+                    candidates.append(res_url)
 
     for res in results:
         res_url = res.get("url") or res.get("link")
