@@ -409,11 +409,35 @@ def _find_aniworld_episode_by_title(
     """Find an AniWorld episode by its title, independent of season numbering."""
     wanted = clean_for_match(target_episode_title)
     # Generic placeholders are not reliable enough to identify an episode.
-    if not wanted or wanted in {"episode", "folge", "episodetba", "tba", "untitled"}:
+    if (
+        not wanted
+        or wanted in {"episode", "folge", "episodetba", "tba", "untitled"}
+        or re.fullmatch(r"(episode|folge)\\d+", wanted)
+    ):
         return None
 
+    seasons = series.seasons
+    # Fast path: if the title at the requested numeric position also matches,
+    # the provider numbering is confirmed for this episode. Avoid loading all
+    # other season pages for the common case.
+    for season in seasons:
+        if season.are_movies or season.season_number != requested_season:
+            continue
+        for episode in season.episodes:
+            if episode.episode_number != requested_episode:
+                continue
+            episode_titles = {
+                clean_for_match(getattr(episode, "title_en", "") or ""),
+                clean_for_match(getattr(episode, "title_de", "") or ""),
+            }
+            if wanted in episode_titles:
+                return season, episode
+        break
+
+    # Otherwise scan every season, because AniWorld's numbering may differ
+    # from Cinemeta's numbering or may split/merge seasons differently.
     matches = []
-    for season in series.seasons:
+    for season in seasons:
         if season.are_movies:
             continue
         for episode in season.episodes:
