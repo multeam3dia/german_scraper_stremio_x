@@ -29,6 +29,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def log_serienstream_login_configuration():
+    """Report whether login credentials are configured, without exposing them."""
+    import os
+
+    email_set = bool(
+        os.getenv("SERIENSTREAM_EMAIL") or os.getenv("SERIENSTREAM_USERNAME")
+    )
+    password_set = bool(os.getenv("SERIENSTREAM_PASSWORD"))
+    logger.info(
+        "SerienStream login configuration: email=%s, password=%s",
+        "set" if email_set else "MISSING",
+        "set" if password_set else "MISSING",
+    )
+
 @app.get("/manifest.json")
 async def get_manifest():
     return MANIFEST
