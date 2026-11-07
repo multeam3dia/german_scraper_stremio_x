@@ -210,6 +210,14 @@ class AniworldSeason:
         episodes = []
 
         marker = 'itemtype="http://schema.org/Episode"'
+        marker_count = html.count(marker)
+        if self.are_movies:
+            logger.info(
+                "AniWorld movie parser: path=%s html_length=%d episode_markers=%d",
+                self.url.split("aniworld.to", 1)[-1],
+                len(html),
+                marker_count,
+            )
         pos = 0
 
         while True:
@@ -323,6 +331,16 @@ class AniworldSeason:
 
             pos = tr_end
 
+        if self.are_movies:
+            logger.info(
+                "AniWorld movie parser result: path=%s parsed_movies=%d titles=%s",
+                self.url.split("aniworld.to", 1)[-1],
+                len(episodes),
+                [
+                    (episode.title_de or episode.title_en or "")[:100]
+                    for episode in episodes[:30]
+                ],
+            )
         return episodes
 
     def __extract_episode_count(self):
