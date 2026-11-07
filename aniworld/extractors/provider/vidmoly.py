@@ -56,6 +56,10 @@ def _get_headers(embed_url):
         "Referer": _origin_referer(embed_url),
         "User-Agent": VIDMOLY_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        # niquests currently exposes Vidmoly's Brotli response as undecoded
+        # binary text. Request an identity representation so the player HTML
+        # can be parsed reliably.
+        "Accept-Encoding": "identity",
     }
 
 
