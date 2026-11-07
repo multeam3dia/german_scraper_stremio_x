@@ -189,7 +189,11 @@ def find_best_matches(
         # title (e.g. "Slow Horses - Ein Fall für Jackson Lamb"). Only accept
         # an explicit separator after the complete requested title.
         if allow_subtitle_suffix:
-            decoded_title = html.unescape(str(res_title or "")).strip()
+            decoded_title = html.unescape(str(res_title or ""))
+            # Search APIs may return highlighted titles such as
+            # "<em>Slow Horses</em> - Ein Fall für Jackson Lamb".
+            decoded_title = re.sub(r"<[^>]*>", " ", decoded_title)
+            decoded_title = re.sub(r"\s+", " ", decoded_title).strip()
             subtitle_match = re.match(
                 rf"^{re.escape(str(title).strip())}\s+[-–—:]\s+.+$",
                 decoded_title,
