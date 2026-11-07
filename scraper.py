@@ -698,55 +698,94 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     continue
                 for episode in season.episodes:
                     raw_names = [episode.title_de or "", episode.title_en or ""]
-                    names = [clean_for_match(name) for name in raw_names if name]
-
+                    
                     def normalize_movie_name(value: str) -> str:
-                        # AniWorld often inserts franchise numbering, e.g.
-                        # "Detective Conan Movie 26: Black Iron Submarine [Movie]".
-                        value = re.sub(r"\bmovie\s*\d+\b", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\[(?:movie|film|special)\]", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\b(?:movie|film)\b", " ", value, flags=re.IGNORECASE)
-                        return clean_for_match(value)
+                        # Keep token boundaries for fuzzy matching; strip AniWorld
+                        # movie labels and numbering before normalizing punctuation.
+                        value = html.unescape(str(value or ""))
+                        value = re.sub(r"<[^>]*>", " ", value)
+                        value = re.sub(r"\\bmovie\\s*\\d+\\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\\[(?:movie|film|special)\\]", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\\b(?:movie|film)\\b", " ", value, flags=re.IGNORECASE)
+                        return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
-                    normalized_names = [normalize_movie_name(name) for name in names]
+                    normalized_names = [normalize_movie_name(name) for name in raw_names if name]
                     normalized_wanted = normalize_movie_name(title)
+                    wanted_compact = clean_for_match(normalized_wanted)
 
-                    # Emit detailed diagnostics for likely title candidates. This
-                    # helps distinguish a matching failure from a provider failure.
-                    if "blackiron" in normalized_wanted or any(
-                        "blackiron" in candidate for candidate in normalized_names
-                    ):
-                        wanted_tokens_diag = sorted({
-                            token for token in re.findall(r"[a-z0-9]+", normalized_wanted)
-                            if len(token) > 1
-                        })
-                        candidate_tokens_diag = sorted({
-                            token for token in re.findall(r"[a-z0-9]+", " ".join(normalized_names))
-                            if len(token) > 1
-                        })
-                        logger.info(
-                            "AniWorld movie title diagnostic: requested=%r normalized=%r "
-                            "raw_candidates=%r normalized_candidates=%r wanted_tokens=%s candidate_tokens=%s",
-                            title,
-                            normalized_wanted,
-                            raw_names,
-                            normalized_names,
-                            wanted_tokens_diag,
-                            candidate_tokens_diag,
-                        )
-
-                    # First retain strong exact/containment matches. If those fail,
-                    # allow a controlled token-overlap match for title variants
-                    # such as "Detective Conan: ..." vs "Case Closed Movie 26: ...".
-                    matches = any(
-                        name and (
-                            name == wanted
-                            or wanted in name
-                            or name in wanted
-                            or normalize_movie_name(name) == normalized_wanted
-                        )
-                        for name in names
+                    # For localized titles, the descriptive subtitle can differ
+                    # completely. A matching movie number is safe only inside
+                    # the already identified franchise collection.
+                    requested_movie_number = re.search(r"\\bmovie\\s*(\\d+)\\b", str(title), re.IGNORECASE)
+                    candidate_movie_numbers = [
+                        re.search(r"\\bmovie\\s*(\\d+)\\b", str(name), re.IGNORECASE)
+                        for name in raw_names if name
+                    ]
+                    franchise_name = clean_for_match(getattr(series, "title", ""))
+                    franchise_matches = bool(
+                        franchise_name
+                        and clean_for_match(title).startswith(franchise_name)
                     )
+                    numbered_franchise_match = bool(
+                        requested_movie_number
+                        and franchise_matches
+                        and any(
+                            number and number.group(1) == requested_movie_number.group(1)
+                            for number in candidate_movie_numbers
+                        )
+                    )
+
+                    # Emit focused diagnostics for the Conan title under test.
+                    if "blackiron" in wanted_compact or any("blackiron" in clean_for_match(n) for n in raw_names):
+                        logger.info(
+                            "AniWorld movie title diagnostic: requested=%r normalized=%r raw_candidates=%r "
+                            "normalized_candidates=%r franchise=%r franchise_matches=%s numbered_match=%s",
+                            title, normalized_wanted, raw_names, normalized_names,
+                            getattr(series, "title", ""), franchise_matches, numbered_franchise_match,
+                        )
+
+                    # Exact/containment matching first, then token overlap.
+                    matches = any(
+                        clean_for_match(name) == wanted_compact
+                        or wanted_compact in clean_for_match(name)
+                        or clean_for_match(name) in wanted_compact
+                        for name in normalized_names if name
+                    )
+                    if not matches and numbered_franchise_match:
+                        matches = True
+                        logger.info(
+                            "AniWorld movie franchise-number match: requested=%r candidate=%r series=%r movie_number=%s",
+                            title, raw_names, getattr(series, "title", ""),
+                            requested_movie_number.group(1),
+                        )
+
+                    if not matches:
+                        stop_words = {"the", "a", "an", "of", "and", "movie", "film", "special"}
+                        wanted_tokens = {
+                            token for token in normalized_wanted.split()
+                            if len(token) > 1 and token not in stop_words
+                        }
+                        for candidate_name in normalized_names:
+                            candidate_tokens = {
+                                token for token in candidate_name.split()
+                                if len(token) > 1 and token not in stop_words
+                            }
+                            if not wanted_tokens or not candidate_tokens:
+                                continue
+                            shared = wanted_tokens & candidate_tokens
+                            shorter_size = min(len(wanted_tokens), len(candidate_tokens))
+                            longer_size = max(len(wanted_tokens), len(candidate_tokens))
+                            if (
+                                len(shared) >= 2
+                                and len(shared) / shorter_size >= 0.6
+                                and len(shared) / longer_size >= 0.5
+                            ):
+                                matches = True
+                                logger.info(
+                                    "AniWorld movie fuzzy title match: requested=%r candidate=%r shared_tokens=%s",
+                                    title, candidate_name, sorted(shared),
+                                )
+                                break
 
                     if not matches:
                         stop_words = {"the", "a", "an", "of", "and", "movie", "film", "special"}
