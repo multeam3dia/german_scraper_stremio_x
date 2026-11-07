@@ -225,21 +225,38 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                     parsed_embed = urlparse(embed_url)
                     origin = f"{parsed_embed.scheme}://{parsed_embed.netloc}"
 
+                    # Vidmoly needs the same playback headers on SerienStream
+                    # that are already applied in the AniWorld extraction path.
+                    playback_headers = {}
+                    if name == "Vidmoly":
+                        from aniworld.extractors.provider.vidmoly import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+                    elif name == "Filemoon":
+                        # Filemoon direct URLs are extracted through the shared
+                        # Byse/legacy extractor; retain its provider UA and use
+                        # the actual embed origin as playback Referer/Origin.
+                        playback_headers = {
+                            "User-Agent": ua,
+                            "Referer": embed_url,
+                            "Origin": origin,
+                            "Accept": "*/*",
+                        }
+
                     # SMART EXTENSION: Fix player recognition for HLS vs MP4
                     is_hls = ".m3u8" in direct_url.lower() or "urlset" in direct_url.lower()
                     if not any(ext in direct_url.lower() for ext in [".mp4", ".m3u8", ".ts"]):
                         direct_url += "#.m3u8" if is_hls else "#.mp4"
 
-                    proxy_headers = {
-                        "request": {
-                            "User-Agent": ua,
-                            "Referer": embed_url,
-                            "Origin": origin,
-                            "Sec-Fetch-Mode": "cors",
-                            "Sec-Fetch-Site": "cross-site",
-                            "Accept": "*/*"
-                        }
+                    request_headers = {
+                        "User-Agent": ua,
+                        "Referer": embed_url,
+                        "Origin": origin,
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Site": "cross-site",
+                        "Accept": "*/*",
                     }
+                    request_headers.update(playback_headers)
+                    proxy_headers = {"request": request_headers}
 
                     stream_entry = {
                         "name": f"[{provider_site_name}] {name}",
