@@ -3,7 +3,7 @@ import random
 import re
 import time
 import warnings
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import niquests
 from urllib3.exceptions import InsecureRequestWarning
@@ -14,14 +14,16 @@ except ImportError:
     from aniworld.config import DEFAULT_USER_AGENT
 
 warnings.simplefilter("ignore", InsecureRequestWarning)
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Constants
 # -----------------------------
 DOODSTREAM_BASE_URL = "https://dood.li"
 RANDOM_STRING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-PASS_MD5_PATTERN = r"\$\.get\('([^']*\/pass_md5\/[^']*)'"
-TOKEN_PATTERN = r"token=([a-zA-Z0-9]+)"
+PASS_MD5_PATTERN = r"""\$\s*\.\s*get\s*\(\s*['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
+PASS_MD5_FALLBACK_PATTERN = r"""['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
+TOKEN_PATTERN = r"(?:[?&]|\\b)token=([a-zA-Z0-9]+)"
 
 
 # -----------------------------
@@ -51,16 +53,40 @@ def _generate_random_string(length=10):
 def _get_embed_page(embed_url, headers=None):
     """Fetch HTML content of the embed page."""
     headers = headers or _get_headers()
-    resp = niquests.get(embed_url, headers=headers, verify=False)
+    resp = niquests.get(embed_url, headers=headers, verify=False, timeout=20)
     resp.raise_for_status()
+    final_url = str(getattr(resp, "url", embed_url))
+    content_type = resp.headers.get("Content-Type", "")
+    logger.debug(
+        "Doodstream embed response: status=%s final_host=%s content_type=%r html_length=%d",
+        resp.status_code,
+        urlparse(final_url).netloc,
+        content_type,
+        len(resp.text or ""),
+    )
     return resp.text
 
 
 def _get_pass_md5_url(embed_html, embed_url):
     """Extract the pass_md5 URL from embed HTML."""
-    pass_md5_url = _extract_regex(
-        PASS_MD5_PATTERN, embed_html, "pass_md5 URL", embed_url
-    )
+    match = re.search(PASS_MD5_PATTERN, embed_html)
+    if not match:
+        # Some embed variants use double quotes or omit the $.get wrapper.
+        match = re.search(PASS_MD5_FALLBACK_PATTERN, embed_html)
+    if not match:
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", embed_html, re.IGNORECASE | re.DOTALL)
+        page_title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:120] if title_match else ""
+        logger.warning(
+            "Doodstream pass_md5 missing: embed_host=%s html_length=%d "
+            "contains_pass_md5=%s contains_token=%s page_title=%r",
+            urlparse(embed_url).netloc,
+            len(embed_html or ""),
+            "pass_md5" in (embed_html or ""),
+            bool(re.search(TOKEN_PATTERN, embed_html or "")),
+            page_title,
+        )
+        raise ValueError(f"pass_md5 URL not found in {embed_url}")
+    pass_md5_url = match.group(1)
     if not pass_md5_url.startswith("http"):
         pass_md5_url = urljoin(DOODSTREAM_BASE_URL, pass_md5_url)
     return pass_md5_url
