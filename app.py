@@ -39,7 +39,7 @@ async def log_serienstream_login_configuration():
     )
     password_set = bool(os.getenv("SERIENSTREAM_PASSWORD"))
     logger.info(
-        "SerienStream login configuration: email=%s, password=%s",
+        "SERIENSTREAM-AUTH-DIAGNOSTIC-V2 | email=%s, password=%s",
         "set" if email_set else "MISSING",
         "set" if password_set else "MISSING",
     )
