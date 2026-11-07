@@ -644,7 +644,14 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
     """Search AniWorld film collections, including films listed under a franchise series."""
     wanted = clean_for_match(title)
     if not wanted:
+        logger.info("AniWorld movie lookup skipped: empty normalized title for %r", title)
         return []
+
+    logger.info(
+        "AniWorld movie matching started: requested=%r normalized=%r",
+        title,
+        wanted,
+    )
 
     # Most AniWorld films are nested under their franchise page rather than
     # indexed as a standalone series. For example, Cinemeta calls this film
@@ -704,6 +711,30 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     normalized_names = [normalize_movie_name(name) for name in names]
                     normalized_wanted = normalize_movie_name(title)
 
+                    # Emit detailed diagnostics for likely title candidates. This
+                    # helps distinguish a matching failure from a provider failure.
+                    if "blackiron" in normalized_wanted or any(
+                        "blackiron" in candidate for candidate in normalized_names
+                    ):
+                        wanted_tokens_diag = sorted({
+                            token for token in re.findall(r"[a-z0-9]+", normalized_wanted)
+                            if len(token) > 1
+                        })
+                        candidate_tokens_diag = sorted({
+                            token for token in re.findall(r"[a-z0-9]+", " ".join(normalized_names))
+                            if len(token) > 1
+                        })
+                        logger.info(
+                            "AniWorld movie title diagnostic: requested=%r normalized=%r "
+                            "raw_candidates=%r normalized_candidates=%r wanted_tokens=%s candidate_tokens=%s",
+                            title,
+                            normalized_wanted,
+                            raw_names,
+                            normalized_names,
+                            wanted_tokens_diag,
+                            candidate_tokens_diag,
+                        )
+
                     # First retain strong exact/containment matches. If those fail,
                     # allow a controlled token-overlap match for title variants
                     # such as "Detective Conan: ..." vs "Case Closed Movie 26: ...".
@@ -750,16 +781,39 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     if not matches:
                         continue
                     logger.info(
-                        "AniWorld movie title matched: requested=%r AniWorld=%r",
+                        "AniWorld movie title matched: requested=%r AniWorld=%r url=%s",
+                        title,
+                        raw_names,
+                        getattr(episode, "url", ""),
+                    )
+                    logger.info(
+                        "AniWorld movie stream extraction started: requested=%r candidate=%r",
                         title,
                         raw_names,
                     )
                     streams = _extract_aniworld_streams(episode, episode.title_de or episode.title_en or series.title)
+                    logger.info(
+                        "AniWorld movie stream extraction finished: requested=%r candidate=%r streams=%d providers=%s",
+                        title,
+                        raw_names,
+                        len(streams),
+                        [stream.get("name") or stream.get("title") for stream in streams],
+                    )
                     if streams:
                         return streams
+            logger.info(
+                "AniWorld movie collection checked: series=%r movies=%d no_matching_stream_found",
+                getattr(series, "title", title),
+                sum(1 for season in series.seasons if season.are_movies for _ in season.episodes),
+            )
         except Exception as exc:
-            logger.debug("AniWorld movie collection processing failed for %s: %s",
-                         getattr(series, "url", title), type(exc).__name__)
+            logger.warning(
+                "AniWorld movie collection processing failed: series=%s error=%s: %s",
+                getattr(series, "url", title),
+                type(exc).__name__,
+                exc,
+            )
+    logger.info("AniWorld movie lookup finished without streams: requested=%r", title)
     return []
 
 
