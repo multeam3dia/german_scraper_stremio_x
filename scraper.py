@@ -696,9 +696,9 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     def normalize_movie_name(value: str) -> str:
                         # AniWorld often inserts franchise numbering, e.g.
                         # "Detective Conan Movie 26: Black Iron Submarine [Movie]".
-                        value = re.sub(r"\\bmovie\\s*\\d+\\b", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\\[(?:movie|film|special)\\]", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\\b(?:movie|film)\\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\bmovie\s*\d+\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\[(?:movie|film|special)\]", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\b(?:movie|film)\b", " ", value, flags=re.IGNORECASE)
                         return clean_for_match(value)
 
                     normalized_names = [normalize_movie_name(name) for name in names]
