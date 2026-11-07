@@ -35,6 +35,27 @@ def get_metadata(media_type: str, imdb_id: str) -> Optional[Dict]:
         logger.error(f"Failed to fetch metadata for {imdb_id}: {e}")
         return None
 
+
+def is_animation(meta: Dict) -> bool:
+    """Return whether metadata identifies the title as animation.
+
+    AniWorld is queried only for animation titles. Country/original language is
+    deliberately not used as a requirement, so Korean manhwa adaptations,
+    Chinese donghua and other non-Japanese animation remain eligible.
+    """
+    genres = meta.get("genres") or []
+    if not isinstance(genres, (list, tuple, set)):
+        return False
+
+    normalized_genres = set()
+    for genre in genres:
+        if isinstance(genre, dict):
+            genre = genre.get("name") or genre.get("title") or ""
+        if genre:
+            normalized_genres.add(str(genre).strip().casefold())
+
+    return bool(normalized_genres.intersection({"animation", "anime", "donghua"}))
+
 def get_german_title(media_type: str, imdb_id: str) -> Optional[str]:
     """Fetch German title from TMDB via proxy."""
     if imdb_id in GERMAN_TITLE_CACHE:
@@ -351,11 +372,13 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
         ("Filmpalast", query_filmpalast, FilmPalastEpisode),
         ("Kinox", query_kinox, KinoxEpisode),
     ]
+    aniworld_enabled = is_animation(meta)
 
-    with ThreadPoolExecutor(max_workers=(len(providers) + 1) * len(titles_to_search)) as executor:
+    with ThreadPoolExecutor(max_workers=(len(providers) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
         futures = []
         for title in titles_to_search:
-            futures.append(executor.submit(fetch_aniworld_movie_streams, title))
+            if aniworld_enabled:
+                futures.append(executor.submit(fetch_aniworld_movie_streams, title))
             for site, q_fn, cls in providers:
                 futures.append(executor.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
 
@@ -458,11 +481,13 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
     all_streams = []
     binge_group = f"{pure_imdb_id}"
     sites = ["Serienstream", "MegaKino", "Kinox"]
+    aniworld_enabled = is_animation(meta)
 
-    with ThreadPoolExecutor(max_workers=(len(sites) + 1) * len(titles_to_search)) as executor:
+    with ThreadPoolExecutor(max_workers=(len(sites) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
         futures = []
         for title in titles_to_search:
-            futures.append(executor.submit(fetch_aniworld_series_streams, title, season, episode_num, binge_group))
+            if aniworld_enabled:
+                futures.append(executor.submit(fetch_aniworld_series_streams, title, season, episode_num, binge_group))
             for site in sites:
                 futures.append(executor.submit(fetch_series_site_streams, site, title, season, episode_num, binge_group))
 
