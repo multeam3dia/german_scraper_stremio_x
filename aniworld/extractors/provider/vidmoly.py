@@ -1,6 +1,7 @@
 import logging
 import re
 from html import unescape
+from html import unescape
 from urllib.parse import urlparse
 
 try:
@@ -91,6 +92,19 @@ def _extract_video_url(html, embed_url):
     content = unescape((html or "").replace(r"\\/", "/"))
     match = SOURCES_PATTERN.search(content) or FILE_LINK_PATTERN.search(content)
     if not match:
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", content, re.IGNORECASE | re.DOTALL)
+        title = re.sub(r"\\s+", " ", unescape(title_match.group(1))).strip() if title_match else "(no title)"
+        visible_text = re.sub(r"<(script|style)\\b[^>]*>.*?</\\1>", " ", content, flags=re.IGNORECASE | re.DOTALL)
+        visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+        visible_text = re.sub(r"\\s+", " ", unescape(visible_text)).strip()
+        visible_text = re.sub(r"https?://\\S+", "[url]", visible_text)
+        visible_text = re.sub(r"(?i)(token|key|auth|session)=\\S+", r"\\1=[redacted]", visible_text)
+        logger.warning(
+            "Vidmoly response summary: host=%s title=%r text=%r",
+            urlparse(embed_url).netloc,
+            title[:100],
+            visible_text[:180],
+        )
         logger.warning(
             "Vidmoly HLS source not found: host=%s html_length=%d markers=%s",
             urlparse(embed_url).netloc,
