@@ -690,10 +690,41 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                 if not season.are_movies:
                     continue
                 for episode in season.episodes:
-                    names = [episode.title_de or "", episode.title_en or ""]
-                    names = [clean_for_match(name) for name in names if name]
-                    if not any(name and (name == wanted or wanted in name or name in wanted) for name in names):
+                    raw_names = [episode.title_de or "", episode.title_en or ""]
+                    names = [clean_for_match(name) for name in raw_names if name]
+
+                    def normalize_movie_name(value: str) -> str:
+                        # AniWorld often inserts franchise numbering, e.g.
+                        # "Detective Conan Movie 26: Black Iron Submarine [Movie]".
+                        value = re.sub(r"\\bmovie\\s*\\d+\\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\\[(?:movie|film|special)\\]", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\\b(?:movie|film)\\b", " ", value, flags=re.IGNORECASE)
+                        return clean_for_match(value)
+
+                    normalized_names = [normalize_movie_name(name) for name in names]
+                    matches = any(
+                        name and (
+                            name == wanted
+                            or wanted in name
+                            or name in wanted
+                            or normalize_movie_name(name) == normalize_movie_name(wanted)
+                        )
+                        for name in names
+                    ) or any(
+                        name and (
+                            name == normalize_movie_name(wanted)
+                            or name in normalize_movie_name(wanted)
+                            or normalize_movie_name(wanted) in name
+                        )
+                        for name in normalized_names
+                    )
+                    if not matches:
                         continue
+                    logger.info(
+                        "AniWorld movie title matched: requested=%r AniWorld=%r",
+                        title,
+                        raw_names,
+                    )
                     streams = _extract_aniworld_streams(episode, episode.title_de or episode.title_en or series.title)
                     if streams:
                         return streams
