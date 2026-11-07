@@ -1,7 +1,7 @@
 import re
 import niquests
 from typing import List, Dict, Optional, Any, Set
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
 from aniworld.search import query as query_aniworld, query_s_to, query_filmpalast, query_megakino, query_kinox
 from aniworld.models.aniworld_to.series import AniworldSeries
@@ -16,6 +16,36 @@ TMDB_PROXY = "https://db.wingsdatabase.com/3/find/{id}?external_source=imdb_id&l
 
 METADATA_CACHE = {}
 GERMAN_TITLE_CACHE = {}
+
+# Shared, bounded pools: slow CAPTCHA work must not hold the HTTP request open.
+_SCRAPE_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider")
+_S_TO_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serienstream")
+
+
+def _collect_scrape_results(futures, timeout: int = 12) -> List[Dict]:
+    """Collect completed provider results without waiting for slow background tasks."""
+    if not futures:
+        return []
+
+    done, pending = wait(futures, timeout=timeout)
+    streams = []
+    for future in done:
+        try:
+            streams.extend(future.result())
+        except Exception as exc:
+            logger.warning("Provider task failed: %s", exc)
+
+    if pending:
+        logger.warning(
+            "Scraping timed out: %d provider task(s) still running; returning available streams",
+            len(pending),
+        )
+        for future in pending:
+            future.cancel()
+
+    return streams
+
+
 
 def get_metadata(media_type: str, imdb_id: str) -> Optional[Dict]:
     """Fetch metadata from Cinemeta with caching."""
@@ -378,22 +408,15 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
         imdb_id, en_title, meta.get("genres"), aniworld_enabled,
     )
 
-    with ThreadPoolExecutor(max_workers=(len(providers) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
-        futures = []
-        for title in titles_to_search:
-            if aniworld_enabled:
-                futures.append(executor.submit(fetch_aniworld_movie_streams, title))
-            for site, q_fn, cls in providers:
-                futures.append(executor.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
+    futures = []
+    for title in titles_to_search:
+        if aniworld_enabled:
+            futures.append(_SCRAPE_EXECUTOR.submit(fetch_aniworld_movie_streams, title))
+        for site, q_fn, cls in providers:
+            futures.append(_SCRAPE_EXECUTOR.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
 
-        try:
-            for future in as_completed(futures, timeout=12):
-                all_streams.extend(future.result())
-                if len(all_streams) >= 6: break
-        except TimeoutError:
-            logger.warning("Scraping timed out for some providers")
-
-    return all_streams
+    all_streams.extend(_collect_scrape_results(futures, timeout=12))
+    return all_streams[:6]
 
 def fetch_series_site_streams(site_name: str, title: str, season: int, episode_num: int, binge_group: str) -> List[Dict]:
     """Search and extract streams for a series from a single site."""
@@ -491,18 +514,23 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
         pure_imdb_id, en_title, meta.get("genres"), aniworld_enabled,
     )
 
-    with ThreadPoolExecutor(max_workers=(len(sites) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
-        futures = []
-        for title in titles_to_search:
-            if aniworld_enabled:
-                futures.append(executor.submit(fetch_aniworld_series_streams, title, season, episode_num, binge_group))
-            for site in sites:
-                futures.append(executor.submit(fetch_series_site_streams, site, title, season, episode_num, binge_group))
+    futures = []
+    for title in titles_to_search:
+        if aniworld_enabled:
+            futures.append(_SCRAPE_EXECUTOR.submit(
+                fetch_aniworld_series_streams, title, season, episode_num, binge_group
+            ))
+        for site in sites:
+            if site == "Serienstream":
+                # Keep CAPTCHA/browser work isolated to one worker so repeated
+                # requests cannot spawn an unbounded number of Playwright sessions.
+                futures.append(_S_TO_EXECUTOR.submit(
+                    fetch_series_site_streams, site, title, season, episode_num, binge_group
+                ))
+            else:
+                futures.append(_SCRAPE_EXECUTOR.submit(
+                    fetch_series_site_streams, site, title, season, episode_num, binge_group
+                ))
 
-        try:
-            for future in as_completed(futures, timeout=12):
-                all_streams.extend(future.result())
-        except TimeoutError:
-            logger.warning("Scraping timed out for some providers")
-
+    all_streams.extend(_collect_scrape_results(futures, timeout=12))
     return all_streams
