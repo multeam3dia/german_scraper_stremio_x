@@ -158,6 +158,7 @@ def find_best_matches(
     year: Optional[int] = None,
     season: Optional[int] = None,
     allow_season_suffix: bool = True,
+    allow_possessive_prefix: bool = False,
 ) -> List[str]:
     """Match whole normalized titles; never use substring matching (Monk != Bad Monkey)."""
     if not results:
@@ -180,7 +181,24 @@ def find_best_matches(
                 if res_clean.endswith(suffix):
                     res_clean = res_clean[:-len(suffix)]
                     break
-        return res_clean == title_clean
+        if res_clean == title_clean:
+            return True
+
+        # SerienStream sometimes prefixes a show with its author's possessive
+        # name (e.g. "Carl Hiaasen’s Bad Monkey"). Accept only that explicit
+        # possessive-title form, and only when the remaining title is exact.
+        if allow_possessive_prefix:
+            decoded_title = html.unescape(str(res_title or "")).strip()
+            possessive_match = re.match(r"^.+?['’]s\\s+(.+)$", decoded_title, re.IGNORECASE)
+            if possessive_match:
+                suffix_clean = clean_for_match(possessive_match.group(1))
+                if allow_season_suffix and season:
+                    for suffix in (f"staffel{season}", f"season{season}"):
+                        if suffix_clean.endswith(suffix):
+                            suffix_clean = suffix_clean[:-len(suffix)]
+                            break
+                return suffix_clean == title_clean
+        return False
 
     for res in results:
         if not isinstance(res, dict):
@@ -697,7 +715,13 @@ def fetch_series_site_streams(site_name: str, title: str, season: int, episode_n
             if not results:
                 logger.info(f"Serienstream: no search results for '{title}'")
                 return []
-            links = find_best_matches(results, title, season=season, allow_season_suffix=True)
+            links = find_best_matches(
+                results,
+                title,
+                season=season,
+                allow_season_suffix=True,
+                allow_possessive_prefix=True,
+            )
             if not links:
                 returned_titles = [
                     str(item.get("title") or item.get("name") or item.get("series") or "")
