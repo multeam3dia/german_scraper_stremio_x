@@ -384,115 +384,146 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
     return streams
 
 
-def fetch_aniworld_series_streams(title: str, season_number: int, episode_number: int, binge_group: str) -> List[Dict]:
-    """Resolve the requested season/episode from AniWorld."""
+def _get_cinemeta_episode(meta: Dict, season_number: int, episode_number: int) -> Optional[Dict]:
+    """Return the requested episode record from Cinemeta's series metadata."""
+    videos = meta.get("videos") or []
+    for video in videos:
+        if not isinstance(video, dict):
+            continue
+        try:
+            video_season = int(video.get("season"))
+            video_episode = int(video.get("episode"))
+        except (TypeError, ValueError):
+            continue
+        if video_season == season_number and video_episode == episode_number:
+            return video
+    return None
+
+
+def _find_aniworld_episode_by_title(
+    series: AniworldSeries,
+    target_episode_title: str,
+    requested_season: int,
+    requested_episode: int,
+):
+    """Find an AniWorld episode by its title, independent of season numbering."""
+    wanted = clean_for_match(target_episode_title)
+    # Generic placeholders are not reliable enough to identify an episode.
+    if not wanted or wanted in {"episode", "folge", "episodetba", "tba", "untitled"}:
+        return None
+
+    matches = []
+    for season in series.seasons:
+        if season.are_movies:
+            continue
+        for episode in season.episodes:
+            episode_titles = {
+                clean_for_match(getattr(episode, "title_en", "") or ""),
+                clean_for_match(getattr(episode, "title_de", "") or ""),
+            }
+            episode_titles.discard("")
+            if wanted in episode_titles:
+                matches.append((season, episode))
+
+    # Repeated episode titles can occur in anthologies or across seasons. Only
+    # use the requested numeric location as a tie-breaker when it is itself a
+    # member of the title-matched set; otherwise fail closed.
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        same_position = [
+            pair for pair in matches
+            if pair[0].season_number == requested_season
+            and pair[1].episode_number == requested_episode
+        ]
+        if len(same_position) == 1:
+            return same_position[0]
+    return None
+
+
+def fetch_aniworld_series_streams(
+    title: str,
+    season_number: int,
+    episode_number: int,
+    binge_group: str,
+    expected_imdb_id: str,
+    target_episode_title: str,
+) -> List[Dict]:
+    """Resolve an AniWorld episode by series IMDb ID and Cinemeta episode title."""
     diagnostic = _is_naruto_diagnostic(title)
     if diagnostic:
         logger.debug(
-            "[AniWorld Naruto] resolve request title=%r season=%s episode=%s",
+            "[AniWorld Naruto] resolve request title=%r imdb=%s S%02dE%02d episode_title=%r",
+            title, expected_imdb_id, season_number, episode_number, target_episode_title,
+        )
+
+    if not target_episode_title:
+        logger.debug(
+            "AniWorld lookup skipped for %r S%02dE%02d: Cinemeta has no episode title",
             title, season_number, episode_number,
         )
+        return []
+
     candidates = _aniworld_candidates(title)
     if diagnostic and not candidates:
         logger.debug("[AniWorld Naruto] no exact-title candidates found for %r", title)
 
     for series in candidates:
         try:
-            # Final guard: do not emit streams unless the resolved AniWorld
-            # series itself matches the requested title exactly.
             actual_title = getattr(series, "title", "") or ""
-            actual_clean = clean_for_match(actual_title)
-            wanted_clean = clean_for_match(title)
-            if diagnostic:
-                logger.debug(
-                    "[AniWorld Naruto] opened candidate url=%r page_title=%r normalized=%r exact_match=%s",
-                    series.url, actual_title, actual_clean, actual_clean == wanted_clean,
-                )
-            if actual_clean != wanted_clean:
-                logger.debug(
-                    f"Skipping AniWorld candidate '{actual_title}' "
-                    f"for requested title '{title}'"
+            actual_imdb_id = getattr(series, "imdb", None)
+            if actual_imdb_id and actual_imdb_id != expected_imdb_id:
+                logger.warning(
+                    "Skipping AniWorld candidate %r: IMDb ID %s does not match requested %s",
+                    actual_title, actual_imdb_id, expected_imdb_id,
                 )
                 continue
 
-            seasons = series.seasons
+            # When AniWorld exposes an IMDb ID, it is the strongest identity
+            # check. If it does not, retain the previous exact-title guard.
+            if not actual_imdb_id and clean_for_match(actual_title) != clean_for_match(title):
+                logger.debug(
+                    "Skipping AniWorld candidate %r for requested title %r: no matching IMDb ID",
+                    actual_title, title,
+                )
+                continue
+
+            matched = _find_aniworld_episode_by_title(
+                series, target_episode_title, season_number, episode_number
+            )
+            if not matched:
+                logger.info(
+                    "No unambiguous AniWorld episode title match for %r (%s), requested %s S%02dE%02d",
+                    actual_title, target_episode_title, expected_imdb_id, season_number, episode_number,
+                )
+                continue
+
+            matched_season, episode = matched
             if diagnostic:
-                season_summary = []
-                for item in seasons:
-                    try:
-                        season_summary.append({
-                            "season_number": item.season_number,
-                            "are_movies": item.are_movies,
-                            "url": item.url,
-                        })
-                    except Exception as season_exc:
-                        season_summary.append({"url": getattr(item, "url", ""), "error": str(season_exc)})
                 logger.debug(
-                    "[AniWorld Naruto] series %r exposes %d season entries: %s",
-                    actual_title, len(seasons), season_summary,
+                    "[AniWorld Naruto] title-mapped %r to AniWorld S%02dE%02d (%r / %r)",
+                    target_episode_title,
+                    matched_season.season_number,
+                    episode.episode_number,
+                    episode.title_de,
+                    episode.title_en,
                 )
 
-            requested_season_found = False
-            for season in seasons:
-                if season.are_movies:
-                    if diagnostic:
-                        logger.debug("[AniWorld Naruto] ignoring movie collection %r", season.url)
-                    continue
-                actual_season_number = season.season_number
-                if actual_season_number != season_number:
-                    if diagnostic:
-                        logger.debug(
-                            "[AniWorld Naruto] season mismatch: available=%s requested=%s url=%r",
-                            actual_season_number, season_number, season.url,
-                        )
-                    continue
-
-                requested_season_found = True
-                episodes = season.episodes
-                episode_numbers = [episode.episode_number for episode in episodes]
-                if diagnostic:
-                    logger.debug(
-                        "[AniWorld Naruto] matched season=%s url=%r episode_count=%d episode_numbers=%s",
-                        actual_season_number, season.url, len(episodes), episode_numbers[:80],
-                    )
-                matching_episodes = [
-                    episode for episode in episodes
-                    if episode.episode_number == episode_number
-                ]
-                if not matching_episodes:
-                    if diagnostic:
-                        logger.debug(
-                            "[AniWorld Naruto] episode %s not found in season %s",
-                            episode_number, actual_season_number,
-                        )
-                    continue
-                for episode in matching_episodes:
-                    if diagnostic:
-                        logger.debug(
-                            "[AniWorld Naruto] matched episode number=%s title_de=%r title_en=%r url=%r",
-                            episode.episode_number, episode.title_de, episode.title_en, episode.url,
-                        )
-                    streams = _extract_aniworld_streams(
-                        episode, f"{actual_title} S{season_number:02d}E{episode_number:02d}", binge_group
-                    )
-                    if diagnostic:
-                        logger.debug(
-                            "[AniWorld Naruto] stream extraction returned %d stream(s) for S%02dE%02d",
-                            len(streams), season_number, episode_number,
-                        )
-                    if streams:
-                        return streams
-            if diagnostic and not requested_season_found:
+            streams = _extract_aniworld_streams(
+                episode,
+                f"{actual_title} S{season_number:02d}E{episode_number:02d}",
+                binge_group,
+            )
+            if diagnostic:
                 logger.debug(
-                    "[AniWorld Naruto] requested season %s is absent from candidate %r",
-                    season_number, actual_title,
+                    "[AniWorld Naruto] stream extraction returned %d stream(s) for requested S%02dE%02d",
+                    len(streams), season_number, episode_number,
                 )
+            if streams:
+                return streams
         except Exception as exc:
-            if diagnostic:
-                logger.debug("[AniWorld Naruto] series processing failed for %r: %s", series.url, exc)
-            logger.debug(f"AniWorld series processing failed for {series.url}: {exc}")
+            logger.debug("AniWorld series processing failed for %s: %s", getattr(series, "url", title), exc)
     return []
-
 
 def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
     """Search AniWorld anime film collections and match the requested film title."""
@@ -669,9 +700,16 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
     binge_group = f"{pure_imdb_id}"
     sites = ["Serienstream", "MegaKino", "Kinox"]
     aniworld_enabled = is_animation(meta)
+    target_video = _get_cinemeta_episode(meta, season, episode_num) if aniworld_enabled else None
+    target_episode_title = (target_video or {}).get("title") if target_video else None
+    if aniworld_enabled and not target_episode_title:
+        logger.info(
+            "AniWorld lookup skipped for %r S%02dE%02d: requested episode is missing from Cinemeta videos",
+            en_title, season, episode_num,
+        )
     logger.debug(
-        "AniWorld lookup for series %r: enabled=%s",
-        en_title, aniworld_enabled,
+        "AniWorld lookup for series %r: enabled=%s episode_title=%r",
+        en_title, aniworld_enabled, target_episode_title,
     )
     if _is_naruto_diagnostic(en_title) or _is_naruto_diagnostic(de_title):
         logger.debug(
@@ -685,9 +723,15 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     futures = []
     for title in titles_to_search:
-        if aniworld_enabled:
+        if aniworld_enabled and target_episode_title:
             futures.append(_SCRAPE_EXECUTOR.submit(
-                fetch_aniworld_series_streams, title, season, episode_num, binge_group
+                fetch_aniworld_series_streams,
+                title,
+                season,
+                episode_num,
+                binge_group,
+                pure_imdb_id,
+                target_episode_title,
             ))
 
         # Reuse a recently completed S.to result, or leave one background task
