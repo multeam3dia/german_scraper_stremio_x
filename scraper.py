@@ -1,5 +1,6 @@
 import re
 import html
+import os
 import time
 import niquests
 from threading import RLock
@@ -17,6 +18,9 @@ from aniworld.config import logger, Audio, Subtitles, DEFAULT_USER_AGENT, PROVID
 
 CINEMETA_URL = "https://v3-cinemeta.strem.io/meta/{type}/{id}.json"
 TMDB_PROXY = "https://db.wingsdatabase.com/3/find/{id}?external_source=imdb_id&language=de-DE"
+
+# Kinox currently has a broken search/base-URL configuration. Keep it off unless explicitly enabled.
+KINOX_ENABLED = os.getenv("KINOX_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 METADATA_CACHE = {}
 GERMAN_TITLE_CACHE = {}
@@ -646,8 +650,9 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
     providers = [
         ("MegaKino", query_megakino, MegaKinoEpisode),
         ("Filmpalast", query_filmpalast, FilmPalastEpisode),
-        ("Kinox", query_kinox, KinoxEpisode),
     ]
+    if KINOX_ENABLED:
+        providers.append(("Kinox", query_kinox, KinoxEpisode))
     aniworld_enabled = is_animation(meta)
     logger.debug(
         "AniWorld lookup for movie %r: enabled=%s",
@@ -756,7 +761,9 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     all_streams = []
     binge_group = f"{pure_imdb_id}"
-    sites = ["Serienstream", "MegaKino", "Kinox"]
+    sites = ["Serienstream", "MegaKino"]
+    if KINOX_ENABLED:
+        sites.append("Kinox")
     aniworld_enabled = is_animation(meta)
     target_video = _get_cinemeta_episode(meta, season, episode_num) if aniworld_enabled else None
     target_episode_title = (target_video or {}).get("title") if target_video else None
@@ -821,7 +828,7 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
                         _S_TO_INFLIGHT.discard(s_to_key)
                         logger.warning("Could not schedule Serienstream lookup: %s", exc)
 
-        for site in ("MegaKino", "Kinox"):
+        for site in (("MegaKino", "Kinox") if KINOX_ENABLED else ("MegaKino",)):
             futures.append(_SCRAPE_EXECUTOR.submit(
                 fetch_series_site_streams, site, title, season, episode_num, binge_group
             ))
