@@ -92,11 +92,27 @@ def ensure_serienstream_login() -> bool:
 
                 submit = login_form.locator('button[type="submit"], input[type="submit"]').first
                 if submit.count():
-                    submit.click(timeout=10000, no_wait_after=True)
+                    try:
+                        submit.click(timeout=3000, no_wait_after=True, force=True)
+                    except Exception as click_exc:
+                        print(
+                            f"SERIENSTREAM-AUTH: normal submit click failed ({type(click_exc).__name__}); trying DOM click",
+                            flush=True,
+                        )
+                        submit.evaluate("(element) => element.click()")
                 else:
-                    page.get_by_role(
+                    submit = page.get_by_role(
                         "button", name=re.compile("anmelden", re.IGNORECASE)
-                    ).click(timeout=10000, no_wait_after=True)
+                    ).first
+                    try:
+                        submit.click(timeout=3000, no_wait_after=True, force=True)
+                    except Exception as click_exc:
+                        print(
+                            f"SERIENSTREAM-AUTH: role submit click failed ({type(click_exc).__name__}); trying DOM click",
+                            flush=True,
+                        )
+                        submit.evaluate("(element) => element.click()")
+                print("SERIENSTREAM-AUTH: submit event dispatched", flush=True)
 
                 try:
                     page.wait_for_function(
