@@ -702,22 +702,51 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                         return clean_for_match(value)
 
                     normalized_names = [normalize_movie_name(name) for name in names]
+                    normalized_wanted = normalize_movie_name(title)
+
+                    # First retain strong exact/containment matches. If those fail,
+                    # allow a controlled token-overlap match for title variants
+                    # such as "Detective Conan: ..." vs "Case Closed Movie 26: ...".
                     matches = any(
                         name and (
                             name == wanted
                             or wanted in name
                             or name in wanted
-                            or normalize_movie_name(name) == normalize_movie_name(wanted)
+                            or normalize_movie_name(name) == normalized_wanted
                         )
                         for name in names
-                    ) or any(
-                        name and (
-                            name == normalize_movie_name(wanted)
-                            or name in normalize_movie_name(wanted)
-                            or normalize_movie_name(wanted) in name
-                        )
-                        for name in normalized_names
                     )
+
+                    if not matches:
+                        stop_words = {"the", "a", "an", "of", "and", "movie", "film", "special"}
+                        wanted_tokens = {
+                            token for token in re.findall(r"[a-z0-9]+", normalized_wanted)
+                            if len(token) > 1 and token not in stop_words
+                        }
+                        for candidate_name in normalized_names:
+                            candidate_tokens = {
+                                token for token in re.findall(r"[a-z0-9]+", candidate_name)
+                                if len(token) > 1 and token not in stop_words
+                            }
+                            if not wanted_tokens or not candidate_tokens:
+                                continue
+                            shared = wanted_tokens & candidate_tokens
+                            shorter_size = min(len(wanted_tokens), len(candidate_tokens))
+                            longer_size = max(len(wanted_tokens), len(candidate_tokens))
+                            if (
+                                len(shared) >= 2
+                                and len(shared) / shorter_size >= 0.6
+                                and len(shared) / longer_size >= 0.5
+                            ):
+                                matches = True
+                                logger.info(
+                                    "AniWorld movie fuzzy title match: requested=%r candidate=%r shared_tokens=%s",
+                                    title,
+                                    candidate_name,
+                                    sorted(shared),
+                                )
+                                break
+
                     if not matches:
                         continue
                     logger.info(
