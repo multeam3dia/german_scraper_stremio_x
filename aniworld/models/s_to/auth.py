@@ -115,29 +115,38 @@ def ensure_serienstream_login() -> bool:
 
                 page.on("response", _record_login_response)
 
-                submit = login_form.locator('button[type="submit"], input[type="submit"]').first
-                if submit.count():
+                login_requests = []
+
+                def _record_login_request(request):
                     try:
-                        submit.click(timeout=3000, no_wait_after=True, force=True)
-                    except Exception as click_exc:
-                        print(
-                            f"SERIENSTREAM-AUTH: normal submit click failed ({type(click_exc).__name__}); trying DOM click",
-                            flush=True,
-                        )
-                        submit.evaluate("(element) => element.click()")
-                else:
-                    submit = page.get_by_role(
-                        "button", name=re.compile("anmelden", re.IGNORECASE)
-                    ).first
-                    try:
-                        submit.click(timeout=3000, no_wait_after=True, force=True)
-                    except Exception as click_exc:
-                        print(
-                            f"SERIENSTREAM-AUTH: role submit click failed ({type(click_exc).__name__}); trying DOM click",
-                            flush=True,
-                        )
-                        submit.evaluate("(element) => element.click()")
-                print("SERIENSTREAM-AUTH: submit event dispatched", flush=True)
+                        if request.method.upper() == "POST" and "serienstream." in request.url:
+                            login_requests.append(urlparse(request.url).path)
+                    except Exception:
+                        pass
+
+                page.on("request", _record_login_request)
+
+                try:
+                    validity = login_form.evaluate(
+                        "(form) => ({valid: form.checkValidity(), invalid: Array.from(form.elements).filter(e => !e.checkValidity()).map(e => ({name: e.name, type: e.type, required: e.required, valueMissing: e.validity.valueMissing}))})"
+                    )
+                    print(
+                        "SERIENSTREAM-AUTH: native form validity={} invalid_fields={}".format(
+                            validity.get("valid"),
+                            [item.get("name") or item.get("type") for item in validity.get("invalid", [])],
+                        ),
+                        flush=True,
+                    )
+                    login_form.evaluate(
+                        "(form) => { const button = form.querySelector('button[type=submit], input[type=submit]'); if (form.requestSubmit) form.requestSubmit(button || undefined); else form.submit(); }"
+                    )
+                    print("SERIENSTREAM-AUTH: form.requestSubmit() invoked", flush=True)
+                except Exception as submit_exc:
+                    print(
+                        "SERIENSTREAM-AUTH: requestSubmit failed ({})".format(type(submit_exc).__name__),
+                        flush=True,
+                    )
+                    raise
 
                 try:
                     page.wait_for_function(
@@ -148,6 +157,13 @@ def ensure_serienstream_login() -> bool:
                     pass
                 page.wait_for_timeout(500)
 
+                if login_requests:
+                    print(
+                        "SERIENSTREAM-AUTH: login POST request(s)={}".format(login_requests[-3:]),
+                        flush=True,
+                    )
+                else:
+                    print("SERIENSTREAM-AUTH: no SerienStream POST request observed", flush=True)
                 if login_responses:
                     print(
                         "SERIENSTREAM-AUTH: login POST response(s)={}".format(login_responses[-3:]),
