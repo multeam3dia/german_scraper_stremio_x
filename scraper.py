@@ -704,9 +704,9 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                         # movie labels and numbering before normalizing punctuation.
                         value = html.unescape(str(value or ""))
                         value = re.sub(r"<[^>]*>", " ", value)
-                        value = re.sub(r"\\bmovie\\s*\\d+\\b", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\\[(?:movie|film|special)\\]", " ", value, flags=re.IGNORECASE)
-                        value = re.sub(r"\\b(?:movie|film)\\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\bmovie\s*\d+\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\[(?:movie|film|special)\]", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\b(?:movie|film)\b", " ", value, flags=re.IGNORECASE)
                         return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
 
                     normalized_names = [normalize_movie_name(name) for name in raw_names if name]
@@ -716,9 +716,9 @@ def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
                     # For localized titles, the descriptive subtitle can differ
                     # completely. A matching movie number is safe only inside
                     # the already identified franchise collection.
-                    requested_movie_number = re.search(r"\\bmovie\\s*(\\d+)\\b", str(title), re.IGNORECASE)
+                    requested_movie_number = re.search(r"\bmovie\s*(\d+)\b", str(title), re.IGNORECASE)
                     candidate_movie_numbers = [
-                        re.search(r"\\bmovie\\s*(\\d+)\\b", str(name), re.IGNORECASE)
+                        re.search(r"\bmovie\s*(\d+)\b", str(name), re.IGNORECASE)
                         for name in raw_names if name
                     ]
                     franchise_name = clean_for_match(getattr(series, "title", ""))
