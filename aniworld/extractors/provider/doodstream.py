@@ -10,8 +10,10 @@ from urllib3.exceptions import InsecureRequestWarning
 
 try:
     from ...config import DEFAULT_USER_AGENT
+    from ...playwright.captcha import is_captcha_page
 except ImportError:
     from aniworld.config import DEFAULT_USER_AGENT
+    from aniworld.playwright.captcha import is_captcha_page
 
 warnings.simplefilter("ignore", InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -110,20 +112,50 @@ def _log_embed_structure(embed_html, embed_url):
 
 
 def _get_embed_page(embed_url, headers=None):
-    """Fetch HTML content of the embed page."""
+    """Fetch the embed page, preferring a Chrome TLS fingerprint for Cloudflare."""
     headers = headers or _get_headers()
-    resp = niquests.get(embed_url, headers=headers, verify=False, timeout=20)
+    resp = None
+
+    # Match the Chrome fingerprint used by the working VOE extractor. Some
+    # Doodstream aliases serve only a Cloudflare interstitial to plain clients.
+    try:
+        from curl_cffi import requests as curl_requests
+
+        resp = curl_requests.get(
+            embed_url,
+            headers=headers,
+            impersonate="chrome124",
+            allow_redirects=True,
+            verify=False,
+            timeout=20,
+        )
+        logger.debug("Doodstream embed fetched with curl_cffi Chrome impersonation")
+    except ImportError:
+        logger.debug("curl_cffi unavailable; falling back to niquests")
+    except Exception as exc:
+        logger.debug("Doodstream curl_cffi request failed (%s); falling back to niquests", exc)
+        resp = None
+
+    if resp is None:
+        resp = niquests.get(embed_url, headers=headers, verify=False, timeout=20)
+
     resp.raise_for_status()
     final_url = str(getattr(resp, "url", embed_url))
     content_type = resp.headers.get("Content-Type", "")
+    html = resp.text or ""
     logger.debug(
         "Doodstream embed response: status=%s final_host=%s content_type=%r html_length=%d",
         resp.status_code,
         urlparse(final_url).netloc,
         content_type,
-        len(resp.text or ""),
+        len(html),
     )
-    return resp.text
+    if is_captcha_page(html, resp.status_code):
+        logger.warning(
+            "Doodstream returned a Cloudflare/CAPTCHA page (host=%s); no player HTML available yet",
+            urlparse(final_url).netloc,
+        )
+    return html
 
 
 def _get_pass_md5_url(embed_html, embed_url):
