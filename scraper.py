@@ -373,6 +373,10 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
         ("Kinox", query_kinox, KinoxEpisode),
     ]
     aniworld_enabled = is_animation(meta)
+    logger.warning(
+        "AniWorld diagnostic (movie): imdb_id=%s title=%r genres=%r enabled=%s",
+        imdb_id, en_title, meta.get("genres"), aniworld_enabled,
+    )
 
     with ThreadPoolExecutor(max_workers=(len(providers) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
         futures = []
@@ -482,6 +486,10 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
     binge_group = f"{pure_imdb_id}"
     sites = ["Serienstream", "MegaKino", "Kinox"]
     aniworld_enabled = is_animation(meta)
+    logger.warning(
+        "AniWorld diagnostic (series): imdb_id=%s title=%r genres=%r enabled=%s",
+        pure_imdb_id, en_title, meta.get("genres"), aniworld_enabled,
+    )
 
     with ThreadPoolExecutor(max_workers=(len(sites) + int(aniworld_enabled)) * len(titles_to_search)) as executor:
         futures = []
