@@ -1,6 +1,8 @@
 services:
   german-scraper:
     container_name: german-scraper-stremio
+    env_file:
+      - .env
     build:
       context: https://github.com/multeam3dia/german_scraper_stremio_x.git#feature/aniworld-integration
       dockerfile: Dockerfile
