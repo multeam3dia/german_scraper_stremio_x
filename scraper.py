@@ -542,8 +542,8 @@ def fetch_aniworld_series_streams(
             matched_season, episode = matched
             if diagnostic:
                 logger.debug(
-                    "[AniWorld Naruto] title-mapped %r to AniWorld S%02dE%02d (%r / %r)",
-                    target_episode_title,
+                    "[AniWorld Naruto] mapped episode %r to AniWorld S%02dE%02d (%r / %r)",
+                    target_episode_title or f"S{season_number:02d}E{episode_number:02d} (numeric fallback)",
                     matched_season.season_number,
                     episode.episode_number,
                     episode.title_de,
