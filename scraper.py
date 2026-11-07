@@ -553,26 +553,26 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
             cached = _S_TO_RESULT_CACHE.get(s_to_key)
             if cached and time.monotonic() - cached[0] < _S_TO_CACHE_TTL:
                 all_streams.extend(cached[1])
-                continue
-            if cached:
-                _S_TO_RESULT_CACHE.pop(s_to_key, None)
-
-            if s_to_key in _S_TO_INFLIGHT:
-                logger.info("Serienstream lookup still running for %s S%02dE%02d",
-                            title, season, episode_num)
             else:
-                _S_TO_INFLIGHT.add(s_to_key)
-                try:
-                    s_to_future = _S_TO_EXECUTOR.submit(
-                        _fetch_s_to_cached, s_to_key, title, season, episode_num, binge_group
-                    )
-                    s_to_future.add_done_callback(
-                        lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
-                    )
-                    futures.append(s_to_future)
-                except Exception:
-                    _S_TO_INFLIGHT.discard(s_to_key)
-                    raise
+                if cached:
+                    _S_TO_RESULT_CACHE.pop(s_to_key, None)
+
+                if s_to_key in _S_TO_INFLIGHT:
+                    logger.info("Serienstream lookup still running for %s S%02dE%02d",
+                                title, season, episode_num)
+                else:
+                    _S_TO_INFLIGHT.add(s_to_key)
+                    try:
+                        s_to_future = _S_TO_EXECUTOR.submit(
+                            _fetch_s_to_cached, s_to_key, title, season, episode_num, binge_group
+                        )
+                        s_to_future.add_done_callback(
+                            lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
+                        )
+                        futures.append(s_to_future)
+                    except Exception as exc:
+                        _S_TO_INFLIGHT.discard(s_to_key)
+                        logger.warning("Could not schedule Serienstream lookup: %s", exc)
 
         for site in ("MegaKino", "Kinox"):
             futures.append(_SCRAPE_EXECUTOR.submit(
