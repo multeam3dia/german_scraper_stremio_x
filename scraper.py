@@ -1,7 +1,7 @@
 import re
 import time
 import niquests
-from threading import Lock
+from threading import RLock
 from typing import List, Dict, Optional, Any, Set
 from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
@@ -22,7 +22,7 @@ GERMAN_TITLE_CACHE = {}
 # Shared, bounded pools: slow CAPTCHA work must not hold the HTTP request open.
 _SCRAPE_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider")
 _S_TO_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serienstream")
-_S_TO_LOCK = Lock()
+_S_TO_LOCK = RLock()
 _S_TO_INFLIGHT = set()
 _S_TO_RESULT_CACHE = {}
 _S_TO_CACHE_TTL = 45
