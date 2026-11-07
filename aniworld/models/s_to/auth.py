@@ -67,8 +67,15 @@ def ensure_serienstream_login() -> bool:
                     timeout=20000,
                 )
 
-                email_field = page.locator('input[type="email"]').first
-                password_field = page.locator('input[type="password"]').first
+                # The site labels this field as an e-mail address; accept both
+                # email and text inputs because its markup may vary by release.
+                login_form = page.locator('form:has(input[type="password"])').first
+                email_field = login_form.locator(
+                    'input[type="email"], input[name*="mail" i], '
+                    'input[autocomplete="username"], '
+                    'input:not([type="hidden"]):not([type="password"])'
+                ).first
+                password_field = login_form.locator('input[type="password"]').first
                 if email_field.count() == 0 or password_field.count() == 0:
                     logger.warning(
                         "SerienStream login form was not available; "
@@ -79,7 +86,7 @@ def ensure_serienstream_login() -> bool:
                 email_field.fill(email)
                 password_field.fill(password)
 
-                submit = page.locator('form button[type="submit"], form input[type="submit"]').first
+                submit = login_form.locator('button[type="submit"], input[type="submit"]').first
                 if submit.count():
                     submit.click(timeout=10000)
                 else:
