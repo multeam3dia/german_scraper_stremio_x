@@ -217,9 +217,12 @@ def _aniworld_candidates(title: str) -> List[AniworldSeries]:
                 continue
             seen.add(url)
             found = clean_for_match(name)
-            score = 0 if found == wanted else (1 if wanted and (wanted in found or found in wanted) else 2)
-            candidates.append((score, AniworldSeries(url)))
-        candidates.sort(key=lambda item: item[0])
+            # Never accept fuzzy/unrelated search results: AniWorld's search can
+            # return completely different shows (e.g. One Piece for "Monk").
+            # Bracketed year/extra text is already removed by clean_for_match.
+            if not wanted or found != wanted:
+                continue
+            candidates.append((0, AniworldSeries(url)))
         return [series for _, series in candidates[:5]]
     except Exception as exc:
         logger.debug(f"AniWorld search failed for '{title}': {exc}")
@@ -284,6 +287,14 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
     """Resolve the requested season/episode from AniWorld."""
     for series in _aniworld_candidates(title):
         try:
+            # Final guard: do not emit streams unless the resolved AniWorld
+            # series itself matches the requested title exactly.
+            if clean_for_match(getattr(series, "title", "")) != clean_for_match(title):
+                logger.warning(
+                    f"Skipping AniWorld candidate '{getattr(series, 'title', '')}' "
+                    f"for requested title '{title}'"
+                )
+                continue
             for season in series.seasons:
                 if season.are_movies or season.season_number != season_number:
                     continue
