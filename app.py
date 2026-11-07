@@ -71,7 +71,14 @@ def get_stream(type: str, id: str):
     seen_urls = set()
     for s in streams:
         if s.get("url") and s["url"] not in seen_urls:
-            logger.info(f"Adding stream for {id}: {s.get('name')} -> {s.get('url')}")
+            # Signed media URLs contain temporary access tokens; never write them to logs.
+            stream_host = urlparse(s["url"]).netloc or "unknown-host"
+            logger.info(
+                "Adding stream for %s: %s (host=%s)",
+                id,
+                s.get("name"),
+                stream_host,
+            )
             unique_streams.append(s)
             seen_urls.add(s["url"])
 
