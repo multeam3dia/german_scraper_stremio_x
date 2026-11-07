@@ -191,7 +191,7 @@ def find_best_matches(
         if allow_subtitle_suffix:
             decoded_title = html.unescape(str(res_title or "")).strip()
             subtitle_match = re.match(
-                rf"^{re.escape(str(title).strip())}\\s+[-–—:]\\s+.+$",
+                rf"^{re.escape(str(title).strip())}\s+[-–—:]\s+.+$",
                 decoded_title,
                 re.IGNORECASE,
             )
