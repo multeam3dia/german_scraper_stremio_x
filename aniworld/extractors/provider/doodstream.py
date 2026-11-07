@@ -23,7 +23,7 @@ DOODSTREAM_BASE_URL = "https://dood.li"
 RANDOM_STRING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 PASS_MD5_PATTERN = r"""\$\s*\.\s*get\s*\(\s*['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
 PASS_MD5_FALLBACK_PATTERN = r"""['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
-TOKEN_PATTERN = r"(?:[?&]|\\b)token=([a-zA-Z0-9]+)"
+TOKEN_PATTERN = r"token=([a-zA-Z0-9]+)"
 
 
 # -----------------------------
@@ -75,7 +75,7 @@ def _get_pass_md5_url(embed_html, embed_url):
         match = re.search(PASS_MD5_FALLBACK_PATTERN, embed_html)
     if not match:
         title_match = re.search(r"<title[^>]*>(.*?)</title>", embed_html, re.IGNORECASE | re.DOTALL)
-        page_title = re.sub(r"\\s+", " ", title_match.group(1)).strip()[:120] if title_match else ""
+        page_title = re.sub(r"\s+", " ", title_match.group(1)).strip()[:120] if title_match else ""
         logger.warning(
             "Doodstream pass_md5 missing: embed_host=%s html_length=%d "
             "contains_pass_md5=%s contains_token=%s page_title=%r",
