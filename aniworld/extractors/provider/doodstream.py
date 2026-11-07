@@ -125,16 +125,40 @@ def get_direct_link_from_doodstream(embed_url):
     response.raise_for_status()
     final_url = str(getattr(response, "url", embed_url))
     html = response.text or ""
+    redirect_history = getattr(response, "history", None) or []
+    redirect_hosts = [
+        urlparse(str(getattr(item, "url", ""))).netloc
+        for item in redirect_history
+        if getattr(item, "url", None)
+    ]
+    final_host = urlparse(final_url).netloc
+    content_type = ""
+    try:
+        content_type = response.headers.get("content-type", "")
+    except Exception:
+        pass
+
+    # Log only hostnames and response metadata. Never log full URLs because
+    # provider URLs may contain short-lived tokens or other sensitive values.
+    logger.info(
+        "Doodstream redirect trace: start_host=%s redirect_hosts=%s final_host=%s",
+        urlparse(embed_url).netloc,
+        redirect_hosts,
+        final_host,
+    )
     logger.debug(
-        "Doodstream embed response: status=%s final_host=%s html_length=%d",
+        "Doodstream embed response: status=%s content_type=%s html_length=%d",
         response.status_code,
-        urlparse(final_url).netloc,
+        content_type,
         len(html),
     )
     if is_captcha_page(html, response.status_code):
         logger.warning(
-            "Doodstream returned a Cloudflare/CAPTCHA page (host=%s)",
-            urlparse(final_url).netloc,
+            "Doodstream unavailable: host=%s returned a CAPTCHA/interstitial "
+            "(status=%s, content_type=%s); no media URL was extracted",
+            final_host,
+            response.status_code,
+            content_type,
         )
         raise ValueError("Doodstream embed returned a CAPTCHA/interstitial page")
 
