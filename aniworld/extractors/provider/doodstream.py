@@ -10,10 +10,10 @@ import niquests
 from urllib3.exceptions import InsecureRequestWarning
 
 try:
-    from ...config import DEFAULT_USER_AGENT, GLOBAL_SESSION
+    from ...config import GLOBAL_SESSION
     from ...playwright.captcha import is_captcha_page
 except ImportError:
-    from aniworld.config import DEFAULT_USER_AGENT, GLOBAL_SESSION
+    from aniworld.config import GLOBAL_SESSION
     from aniworld.playwright.captcha import is_captcha_page
 
 warnings.simplefilter("ignore", InsecureRequestWarning)
@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 
 DOODSTREAM_BASE_URL = "https://dood.li"
 RANDOM_STRING_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-PASS_MD5_PATTERN = r"""\$\s*\.\s*get\s*\(\s*['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
-PASS_MD5_FALLBACK_PATTERN = r"""['"]([^'"]*?/pass_md5/[^'"]*)['"]"""
+PASS_MD5_PATTERN = r"""/pass_md5/[^'"\s<]+"""
 TOKEN_PATTERN = r"[?&]token=([a-zA-Z0-9_-]+)"
 PLAYBACK_USER_AGENT = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
@@ -36,7 +35,12 @@ _PLAYBACK_HEADERS_LOCK = RLock()
 
 def _get_headers(referer=None):
     return {
-        "User-Agent": DEFAULT_USER_AGENT,
+        # Match Streamflix Reborn's DoodLaExtractor browser fingerprint.
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
         "Referer": referer or f"{DOODSTREAM_BASE_URL}/",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
@@ -48,12 +52,10 @@ def _generate_random_string(length=10):
 
 
 def _extract_pass_md5(html, embed_url):
-    match = re.search(PASS_MD5_PATTERN, html or "")
-    if not match:
-        match = re.search(PASS_MD5_FALLBACK_PATTERN, html or "")
+    match = re.search(PASS_MD5_PATTERN, html or "", re.IGNORECASE)
     if not match:
         raise ValueError(f"pass_md5 URL not found in {urlparse(embed_url).netloc}")
-    return match.group(1)
+    return match.group(0)
 
 
 def _get_cookie_header(session, url):
@@ -87,7 +89,9 @@ def get_direct_link_from_doodstream(embed_url):
     if not embed_url:
         raise ValueError("Embed URL cannot be empty")
 
-    request_headers = _get_headers(embed_url)
+    # Streamflix retains the original /d/ URL as Referer after requesting /e/.
+    referer_url = re.sub(r"/e/", "/d/", embed_url, count=1)
+    request_headers = _get_headers(referer_url)
     session = None
     try:
         from curl_cffi import requests as curl_requests
