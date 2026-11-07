@@ -189,7 +189,7 @@ def find_best_matches(
         # possessive-title form, and only when the remaining title is exact.
         if allow_possessive_prefix:
             decoded_title = html.unescape(str(res_title or "")).strip()
-            possessive_match = re.match(r"^.+?['’]s\\s+(.+)$", decoded_title, re.IGNORECASE)
+            possessive_match = re.match(r"^.+?['’]s\s+(.+)$", decoded_title, re.IGNORECASE)
             if possessive_match:
                 suffix_clean = clean_for_match(possessive_match.group(1))
                 if allow_season_suffix and season:
