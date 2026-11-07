@@ -36,17 +36,24 @@ JS_REDIRECT_PATTERN = re.compile(
 
 
 def _normalize_embed_url(embed_url):
-    """Use Vidmoly's working .to host for its known domain aliases."""
+    """Normalize legacy aliases, but preserve .biz which AniWorld currently uses."""
     return re.sub(
-        r"(?i)^https?://(?:www\.)?vidmoly\.(?:me|net|org|biz)(?=[:/])",
+        r"(?i)^https?://(?:www\.)?vidmoly\.(?:me|net|org)(?=[:/])",
         "https://vidmoly.to",
         embed_url.strip(),
     )
 
 
-def _get_headers():
+def _origin_referer(embed_url):
+    parsed = urlparse(embed_url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}/"
+    return VIDMOLY_BASE_URL
+
+
+def _get_headers(embed_url):
     return {
-        "Referer": VIDMOLY_BASE_URL,
+        "Referer": _origin_referer(embed_url),
         "User-Agent": VIDMOLY_USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
@@ -55,7 +62,7 @@ def _get_headers():
 def get_playback_headers(embed_url=None):
     """Headers required by Vidmoly when Stremio requests the HLS manifest."""
     return {
-        "Referer": VIDMOLY_BASE_URL,
+        "Referer": _origin_referer(embed_url) if embed_url else VIDMOLY_BASE_URL,
         "User-Agent": VIDMOLY_USER_AGENT,
         "Accept": "*/*",
     }
@@ -114,7 +121,7 @@ def _get_html(embed_url):
     normalized_url = _normalize_embed_url(embed_url)
     response = GLOBAL_SESSION.get(
         normalized_url,
-        headers=_get_headers(),
+        headers=_get_headers(normalized_url),
         allow_redirects=True,
         timeout=20,
     )
