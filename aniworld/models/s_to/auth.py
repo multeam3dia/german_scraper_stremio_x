@@ -92,11 +92,11 @@ def ensure_serienstream_login() -> bool:
 
                 submit = login_form.locator('button[type="submit"], input[type="submit"]').first
                 if submit.count():
-                    submit.click(timeout=10000)
+                    submit.click(timeout=10000, no_wait_after=True)
                 else:
                     page.get_by_role(
                         "button", name=re.compile("anmelden", re.IGNORECASE)
-                    ).click(timeout=10000)
+                    ).click(timeout=10000, no_wait_after=True)
 
                 try:
                     page.wait_for_function(
