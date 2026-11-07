@@ -12,7 +12,7 @@ MANIFEST = {
     "id": ADDON_ID,
     "version": VERSION,
     "name": "German Scraper",
-    "description": "Fast German streams from Filmpalast, Serienstream, MegaKino, and Kinox.",
+    "description": "German streams from AniWorld, Filmpalast, Serienstream, MegaKino, and Kinox.",
     "logo": "https://www.stremio.com/static/images/stremio-logo.png",
     "resources": ["stream"],
     "types": ["movie", "series"],
