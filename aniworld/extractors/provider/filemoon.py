@@ -330,6 +330,9 @@ def get_direct_link_from_filemoon(embeded_filemoon_link, headers=None):
             len(resp.content or b""),
         )
         raise ValueError("No Filemoon video source found in page.")
+    except Exception:
+        # Preserve provider-level error handling in the caller.
+        raise
 
 
 def get_preview_image_link_from_filemoon(embeded_filemoon_link, headers=None):
