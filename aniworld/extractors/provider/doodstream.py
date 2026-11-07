@@ -106,8 +106,17 @@ def get_direct_link_from_doodstream(embed_url):
         session = GLOBAL_SESSION
         response = session.get(embed_url, headers=request_headers, verify=False, timeout=20)
     except Exception as exc:
-        logger.warning("Doodstream Chrome-impersonated request failed (%s)", exc)
-        raise
+        logger.warning(
+            "Doodstream Chrome-impersonated request failed (%s); retrying with Niquests",
+            exc,
+        )
+        session = GLOBAL_SESSION
+        response = session.get(
+            embed_url,
+            headers=request_headers,
+            verify=False,
+            timeout=20,
+        )
 
     response.raise_for_status()
     final_url = str(getattr(response, "url", embed_url))
