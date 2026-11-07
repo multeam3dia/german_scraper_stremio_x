@@ -67,7 +67,6 @@ def ensure_serienstream_login() -> bool:
                     wait_until="domcontentloaded",
                     timeout=20000,
                 )
-                print("SERIENSTREAM-AUTH: login page loaded", flush=True)
 
                 # The site labels this field as an e-mail address; accept both
                 # email and text inputs because its markup may vary by release.
@@ -79,74 +78,14 @@ def ensure_serienstream_login() -> bool:
                 ).first
                 password_field = login_form.locator('input[type="password"]').first
                 if email_field.count() == 0 or password_field.count() == 0:
-                    print("SERIENSTREAM-AUTH: login form unavailable", flush=True)
-                    logger.warning(
-                        "SerienStream login form was not available; "
-                        "the site may require verification."
-                    )
+                    logger.warning("SerienStream login form was not available; the site may require verification.")
                     return False
 
                 email_field.fill(email)
                 password_field.fill(password)
-                print("SERIENSTREAM-AUTH: login form filled; submitting", flush=True)
-                try:
-                    form_info = login_form.evaluate(
-                        "(form) => ({action: form.getAttribute('action'), method: form.getAttribute('method')})"
-                    )
-                    print(
-                        "SERIENSTREAM-AUTH: form method={} action={}".format(
-                            form_info.get("method") or "GET",
-                            urlparse(form_info.get("action") or page.url).path,
-                        ),
-                        flush=True,
-                    )
-                except Exception:
-                    pass
-
-                login_responses = []
-
-                def _record_login_response(response):
-                    try:
-                        request = response.request
-                        if request.method.upper() == "POST" and "serienstream." in response.url:
-                            login_responses.append((response.status, urlparse(response.url).path))
-                    except Exception:
-                        pass
-
-                page.on("response", _record_login_response)
-
-                login_requests = []
-
-                def _record_login_request(request):
-                    try:
-                        if request.method.upper() == "POST" and "serienstream." in request.url:
-                            login_requests.append(urlparse(request.url).path)
-                    except Exception:
-                        pass
-
-                page.on("request", _record_login_request)
-
-                try:
-                    validity = login_form.evaluate(
-                        "(form) => ({valid: form.checkValidity(), invalid: Array.from(form.elements).filter(e => !e.checkValidity()).map(e => ({name: e.name, type: e.type, required: e.required, valueMissing: e.validity.valueMissing}))})"
-                    )
-                    print(
-                        "SERIENSTREAM-AUTH: native form validity={} invalid_fields={}".format(
-                            validity.get("valid"),
-                            [item.get("name") or item.get("type") for item in validity.get("invalid", [])],
-                        ),
-                        flush=True,
-                    )
-                    login_form.evaluate(
-                        "(form) => { const button = form.querySelector('button[type=submit], input[type=submit]'); if (form.requestSubmit) form.requestSubmit(button || undefined); else form.submit(); }"
-                    )
-                    print("SERIENSTREAM-AUTH: form.requestSubmit() invoked", flush=True)
-                except Exception as submit_exc:
-                    print(
-                        "SERIENSTREAM-AUTH: requestSubmit failed ({})".format(type(submit_exc).__name__),
-                        flush=True,
-                    )
-                    raise
+                login_form.evaluate(
+                    "(form) => { const button = form.querySelector('button[type=submit], input[type=submit]'); if (form.requestSubmit) form.requestSubmit(button || undefined); else form.submit(); }"
+                )
 
                 try:
                     page.wait_for_function(
@@ -157,52 +96,8 @@ def ensure_serienstream_login() -> bool:
                     pass
                 page.wait_for_timeout(500)
 
-                if login_requests:
-                    print(
-                        "SERIENSTREAM-AUTH: login POST request(s)={}".format(login_requests[-3:]),
-                        flush=True,
-                    )
-                else:
-                    print("SERIENSTREAM-AUTH: no SerienStream POST request observed", flush=True)
-                if login_responses:
-                    print(
-                        "SERIENSTREAM-AUTH: login POST response(s)={}".format(login_responses[-3:]),
-                        flush=True,
-                    )
-                else:
-                    print("SERIENSTREAM-AUTH: no SerienStream POST response observed", flush=True)
-                try:
-                    challenge_frames = [
-                        urlparse(frame.url).hostname or "unknown"
-                        for frame in page.frames
-                        if any(token in frame.url.lower() for token in (
-                            "challenges.cloudflare.com", "turnstile", "hcaptcha", "recaptcha"
-                        ))
-                    ]
-                    alerts = page.locator(
-                        '[role="alert"], .alert, .error, .invalid-feedback, .text-danger'
-                    ).all_inner_texts()
-                    alerts = [value.strip()[:180] for value in alerts if value.strip()][:5]
-                    print(
-                        "SERIENSTREAM-AUTH: post-submit url={} title={!r} challenge_frames={} messages={!r}".format(
-                            urlparse(page.url).path,
-                            page.title()[:100],
-                            challenge_frames,
-                            alerts,
-                        ),
-                        flush=True,
-                    )
-                except Exception as diagnostic_exc:
-                    print(
-                        "SERIENSTREAM-AUTH: post-submit diagnostics unavailable ({})".format(
-                            type(diagnostic_exc).__name__
-                        ),
-                        flush=True,
-                    )
-
                 current_path = urlparse(page.url).path.rstrip("/")
                 if current_path == "/login" or page.locator('input[type="password"]').count():
-                    print("SERIENSTREAM-AUTH: login not confirmed; still on login page or password field remains", flush=True)
                     logger.warning(
                         "SerienStream login was not confirmed; check the credentials "
                         "or whether the site presented a verification challenge."
@@ -224,7 +119,6 @@ def ensure_serienstream_login() -> bool:
                     copied += 1
 
                 if copied == 0:
-                    print("SERIENSTREAM-AUTH: no SerienStream session cookies found", flush=True)
                     logger.warning(
                         "SerienStream login page changed, but no session cookies "
                         "could be transferred to the HTTP session."
@@ -232,7 +126,6 @@ def ensure_serienstream_login() -> bool:
                     return False
 
                 _last_success = time.monotonic()
-                print(f"SERIENSTREAM-AUTH: login successful; {copied} session cookies transferred", flush=True)
                 logger.info(
                     "SerienStream account login successful; %d session cookie(s) transferred.",
                     copied,
@@ -240,7 +133,6 @@ def ensure_serienstream_login() -> bool:
                 return True
 
         except Exception as exc:
-            print(f"SERIENSTREAM-AUTH: login attempt failed ({type(exc).__name__})", flush=True)
             logger.warning(
                 "SerienStream automatic login failed (%s); continuing with the existing access path.",
                 type(exc).__name__,
