@@ -38,10 +38,12 @@ async def log_serienstream_login_configuration():
         os.getenv("SERIENSTREAM_EMAIL") or os.getenv("SERIENSTREAM_USERNAME")
     )
     password_set = bool(os.getenv("SERIENSTREAM_PASSWORD"))
-    logger.info(
-        "SERIENSTREAM-AUTH-DIAGNOSTIC-V2 | email=%s, password=%s",
-        "set" if email_set else "MISSING",
-        "set" if password_set else "MISSING",
+    print(
+        "SERIENSTREAM-AUTH-DIAGNOSTIC-V3 | email={} password={}".format(
+            "set" if email_set else "MISSING",
+            "set" if password_set else "MISSING",
+        ),
+        flush=True,
     )
 
 @app.get("/manifest.json")
