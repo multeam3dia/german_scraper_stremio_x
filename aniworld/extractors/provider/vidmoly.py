@@ -162,7 +162,7 @@ def _safe_visible_text(html):
     content = re.sub(r"<[^>]+>", " ", content)
     content = re.sub(r"\s+", " ", content).strip()
     # Remove complete URLs, including JWTs and other query-string credentials.
-    content = re.sub(r"https?://[^'\\"\s]+", "[url]", content)
+    content = re.sub(r"""https?://[^'"\s]+""", "[url]", content)
     content = re.sub(
         r"(?i)\b(token|key|auth|session|js|ch)=\S+",
         r"\1=[redacted]",
