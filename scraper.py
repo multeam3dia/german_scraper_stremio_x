@@ -412,7 +412,7 @@ def _find_aniworld_episode_by_title(
     if (
         not wanted
         or wanted in {"episode", "folge", "episodetba", "tba", "untitled"}
-        or re.fullmatch(r"(episode|folge)\\d+", wanted)
+        or re.fullmatch(r"(episode|folge)\d+", wanted)
     ):
         return None
 
