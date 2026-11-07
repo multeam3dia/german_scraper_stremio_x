@@ -62,59 +62,46 @@ def clean_for_match(t: str) -> str:
     t = re.sub(r'[\(\[].*?[\)\]]', '', t)
     return re.sub(r'\W+', '', t.lower())
 
-def find_best_matches(results: List[Dict], title: str, year: Optional[int] = None, season: Optional[int] = None) -> List[str]:
-    """Find and prioritize the best matching URLs from search results with strict filtering."""
+def find_best_matches(
+    results: List[Dict],
+    title: str,
+    year: Optional[int] = None,
+    season: Optional[int] = None,
+    allow_season_suffix: bool = False,
+) -> List[str]:
+    """Return only exact title matches, optionally accepting the requested season suffix."""
     if not results:
         return []
 
     title_clean = clean_for_match(title)
+    if not title_clean:
+        return []
+
     candidates = []
 
-    # Sequel indicators to prevent false positives
-    sequel_indicators = [
-        "2", "3", "4", "5", "part", "teil", "sequel",
-        "vollverhext", "madchengegenjungs", "tohuwabohu", "einfachanders",
-        "next", "generation", "reboot", "remake"
-    ]
+    def result_title(result: Dict) -> str:
+        # Search providers do not always use the same key for the display title.
+        return str(result.get("title") or result.get("name") or result.get("series") or "")
 
-    def is_strict_match(res_title: str) -> bool:
+    def is_match(res_title: str) -> bool:
         res_clean = clean_for_match(res_title)
-
-        # MegaKino may return titles containing the search term as a substring:
-        # "Bad Monkey" for a search for "Monk". Only accept the same title.
-        # A requested season suffix is allowed, but it must match the requested season.
-        if season:
-            res_clean = re.sub(r"(staffel|season)\d+$", "", res_clean)
-        return bool(title_clean) and res_clean == title_clean
-
-    if season:
-        season_markers = [f"staffel {season}", f"season {season}", f"staffel-{season}", f"season-{season}"]
-        for res in results:
-            res_title = res.get("title", "")
-            if any(marker in res_title.lower() for marker in season_markers) and is_strict_match(res_title):
-                res_url = res.get("url") or res.get("link")
-                if res_url and res_url not in candidates:
-                    candidates.append(res_url)
+        if allow_season_suffix and season:
+            # Remove only the requested season suffix; do not accept a different season.
+            suffix = f"staffel{season}"
+            english_suffix = f"season{season}"
+            if res_clean.endswith(suffix):
+                res_clean = res_clean[:-len(suffix)]
+            elif res_clean.endswith(english_suffix):
+                res_clean = res_clean[:-len(english_suffix)]
+        return res_clean == title_clean
 
     for res in results:
+        if not isinstance(res, dict):
+            continue
         res_url = res.get("url") or res.get("link")
-        if not res_url or res_url in candidates: continue
-        if clean_for_match(res.get("title", "")) == title_clean:
-            candidates.append(res_url)
-
-    if year:
-        year_str = str(year)
-        for res in results:
-            res_url = res.get("url") or res.get("link")
-            if not res_url or res_url in candidates: continue
-            res_title = res.get("title", "")
-            if year_str in res_title and is_strict_match(res_title):
-                candidates.append(res_url)
-
-    for res in results:
-        res_url = res.get("url") or res.get("link")
-        if not res_url or res_url in candidates: continue
-        if is_strict_match(res.get("title", "")):
+        if not res_url or res_url in candidates:
+            continue
+        if is_match(result_title(res)):
             candidates.append(res_url)
 
     return candidates
@@ -389,15 +376,32 @@ def fetch_series_site_streams(site_name: str, title: str, season: int, episode_n
     try:
         if site_name == "Serienstream":
             results = query_s_to(title)
-            if not results: return []
-            links = find_best_matches(results, title, season=season)
-            for link in links[:1]:
+            if not results:
+                logger.info(f"Serienstream: no search results for '{title}'")
+                return []
+            links = find_best_matches(results, title, season=season, allow_season_suffix=True)
+            if not links:
+                returned_titles = [
+                    str(item.get("title") or item.get("name") or item.get("series") or "")
+                    for item in results if isinstance(item, dict)
+                ]
+                logger.info(
+                    f"Serienstream: no exact title match for '{title}'. "
+                    f"Search returned: {returned_titles[:10]}"
+                )
+                return []
+            # Try a few exact-title candidates in case one page or episode URL is stale.
+            for link in links[:3]:
                 series_url = f"https://serienstream.to{link}" if not link.startswith("http") else link
                 ep_url = f"{series_url.rstrip('/')}/staffel-{season}/episode-{episode_num}"
                 try:
                     episode = SerienstreamEpisode(url=ep_url)
-                    return extract_streams(episode, site_name, title, binge_group)
-                except Exception: pass
+                    streams = extract_streams(episode, site_name, title, binge_group)
+                    if streams:
+                        return streams
+                    logger.info(f"Serienstream: no German streams at {ep_url}")
+                except Exception as exc:
+                    logger.warning(f"Serienstream failed for {ep_url}: {exc}")
 
         elif site_name == "MegaKino":
             results = query_megakino(f"{title} Staffel {season}")
