@@ -273,26 +273,26 @@ def _aniworld_candidates(title: str) -> List[AniworldSeries]:
                 }
                 for item in results if isinstance(item, dict)
             ]
-            logger.info(
+            logger.warning(
                 "[AniWorld Naruto] search query=%r normalized=%r results=%d: %s",
                 title, wanted, len(results), result_summary[:20],
             )
         for index, item in enumerate(results):
             if not isinstance(item, dict):
                 if diagnostic:
-                    logger.info("[AniWorld Naruto] result #%d ignored: not a dict (%r)", index + 1, item)
+                    logger.warning("[AniWorld Naruto] result #%d ignored: not a dict (%r)", index + 1, item)
                 continue
             name = item.get("title") or item.get("name") or ""
             link = item.get("link") or item.get("url")
             if not link:
                 if diagnostic:
-                    logger.info("[AniWorld Naruto] result #%d %r rejected: missing link", index + 1, name)
+                    logger.warning("[AniWorld Naruto] result #%d %r rejected: missing link", index + 1, name)
                 continue
             url = link if link.startswith("http") else f"https://aniworld.to{link if link.startswith('/') else '/'+link}"
             valid_url = AniworldSeries.is_valid_aniworld_series_url(url)
             if not valid_url or url in seen:
                 if diagnostic:
-                    logger.info(
+                    logger.warning(
                         "[AniWorld Naruto] result #%d %r rejected: valid_series_url=%s duplicate=%s url=%r",
                         index + 1, name, valid_url, url in seen, url,
                     )
@@ -301,7 +301,7 @@ def _aniworld_candidates(title: str) -> List[AniworldSeries]:
             found = clean_for_match(name)
             exact_match = bool(wanted and found == wanted)
             if diagnostic:
-                logger.info(
+                logger.warning(
                     "[AniWorld Naruto] result #%d title=%r normalized=%r exact_match=%s url=%r",
                     index + 1, name, found, exact_match, url,
                 )
@@ -313,14 +313,14 @@ def _aniworld_candidates(title: str) -> List[AniworldSeries]:
             candidates.append((0, AniworldSeries(url)))
         selected = [series for _, series in candidates[:5]]
         if diagnostic:
-            logger.info(
+            logger.warning(
                 "[AniWorld Naruto] accepted %d candidate(s) for %r: %s",
                 len(selected), title, [series.url for series in selected],
             )
         return selected
     except Exception as exc:
         if diagnostic:
-            logger.info("[AniWorld Naruto] search/candidate processing failed for %r: %s", title, exc)
+            logger.warning("[AniWorld Naruto] search/candidate processing failed for %r: %s", title, exc)
         logger.debug(f"AniWorld search failed for '{title}': {exc}")
         return []
 
@@ -383,13 +383,13 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
     """Resolve the requested season/episode from AniWorld."""
     diagnostic = _is_naruto_diagnostic(title)
     if diagnostic:
-        logger.info(
+        logger.warning(
             "[AniWorld Naruto] resolve request title=%r season=%s episode=%s",
             title, season_number, episode_number,
         )
     candidates = _aniworld_candidates(title)
     if diagnostic and not candidates:
-        logger.info("[AniWorld Naruto] no exact-title candidates found for %r", title)
+        logger.warning("[AniWorld Naruto] no exact-title candidates found for %r", title)
 
     for series in candidates:
         try:
@@ -399,7 +399,7 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
             actual_clean = clean_for_match(actual_title)
             wanted_clean = clean_for_match(title)
             if diagnostic:
-                logger.info(
+                logger.warning(
                     "[AniWorld Naruto] opened candidate url=%r page_title=%r normalized=%r exact_match=%s",
                     series.url, actual_title, actual_clean, actual_clean == wanted_clean,
                 )
@@ -422,7 +422,7 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
                         })
                     except Exception as season_exc:
                         season_summary.append({"url": getattr(item, "url", ""), "error": str(season_exc)})
-                logger.info(
+                logger.warning(
                     "[AniWorld Naruto] series %r exposes %d season entries: %s",
                     actual_title, len(seasons), season_summary,
                 )
@@ -431,12 +431,12 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
             for season in seasons:
                 if season.are_movies:
                     if diagnostic:
-                        logger.info("[AniWorld Naruto] ignoring movie collection %r", season.url)
+                        logger.warning("[AniWorld Naruto] ignoring movie collection %r", season.url)
                     continue
                 actual_season_number = season.season_number
                 if actual_season_number != season_number:
                     if diagnostic:
-                        logger.info(
+                        logger.warning(
                             "[AniWorld Naruto] season mismatch: available=%s requested=%s url=%r",
                             actual_season_number, season_number, season.url,
                         )
@@ -446,7 +446,7 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
                 episodes = season.episodes
                 episode_numbers = [episode.episode_number for episode in episodes]
                 if diagnostic:
-                    logger.info(
+                    logger.warning(
                         "[AniWorld Naruto] matched season=%s url=%r episode_count=%d episode_numbers=%s",
                         actual_season_number, season.url, len(episodes), episode_numbers[:80],
                     )
@@ -456,14 +456,14 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
                 ]
                 if not matching_episodes:
                     if diagnostic:
-                        logger.info(
+                        logger.warning(
                             "[AniWorld Naruto] episode %s not found in season %s",
                             episode_number, actual_season_number,
                         )
                     continue
                 for episode in matching_episodes:
                     if diagnostic:
-                        logger.info(
+                        logger.warning(
                             "[AniWorld Naruto] matched episode number=%s title_de=%r title_en=%r url=%r",
                             episode.episode_number, episode.title_de, episode.title_en, episode.url,
                         )
@@ -471,20 +471,20 @@ def fetch_aniworld_series_streams(title: str, season_number: int, episode_number
                         episode, f"{actual_title} S{season_number:02d}E{episode_number:02d}", binge_group
                     )
                     if diagnostic:
-                        logger.info(
+                        logger.warning(
                             "[AniWorld Naruto] stream extraction returned %d stream(s) for S%02dE%02d",
                             len(streams), season_number, episode_number,
                         )
                     if streams:
                         return streams
             if diagnostic and not requested_season_found:
-                logger.info(
+                logger.warning(
                     "[AniWorld Naruto] requested season %s is absent from candidate %r",
                     season_number, actual_title,
                 )
         except Exception as exc:
             if diagnostic:
-                logger.info("[AniWorld Naruto] series processing failed for %r: %s", series.url, exc)
+                logger.warning("[AniWorld Naruto] series processing failed for %r: %s", series.url, exc)
             logger.debug(f"AniWorld series processing failed for {series.url}: {exc}")
     return []
 
@@ -669,11 +669,11 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
         en_title, aniworld_enabled,
     )
     if _is_naruto_diagnostic(en_title) or _is_naruto_diagnostic(de_title):
-        logger.info(
+        logger.warning(
             "[AniWorld Naruto] metadata gate: en_title=%r de_title=%r genres=%r enabled=%s requested=S%02dE%02d",
             en_title, de_title, meta.get("genres"), aniworld_enabled, season, episode_num,
         )
-        logger.info(
+        logger.warning(
             "[AniWorld Naruto] provider search titles=%r",
             sorted(title for title in titles_to_search if title),
         )
