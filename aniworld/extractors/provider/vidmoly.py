@@ -1,7 +1,6 @@
 import logging
 import re
 from html import unescape
-from html import unescape
 from urllib.parse import urlparse
 
 try:
@@ -28,6 +27,10 @@ FILE_LINK_PATTERN = re.compile(
 )
 PREVIEW_IMAGE_PATTERN = re.compile(
     r"""image\s*:\s*['"]([^'"]+\.(?:jpg|jpeg|png|webp)(?:\?[^'"]*)?)['"]""",
+    re.IGNORECASE,
+)
+JS_REDIRECT_PATTERN = re.compile(
+    r"""(?:window\.)?location\.(?:replace|assign)\(\s*['"]([^'"]+)['"]""",
     re.IGNORECASE,
 )
 
@@ -58,6 +61,53 @@ def get_playback_headers(embed_url=None):
     }
 
 
+def _get_html_with_browser(embed_url):
+    """Execute Vidmoly's JavaScript redirect and return the final document."""
+    from patchright.sync_api import sync_playwright
+    from ...autodeps import _ensure_xvfb
+    from ...playwright.captcha import (
+        _inject_session_cookies,
+        _launch_browser_context,
+    )
+
+    _ensure_xvfb()
+    with sync_playwright() as playwright:
+        handle = _launch_browser_context(playwright, offscreen=True)
+        try:
+            context = handle.context
+            _inject_session_cookies(context, embed_url)
+            page = context.new_page()
+            page.goto(
+                embed_url,
+                wait_until="domcontentloaded",
+                timeout=30000,
+            )
+
+            # Vidmoly currently serves a tiny "Loading..." document which
+            # redirects to the real embed page through location.replace().
+            # Let Chromium execute that script and settle any follow-up page.
+            for _ in range(10):
+                page.wait_for_timeout(500)
+                try:
+                    title = page.title()
+                except Exception:
+                    title = ""
+                if title and title.lower() != "loading...":
+                    break
+
+            final_url = page.url
+            html = page.content()
+            logger.info(
+                "Vidmoly browser navigation: final_host=%s html_length=%d title=%r",
+                urlparse(final_url).netloc,
+                len(html or ""),
+                title[:80],
+            )
+            return html, final_url
+        finally:
+            handle.close()
+
+
 def _get_html(embed_url):
     if not embed_url:
         raise ValueError("Embed URL cannot be empty")
@@ -85,20 +135,55 @@ def _get_html(embed_url):
             urlparse(final_url).netloc,
         )
     response.raise_for_status()
+
+    # Do not try to parse the 495-byte JavaScript redirect stub as a player.
+    # Use Chromium only for this client-side redirect path; normal embeds keep
+    # the faster shared HTTP-session path.
+    if JS_REDIRECT_PATTERN.search(html):
+        try:
+            return _get_html_with_browser(normalized_url)
+        except Exception as exc:
+            logger.warning(
+                "Vidmoly browser redirect follow-up failed (%s); keeping HTTP response",
+                type(exc).__name__,
+            )
+
     return html, final_url
+
+
+def _safe_visible_text(html):
+    content = unescape(html or "")
+    content = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>",
+        " ",
+        content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    content = re.sub(r"<[^>]+>", " ", content)
+    content = re.sub(r"\s+", " ", content).strip()
+    # Remove complete URLs, including JWTs and other query-string credentials.
+    content = re.sub(r"https?://[^'\\"\s]+", "[url]", content)
+    content = re.sub(
+        r"(?i)\b(token|key|auth|session|js|ch)=\S+",
+        r"\1=[redacted]",
+        content,
+    )
+    return content
 
 
 def _extract_video_url(html, embed_url):
     content = unescape((html or "").replace(r"\\/", "/"))
     match = SOURCES_PATTERN.search(content) or FILE_LINK_PATTERN.search(content)
     if not match:
-        title_match = re.search(r"<title[^>]*>(.*?)</title>", content, re.IGNORECASE | re.DOTALL)
-        title = re.sub(r"\\s+", " ", unescape(title_match.group(1))).strip() if title_match else "(no title)"
-        visible_text = re.sub(r"<(script|style)\\b[^>]*>.*?</\\1>", " ", content, flags=re.IGNORECASE | re.DOTALL)
-        visible_text = re.sub(r"<[^>]+>", " ", visible_text)
-        visible_text = re.sub(r"\\s+", " ", unescape(visible_text)).strip()
-        visible_text = re.sub(r"https?://\\S+", "[url]", visible_text)
-        visible_text = re.sub(r"(?i)(token|key|auth|session)=\\S+", r"\\1=[redacted]", visible_text)
+        title_match = re.search(
+            r"<title[^>]*>(.*?)</title>", content, re.IGNORECASE | re.DOTALL
+        )
+        title = (
+            re.sub(r"\s+", " ", unescape(title_match.group(1))).strip()
+            if title_match
+            else "(no title)"
+        )
+        visible_text = _safe_visible_text(content)
         logger.warning(
             "Vidmoly response summary: host=%s title=%r text=%r",
             urlparse(embed_url).netloc,
@@ -115,6 +200,7 @@ def _extract_video_url(html, embed_url):
                 "m3u8": ".m3u8" in content.lower(),
                 "jwplayer": "jwplayer" in content.lower(),
                 "player": "player" in content.lower(),
+                "js_redirect": bool(JS_REDIRECT_PATTERN.search(content)),
             },
         )
         raise ValueError(
