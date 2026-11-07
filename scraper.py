@@ -1,5 +1,7 @@
 import re
+import time
 import niquests
+from threading import Lock
 from typing import List, Dict, Optional, Any, Set
 from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
@@ -20,6 +22,28 @@ GERMAN_TITLE_CACHE = {}
 # Shared, bounded pools: slow CAPTCHA work must not hold the HTTP request open.
 _SCRAPE_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider")
 _S_TO_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serienstream")
+_S_TO_LOCK = Lock()
+_S_TO_INFLIGHT = set()
+_S_TO_RESULT_CACHE = {}
+_S_TO_CACHE_TTL = 45
+
+
+def _fetch_s_to_cached(key, title, season, episode_num, binge_group):
+    """Run a Serienstream lookup and retain its result if it outlives the HTTP request."""
+    streams = fetch_series_site_streams(
+        "Serienstream", title, season, episode_num, binge_group
+    )
+    with _S_TO_LOCK:
+        _S_TO_RESULT_CACHE[key] = (time.monotonic(), streams)
+    return streams
+
+
+def _clear_s_to_inflight(key, future):
+    # A callback also runs when a queued future is cancelled before it starts.
+    with _S_TO_LOCK:
+        _S_TO_INFLIGHT.discard(key)
+
+
 
 
 def _collect_scrape_results(futures, timeout: int = 12) -> List[Dict]:
@@ -520,17 +544,40 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
             futures.append(_SCRAPE_EXECUTOR.submit(
                 fetch_aniworld_series_streams, title, season, episode_num, binge_group
             ))
-        for site in sites:
-            if site == "Serienstream":
-                # Keep CAPTCHA/browser work isolated to one worker so repeated
-                # requests cannot spawn an unbounded number of Playwright sessions.
-                futures.append(_S_TO_EXECUTOR.submit(
-                    fetch_series_site_streams, site, title, season, episode_num, binge_group
-                ))
+
+        # Reuse a recently completed S.to result, or leave one background task
+        # running. This lets a later Stremio request receive a result that needed
+        # more than the 12-second response budget (for example, a CAPTCHA).
+        s_to_key = (pure_imdb_id, title, season, episode_num)
+        with _S_TO_LOCK:
+            cached = _S_TO_RESULT_CACHE.get(s_to_key)
+            if cached and time.monotonic() - cached[0] < _S_TO_CACHE_TTL:
+                all_streams.extend(cached[1])
+                continue
+            if cached:
+                _S_TO_RESULT_CACHE.pop(s_to_key, None)
+
+            if s_to_key in _S_TO_INFLIGHT:
+                logger.info("Serienstream lookup still running for %s S%02dE%02d",
+                            title, season, episode_num)
             else:
-                futures.append(_SCRAPE_EXECUTOR.submit(
-                    fetch_series_site_streams, site, title, season, episode_num, binge_group
-                ))
+                _S_TO_INFLIGHT.add(s_to_key)
+                try:
+                    s_to_future = _S_TO_EXECUTOR.submit(
+                        _fetch_s_to_cached, s_to_key, title, season, episode_num, binge_group
+                    )
+                    s_to_future.add_done_callback(
+                        lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
+                    )
+                    futures.append(s_to_future)
+                except Exception:
+                    _S_TO_INFLIGHT.discard(s_to_key)
+                    raise
+
+        for site in ("MegaKino", "Kinox"):
+            futures.append(_SCRAPE_EXECUTOR.submit(
+                fetch_series_site_streams, site, title, season, episode_num, binge_group
+            ))
 
     all_streams.extend(_collect_scrape_results(futures, timeout=12))
     return all_streams
