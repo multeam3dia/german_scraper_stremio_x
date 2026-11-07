@@ -89,6 +89,31 @@ def ensure_serienstream_login() -> bool:
                 email_field.fill(email)
                 password_field.fill(password)
                 print("SERIENSTREAM-AUTH: login form filled; submitting", flush=True)
+                try:
+                    form_info = login_form.evaluate(
+                        "(form) => ({action: form.getAttribute('action'), method: form.getAttribute('method')})"
+                    )
+                    print(
+                        "SERIENSTREAM-AUTH: form method={} action={}".format(
+                            form_info.get("method") or "GET",
+                            urlparse(form_info.get("action") or page.url).path,
+                        ),
+                        flush=True,
+                    )
+                except Exception:
+                    pass
+
+                login_responses = []
+
+                def _record_login_response(response):
+                    try:
+                        request = response.request
+                        if request.method.upper() == "POST" and "serienstream." in response.url:
+                            login_responses.append((response.status, urlparse(response.url).path))
+                    except Exception:
+                        pass
+
+                page.on("response", _record_login_response)
 
                 submit = login_form.locator('button[type="submit"], input[type="submit"]').first
                 if submit.count():
@@ -122,6 +147,42 @@ def ensure_serienstream_login() -> bool:
                 except Exception:
                     pass
                 page.wait_for_timeout(500)
+
+                if login_responses:
+                    print(
+                        "SERIENSTREAM-AUTH: login POST response(s)={}".format(login_responses[-3:]),
+                        flush=True,
+                    )
+                else:
+                    print("SERIENSTREAM-AUTH: no SerienStream POST response observed", flush=True)
+                try:
+                    challenge_frames = [
+                        urlparse(frame.url).hostname or "unknown"
+                        for frame in page.frames
+                        if any(token in frame.url.lower() for token in (
+                            "challenges.cloudflare.com", "turnstile", "hcaptcha", "recaptcha"
+                        ))
+                    ]
+                    alerts = page.locator(
+                        '[role="alert"], .alert, .error, .invalid-feedback, .text-danger'
+                    ).all_inner_texts()
+                    alerts = [value.strip()[:180] for value in alerts if value.strip()][:5]
+                    print(
+                        "SERIENSTREAM-AUTH: post-submit url={} title={!r} challenge_frames={} messages={!r}".format(
+                            urlparse(page.url).path,
+                            page.title()[:100],
+                            challenge_frames,
+                            alerts,
+                        ),
+                        flush=True,
+                    )
+                except Exception as diagnostic_exc:
+                    print(
+                        "SERIENSTREAM-AUTH: post-submit diagnostics unavailable ({})".format(
+                            type(diagnostic_exc).__name__
+                        ),
+                        flush=True,
+                    )
 
                 current_path = urlparse(page.url).path.rstrip("/")
                 if current_path == "/login" or page.locator('input[type="password"]').count():
