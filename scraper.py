@@ -481,13 +481,6 @@ def fetch_aniworld_series_streams(
             title, expected_imdb_id, season_number, episode_number, target_episode_title,
         )
 
-    if not target_episode_title:
-        logger.debug(
-            "AniWorld lookup skipped for %r S%02dE%02d: Cinemeta has no episode title",
-            title, season_number, episode_number,
-        )
-        return []
-
     candidates = _aniworld_candidates(title)
     if diagnostic and not candidates:
         logger.debug("[AniWorld Naruto] no exact-title candidates found for %r", title)
@@ -512,15 +505,39 @@ def fetch_aniworld_series_streams(
                 )
                 continue
 
-            matched = _find_aniworld_episode_by_title(
-                series, target_episode_title, season_number, episode_number
-            )
-            if not matched:
-                logger.info(
-                    "No unambiguous AniWorld episode title match for %r (%s), requested %s S%02dE%02d",
-                    actual_title, target_episode_title, expected_imdb_id, season_number, episode_number,
+            if target_episode_title:
+                matched = _find_aniworld_episode_by_title(
+                    series, target_episode_title, season_number, episode_number
                 )
-                continue
+                if not matched:
+                    logger.info(
+                        "No unambiguous AniWorld episode title match for %r (%s), requested %s S%02dE%02d",
+                        actual_title, target_episode_title, expected_imdb_id, season_number, episode_number,
+                    )
+                    continue
+            else:
+                # Cinemeta sometimes omits the videos array entirely. In that
+                # case retain the original numeric mapping, but only after the
+                # series identity has passed the IMDb/exact-title check above.
+                matched = None
+                for candidate_season in series.seasons:
+                    if candidate_season.are_movies or candidate_season.season_number != season_number:
+                        continue
+                    for candidate_episode in candidate_season.episodes:
+                        if candidate_episode.episode_number == episode_number:
+                            matched = (candidate_season, candidate_episode)
+                            break
+                    break
+                if not matched:
+                    logger.info(
+                        "No numeric AniWorld fallback for %r, requested S%02dE%02d",
+                        actual_title, season_number, episode_number,
+                    )
+                    continue
+                logger.warning(
+                    "Cinemeta has no episode title for %r S%02dE%02d; using numeric AniWorld fallback after series identity check",
+                    title, season_number, episode_number,
+                )
 
             matched_season, episode = matched
             if diagnostic:
@@ -728,7 +745,7 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
     target_episode_title = (target_video or {}).get("title") if target_video else None
     if aniworld_enabled and not target_episode_title:
         logger.info(
-            "AniWorld lookup skipped for %r S%02dE%02d: requested episode is missing from Cinemeta videos",
+            "Cinemeta has no video title for %r S%02dE%02d; AniWorld will use guarded numeric fallback",
             en_title, season, episode_num,
         )
     logger.debug(
@@ -747,7 +764,7 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     futures = []
     for title in titles_to_search:
-        if aniworld_enabled and target_episode_title:
+        if aniworld_enabled:
             futures.append(_SCRAPE_EXECUTOR.submit(
                 fetch_aniworld_series_streams,
                 title,
