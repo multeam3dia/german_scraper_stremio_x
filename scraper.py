@@ -84,7 +84,7 @@ def find_best_matches(results: List[Dict], title: str, year: Optional[int] = Non
         # "Bad Monkey" for a search for "Monk". Only accept the same title.
         # A requested season suffix is allowed, but it must match the requested season.
         if season:
-            res_clean = re.sub(r"(staffel|season)\\d+$", "", res_clean)
+            res_clean = re.sub(r"(staffel|season)\d+$", "", res_clean)
         return bool(title_clean) and res_clean == title_clean
 
     if season:
