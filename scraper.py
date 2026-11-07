@@ -363,9 +363,10 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
         ("Kinox", query_kinox, KinoxEpisode),
     ]
 
-    with ThreadPoolExecutor(max_workers=len(providers) * len(titles_to_search)) as executor:
+    with ThreadPoolExecutor(max_workers=(len(providers) + 1) * len(titles_to_search)) as executor:
         futures = []
         for title in titles_to_search:
+            futures.append(executor.submit(fetch_aniworld_movie_streams, title))
             for site, q_fn, cls in providers:
                 futures.append(executor.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
 
@@ -435,9 +436,10 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
     binge_group = f"{pure_imdb_id}"
     sites = ["Serienstream", "MegaKino", "Kinox"]
 
-    with ThreadPoolExecutor(max_workers=len(sites) * len(titles_to_search)) as executor:
+    with ThreadPoolExecutor(max_workers=(len(sites) + 1) * len(titles_to_search)) as executor:
         futures = []
         for title in titles_to_search:
+            futures.append(executor.submit(fetch_aniworld_series_streams, title, season, episode_num, binge_group))
             for site in sites:
                 futures.append(executor.submit(fetch_series_site_streams, site, title, season, episode_num, binge_group))
 
