@@ -3,29 +3,25 @@
 This Stremio addon provides German streams for movies and series from multiple sources.
 
 ## Features
-- **Movies**: Scrapes **Filmpalast.to**, **MegaKino**, and **Kinox.to**.
-- **Series**: Scrapes **Serienstream.to**, **Kinox.to**, and **MegaKino**.
-- **Robust Matching**: Uses advanced fuzzy title and year matching to find the best streams.
-- **Auto-Correction**: Automatically retries searches with simplified titles if no results are found.
-- **Captcha Handling**: Built-in support for solving provider captchas (e.g. on Serienstream).
+- **Movies**: Scrapes **Filmpalast.to**, **MegaKino**, and **Kinox.to**, with AniWorld anime film collections as an additional source.
+- **Series**: Scrapes **Serienstream.to**, **Kinox.to**, **MegaKino**, and **AniWorld**.
+- **Robust Matching**: Uses title and year matching to find candidate streams.
+- **Auto-Correction**: Retries searches with simplified titles where supported.
+- **Captcha Handling**: Includes provider-specific handling from the underlying scraper projects.
 
-## Installation
+## Installation (local development)
 1. Install Python 3.10 or higher.
 2. Install dependencies:
    ```bash
-   pip install fastapi uvicorn niquests niquests[brotli] certifi packaging python-dotenv curl_cffi patchright
+   pip install -r requirements.txt
    patchright install chromium
    ```
 3. Run the addon:
    ```bash
-   python main.py
+   PORT=10000 python main.py
    ```
-4. In Stremio, go to Addons -> Community Addons -> Add outside addon and enter:
-   `http://localhost:8080/manifest.json`
-
-## Credit
-Based on logic from the AniWorld-Downloader project.
-
+4. In Stremio, add the manifest URL:
+   `http://localhost:10000/manifest.json`
 
 ## AniWorld integration
 
@@ -41,16 +37,29 @@ collections do not always use identical titles, some movies may require
 additional aliases or matching rules.
 
 The AniWorld-derived models are based on
-[AniWorld-Downloader](https://github.com/phoenixthrush/AniWorld-Downloader);
-retain the upstream MIT license notice when redistributing those files.
+[AniWorld-Downloader](https://github.com/phoenixthrush/AniWorld-Downloader).
+The upstream MIT license notice is retained in `LICENSE.AniWorld-Downloader`.
 
-## Docker / Dockhand
+## Docker / Dockhand / Pangolin
 
-The image listens on container port `10000` and starts the FastAPI add-on with
-one Uvicorn worker. Use Docker Compose in Dockhand and set the Pangolin network
-name in `PANGOLIN_NETWORK` to the existing Docker network that can reach the
-Pangolin public-access target. The Compose stack intentionally does not publish
-a host port; Pangolin should reach the container internally.
+The container listens on port `10000` and runs FastAPI with one Uvicorn worker.
+The Compose file is prepared for Dockhand stacks:
 
-The container uses `restart: unless-stopped`, so Docker restarts it after VPS
-reboots. The health check requests `/manifest.json`.
+- It builds from the public GitHub branch `feature/aniworld-integration`.
+- It joins the existing external Docker network `pangolin_frontend`.
+- It uses `expose`, not `ports`; no host port is published.
+- Pangolin should target container `german-scraper-stremio` on port `10000`.
+
+In Pangolin, create a Public Resource for that container. Stremio must be able
+to retrieve the manifest and stream responses without an interactive login.
+For this addon, the relevant application paths are `/manifest.json` and
+`/stream/*`. Configure narrowly scoped bypass rules for those paths, and keep
+other paths protected or denied. Check Pangolin's HTTP request logs for any
+additional blocked requests before adding rules.
+
+The stack expects that the Docker network `pangolin_frontend` already exists,
+as described in the self-hosting guide. Do not create a second network with the
+same purpose or publish port `10000` directly to the internet.
+
+The health check requests `/manifest.json`. The container restarts unless
+stopped manually.
