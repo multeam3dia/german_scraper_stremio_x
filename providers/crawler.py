@@ -32,7 +32,7 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
         for reference in provider.iter_catalog():
             try:
                 detail = provider.get_title(reference.url)
-                if not detail.imdb_id or not re.fullmatch(r"tt\\d{7,10}", str(detail.imdb_id).strip()):
+                if not detail.imdb_id or not re.fullmatch(r"tt\d{7,10}", str(detail.imdb_id).strip()):
                     unresolved += 1
                     record_unresolved_title(
                         detail.provider,
