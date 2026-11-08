@@ -339,10 +339,27 @@ def get_catalog_metas(media_type: str, skip: int = 0, search: str = "") -> List[
             continue
         metas.append(meta)
 
-    logger.info(
-        "MDBList catalog fetched: type=%s list_id=%s items=%d metas=%d rejected=%d response_type=%s",
-        media_type, list_id, len(items), len(metas), rejected, type(payload).__name__,
-    )
+    if not metas:
+        first_item = items[0] if items and isinstance(items[0], dict) else {}
+        ids = first_item.get("ids") if isinstance(first_item.get("ids"), dict) else {}
+        logger.warning(
+            "MDBList catalog diagnostic: type=%s list_id=%s items=%d metas=%d rejected=%d "
+            "payload_type=%s payload_keys=%s first_item_keys=%s ids_keys=%s",
+            media_type,
+            list_id,
+            len(items),
+            len(metas),
+            rejected,
+            type(payload).__name__,
+            sorted(str(key) for key in payload.keys()) if isinstance(payload, dict) else [],
+            sorted(str(key) for key in first_item.keys()),
+            sorted(str(key) for key in ids.keys()),
+        )
+    else:
+        logger.info(
+            "MDBList catalog fetched: type=%s items=%d metas=%d",
+            media_type, len(items), len(metas),
+        )
 
     with _LOCK:
         _CATALOG_CACHE[cache_key] = (now, metas)
