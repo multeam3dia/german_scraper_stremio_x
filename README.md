@@ -161,11 +161,11 @@ The Compose file is prepared for Dockhand stacks:
 - Pangolin should target container `german-scraper-stremio` on port `10000`.
 
 In Pangolin, create a Public Resource for that container. Stremio must be able
-to retrieve the manifest and stream responses without an interactive login.
-For this addon, the relevant application paths are `/manifest.json` and
-`/stream/*`. Configure narrowly scoped bypass rules for those paths, and keep
-other paths protected or denied. Check Pangolin's HTTP request logs for any
-additional blocked requests before adding rules.
+to retrieve the manifest, catalogs, and stream responses without an
+interactive login. The relevant application paths are `/manifest.json`,
+`/catalog/*`, and `/stream/*`. Configure narrowly scoped bypass rules for
+those paths, and keep other paths protected or denied. Check Pangolin's HTTP
+request logs for any additional blocked requests before adding rules.
 
 The stack expects that the Docker network `pangolin_frontend` already exists,
 as described in the self-hosting guide. Do not create a second network with the
