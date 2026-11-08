@@ -69,7 +69,12 @@ def get_catalog(type: str, catalog_id: str, skip: int = 0, search: str = ""):
     try:
         return {"metas": get_catalog_metas(media_type, skip=max(0, skip), search=search)}
     except Exception as exc:
-        logger.error("MDBList catalog request failed for %s: %s", catalog_id, exc.__class__.__name__)
+        # MDBListAPIError messages contain only a safe status/diagnostic,
+        # never the request URL or API key.
+        logger.error(
+            "MDBList catalog request failed for %s: %s: %s",
+            catalog_id, exc.__class__.__name__, str(exc),
+        )
         return {"metas": []}
 
 
