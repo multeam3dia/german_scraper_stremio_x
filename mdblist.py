@@ -16,6 +16,7 @@ _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mdblist")
 _LOCK = Lock()
 _PENDING = set()
 _SYNCED = set()
+_LIST_ID_CACHE = {}
 
 
 class MDBListConfigurationError(RuntimeError):
@@ -42,6 +43,69 @@ def _list_id(name: str) -> int:
     if parsed <= 0:
         raise MDBListConfigurationError(f"{name} must be a positive integer")
     return parsed
+
+
+
+def _resolve_list_id(api_key: str, media_type: str) -> int:
+    """Resolve a configured numeric list ID or exact user-list name."""
+    id_env = "MDBLIST_MOVIE_LIST_ID" if media_type == "movie" else "MDBLIST_SHOW_LIST_ID"
+    name_env = "MDBLIST_MOVIE_LIST_NAME" if media_type == "movie" else "MDBLIST_SHOW_LIST_NAME"
+    configured_id = os.getenv(id_env, "").strip()
+    if configured_id:
+        try:
+            parsed = int(configured_id)
+        except ValueError as exc:
+            raise MDBListConfigurationError(f"{id_env} must be a positive integer") from exc
+        if parsed <= 0:
+            raise MDBListConfigurationError(f"{id_env} must be a positive integer")
+        return parsed
+
+    list_name = _required_env(name_env)
+    cache_key = (media_type, list_name)
+    with _LOCK:
+        cached = _LIST_ID_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        response = niquests.get(
+            f"{API_BASE}/lists/user",
+            params={"apikey": api_key},
+            timeout=15,
+        )
+    except Exception as exc:
+        raise MDBListAPIError("Could not retrieve MDBList user lists") from exc
+    if response.status_code >= 400:
+        raise MDBListAPIError(f"MDBList returned HTTP {response.status_code}")
+    try:
+        lists = response.json()
+    except Exception as exc:
+        raise MDBListAPIError("MDBList returned invalid list JSON") from exc
+    if isinstance(lists, dict):
+        lists = lists.get("lists")
+    if not isinstance(lists, list):
+        raise MDBListAPIError("MDBList returned an unexpected list response")
+
+    expected_type = "movie" if media_type == "movie" else "show"
+    matches = [
+        item for item in lists
+        if isinstance(item, dict)
+        and str(item.get("name", "")).strip() == list_name
+        and str(item.get("mediatype", "")).strip().lower() == expected_type
+    ]
+    if len(matches) != 1:
+        raise MDBListConfigurationError(
+            f"Expected exactly one {expected_type} list named {list_name!r}; found {len(matches)}"
+        )
+    try:
+        list_id = int(matches[0]["id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise MDBListAPIError("MDBList list response did not contain a valid ID") from exc
+    if list_id <= 0:
+        raise MDBListAPIError("MDBList returned an invalid list ID")
+    with _LOCK:
+        _LIST_ID_CACHE[cache_key] = list_id
+    return list_id
 
 
 def _add_item(api_key: str, list_id: int, media_type: str, imdb_id: str) -> Dict:
@@ -76,11 +140,8 @@ def _sync_worker(media_type: str, imdb_id: str) -> None:
     key = (media_type, imdb_id)
     try:
         api_key = _required_env("MDBLIST_API_KEY")
-        list_name = (
-            "MDBLIST_MOVIE_LIST_ID" if media_type == "movie"
-            else "MDBLIST_SHOW_LIST_ID"
-        )
-        result = _add_item(api_key, _list_id(list_name), media_type, imdb_id)
+        list_id = _resolve_list_id(api_key, media_type)
+        result = _add_item(api_key, list_id, media_type, imdb_id)
         not_found = result.get("not_found") or {}
         not_found_count = sum(
             value for value in not_found.values() if isinstance(value, int)
@@ -121,12 +182,11 @@ def queue_verified_title(media_type: str, imdb_id: str) -> bool:
     if not IMDB_ID_RE.fullmatch(imdb_id):
         return False
 
-    required = ("MDBLIST_API_KEY",)
-    list_name = (
-        "MDBLIST_MOVIE_LIST_ID" if media_type == "movie"
-        else "MDBLIST_SHOW_LIST_ID"
-    )
-    if not all(os.getenv(name, "").strip() for name in (*required, list_name)):
+    list_id_name = "MDBLIST_MOVIE_LIST_ID" if media_type == "movie" else "MDBLIST_SHOW_LIST_ID"
+    list_name_name = "MDBLIST_MOVIE_LIST_NAME" if media_type == "movie" else "MDBLIST_SHOW_LIST_NAME"
+    if not os.getenv("MDBLIST_API_KEY", "").strip():
+        return False
+    if not (os.getenv(list_id_name, "").strip() or os.getenv(list_name_name, "").strip()):
         return False
 
     key = (media_type, imdb_id)
