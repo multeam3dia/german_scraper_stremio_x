@@ -9,13 +9,13 @@ from mdblist import queue_verified_title
 from catalog_db import get_catalog_titles, init_db, list_genres
 
 ADDON_ID = "org.stremio.german.scraper"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 MANIFEST = {
     "id": ADDON_ID,
     "version": VERSION,
     "name": "German Scraper",
-    "description": "German streams from AniWorld, Filmpalast, Serienstream, MegaKino, and Kinox.",
+    "description": "German streams and verified availability catalogs from AniWorld, Serienstream, Filmpalast, and MegaKino.",
     "logo": "https://www.stremio.com/static/images/stremio-logo.png",
     "resources": ["stream", "catalog"],
     "types": ["movie", "series"],
