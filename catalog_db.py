@@ -795,6 +795,12 @@ def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
                 JOIN titles t
                   ON t.media_type = tg.media_type AND t.imdb_id = tg.imdb_id
                 WHERE tg.media_type = ? AND t.catalog_active = 1
+                  AND EXISTS (
+                      SELECT 1 FROM provider_entries pe
+                      WHERE pe.media_type = t.media_type
+                        AND pe.imdb_id = t.imdb_id
+                        AND pe.availability_status = 'available'
+                  )
                 ORDER BY g.name COLLATE NOCASE
                 """,
                 (media_type,),
@@ -808,6 +814,12 @@ def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
                 JOIN titles t
                   ON t.media_type = tg.media_type AND t.imdb_id = tg.imdb_id
                 WHERE t.catalog_active = 1
+                  AND EXISTS (
+                      SELECT 1 FROM provider_entries pe
+                      WHERE pe.media_type = t.media_type
+                        AND pe.imdb_id = t.imdb_id
+                        AND pe.availability_status = 'available'
+                  )
                 ORDER BY g.name COLLATE NOCASE
                 """
             ).fetchall()
