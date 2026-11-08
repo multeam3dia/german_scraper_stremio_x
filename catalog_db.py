@@ -440,6 +440,22 @@ def mark_unresolved_title_resolved(
             (imdb_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
         )
 
+
+def get_resolved_imdb_id(provider: str, provider_url: str) -> Optional[str]:
+    """Return a manually or automatically verified IMDb mapping for a provider URL."""
+    with _connect() as db:
+        row = db.execute(
+            """
+            SELECT resolved_imdb_id
+            FROM unresolved_provider_titles
+            WHERE provider = ? AND provider_url = ?
+              AND resolved_imdb_id IS NOT NULL
+            """,
+            (provider.strip().lower(), provider_url.strip()),
+        ).fetchone()
+    return str(row["resolved_imdb_id"]) if row else None
+
+
 def start_crawl_run(provider: str, media_type: str) -> int:
     if media_type not in MEDIA_TYPES:
         raise ValueError("Unsupported media type")
