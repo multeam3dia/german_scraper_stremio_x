@@ -185,6 +185,9 @@ The database is designed to become the source of truth for provider discovery:
   last-seen/last-checked timestamps and availability state.
 - `crawl_runs`: scan history, progress and errors per provider.
 - `sync_outbox`: durable add/remove operations to be delivered to MDBList.
+- `unresolved_provider_titles`: provider titles without a verified IMDb ID,
+  retained with title, URL, year, poster and metadata for later identity matching.
+  These records are not exposed in Stremio catalogs until explicitly resolved.
 - `genres` and `title_genres`: normalized many-to-many genre assignments,
   allowing each movie or series to appear in multiple genre catalogs.
 
@@ -198,6 +201,14 @@ creating a separate MDBList list for every genre.
 Genre-specific Stremio catalog endpoints are **not enabled yet**. They will be
 added after the systematic provider crawler populates verified titles and
 their metadata.
+
+The crawler now persists titles whose provider detail page does not expose
+a valid IMDb ID in `unresolved_provider_titles`. Repeated scans update the
+same provider URL record and increment its attempt count. These records can be
+retrieved with `get_unresolved_titles()` and marked resolved only after a
+separate identity check with `mark_unresolved_title_resolved()`. The catalog
+statistics include the number of unresolved titles. Automatic title-to-IMDb
+matching is not implemented yet; no fuzzy match is silently promoted.
 
 This is the storage foundation only. The systematic provider crawler and
 outbox worker are not enabled yet; until those are implemented, the existing
