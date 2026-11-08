@@ -361,7 +361,7 @@ def record_unresolved_title(
         raise ValueError("provider, provider_url and title are required")
 
     normalized = __import__("re").sub(
-        r"[^\\w]+", " ", title.casefold()
+        r"[^\w]+", " ", title.casefold()
     ).strip()
     now = _utc_now()
     with _connect() as db:
