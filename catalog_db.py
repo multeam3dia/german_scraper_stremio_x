@@ -144,7 +144,7 @@ def init_db() -> None:
         )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (1)")
+            db.execute("INSERT INTO schema_version(version) VALUES (2)")
         elif row["version"] < 2:
             db.execute("UPDATE schema_version SET version = 2")
         elif row["version"] > 2:
@@ -217,6 +217,13 @@ def record_discovery(
             (media_type, imdb_id, provider, provider_title or title,
              provider_url, now, now, now),
         )
+        # When genre data is supplied, replace the previous assignments.
+        # None means "metadata not refreshed"; an empty list means "no genres".
+        if genres is not None:
+            db.execute(
+                "DELETE FROM title_genres WHERE media_type = ? AND imdb_id = ?",
+                (media_type, imdb_id),
+            )
         # Genres are normalized independently from provider-specific labels.
         for genre in genres or []:
             name = str(genre or "").strip()
