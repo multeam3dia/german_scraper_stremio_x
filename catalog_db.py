@@ -87,6 +87,26 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_provider_entries_status
                 ON provider_entries(provider, availability_status, last_checked_at);
 
+            CREATE TABLE IF NOT EXISTS genres (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slug TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL UNIQUE
+            );
+
+            CREATE TABLE IF NOT EXISTS title_genres (
+                media_type TEXT NOT NULL,
+                imdb_id TEXT NOT NULL,
+                genre_id INTEGER NOT NULL,
+                PRIMARY KEY (media_type, imdb_id, genre_id),
+                FOREIGN KEY (media_type, imdb_id)
+                    REFERENCES titles(media_type, imdb_id) ON DELETE CASCADE,
+                FOREIGN KEY (genre_id)
+                    REFERENCES genres(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_title_genres_genre
+                ON title_genres(genre_id, media_type, imdb_id);
+
             CREATE TABLE IF NOT EXISTS crawl_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 provider TEXT NOT NULL,
@@ -125,7 +145,9 @@ def init_db() -> None:
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             db.execute("INSERT INTO schema_version(version) VALUES (1)")
-        elif row["version"] > 1:
+        elif row["version"] < 2:
+            db.execute("UPDATE schema_version SET version = 2")
+        elif row["version"] > 2:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
@@ -139,6 +161,7 @@ def record_discovery(
     provider_url: Optional[str] = None,
     year: Optional[int] = None,
     metadata: Optional[dict[str, Any]] = None,
+    genres: Optional[list[str]] = None,
 ) -> None:
     """Record a positively discovered title/provider pair.
 
@@ -194,6 +217,29 @@ def record_discovery(
             (media_type, imdb_id, provider, provider_title or title,
              provider_url, now, now, now),
         )
+        # Genres are normalized independently from provider-specific labels.
+        for genre in genres or []:
+            name = str(genre or "").strip()
+            if not name:
+                continue
+            slug = __import__("re").sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+            if not slug:
+                continue
+            db.execute(
+                "INSERT OR IGNORE INTO genres(slug, name) VALUES (?, ?)",
+                (slug, name),
+            )
+            genre_row = db.execute(
+                "SELECT id FROM genres WHERE slug = ?", (slug,)
+            ).fetchone()
+            db.execute(
+                """
+                INSERT OR IGNORE INTO title_genres(media_type, imdb_id, genre_id)
+                VALUES (?, ?, ?)
+                """,
+                (media_type, imdb_id, int(genre_row["id"])),
+            )
+
         db.execute(
             """
             INSERT OR IGNORE INTO sync_outbox(
@@ -252,3 +298,83 @@ def get_catalog_stats() -> dict[str, int]:
         ).fetchone()[0]
     return {"active_titles": int(titles), "active_providers": int(providers),
             "pending_mdb_sync": int(pending)}
+
+def get_title_genres(media_type: str, imdb_id: str) -> list[str]:
+    """Return canonical genre names assigned to a title."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        rows = db.execute(
+            """
+            SELECT g.name
+            FROM genres g
+            JOIN title_genres tg ON tg.genre_id = g.id
+            WHERE tg.media_type = ? AND tg.imdb_id = ?
+            ORDER BY g.name COLLATE NOCASE
+            """,
+            (media_type, imdb_id),
+        ).fetchall()
+    return [str(row["name"]) for row in rows]
+
+
+def get_genre_catalog(media_type: str, genre_slug: str) -> list[dict[str, Any]]:
+    """Return active titles for one genre, ready for Stremio catalog mapping."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        rows = db.execute(
+            """
+            SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
+            FROM titles t
+            JOIN title_genres tg
+              ON tg.media_type = t.media_type AND tg.imdb_id = t.imdb_id
+            JOIN genres g ON g.id = tg.genre_id
+            WHERE t.media_type = ? AND t.catalog_active = 1 AND g.slug = ?
+            ORDER BY t.title COLLATE NOCASE
+            """,
+            (media_type, genre_slug),
+        ).fetchall()
+    return [
+        {
+            "media_type": row["media_type"],
+            "imdb_id": row["imdb_id"],
+            "title": row["title"],
+            "year": row["year"],
+            "metadata": json.loads(row["metadata_json"] or "{}"),
+        }
+        for row in rows
+    ]
+
+
+def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
+    """List genres currently assigned to active titles."""
+    if media_type is not None and media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        if media_type:
+            rows = db.execute(
+                """
+                SELECT DISTINCT g.slug, g.name
+                FROM genres g
+                JOIN title_genres tg ON tg.genre_id = g.id
+                JOIN titles t
+                  ON t.media_type = tg.media_type AND t.imdb_id = tg.imdb_id
+                WHERE tg.media_type = ? AND t.catalog_active = 1
+                ORDER BY g.name COLLATE NOCASE
+                """,
+                (media_type,),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT DISTINCT g.slug, g.name
+                FROM genres g
+                JOIN title_genres tg ON tg.genre_id = g.id
+                JOIN titles t
+                  ON t.media_type = tg.media_type AND t.imdb_id = tg.imdb_id
+                WHERE t.catalog_active = 1
+                ORDER BY g.name COLLATE NOCASE
+                """
+            ).fetchall()
+    return [{"slug": row["slug"], "name": row["name"]} for row in rows]
+
