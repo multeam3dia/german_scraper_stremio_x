@@ -47,10 +47,10 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 provider_imdb_id = str(detail.imdb_id or "").strip()
                 resolved_id = (
                     provider_imdb_id
-                    if re.fullmatch(r"tt\\d{7,10}", provider_imdb_id)
+                    if re.fullmatch(r"tt\d{7,10}", provider_imdb_id)
                     else get_resolved_imdb_id(detail.provider, detail.url)
                 )
-                if not resolved_id or not re.fullmatch(r"tt\\d{7,10}", str(resolved_id).strip()):
+                if not resolved_id or not re.fullmatch(r"tt\d{7,10}", str(resolved_id).strip()):
                     unresolved += 1
                     record_unresolved_title(
                         detail.provider,
