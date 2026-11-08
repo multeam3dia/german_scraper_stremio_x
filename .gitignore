@@ -8,6 +8,7 @@ ENV/
 .env
 
 # Project specific
+data/
 debug_*.py
 test_*.py
 .aniworld/
