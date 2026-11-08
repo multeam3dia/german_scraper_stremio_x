@@ -9,12 +9,12 @@ from .base import (
 )
 from .aniworld import AniWorldProvider
 from .serienstream import SerienstreamProvider
-from .crawler import crawl_named_provider, crawl_provider
-
 PROVIDERS = {
     "aniworld": AniWorldProvider,
     "serienstream": SerienstreamProvider,
 }
+
+from .crawler import crawl_named_provider, crawl_provider
 
 __all__ = [
     "BaseProvider", "ProviderTitle", "ProviderSeason", "ProviderEpisode",
