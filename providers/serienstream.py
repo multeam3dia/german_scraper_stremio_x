@@ -16,7 +16,8 @@ def _year(value: object) -> int | None:
 
 
 def _variants(episode: object) -> list[ProviderVariant]:
-    data = getattr(getattr(episode, "provider_data", None), "_data", {}) or {}
+    provider_data = getattr(episode, "provider_data", {}) or {}
+    data = getattr(provider_data, "_data", provider_data) or {}
     variants: list[ProviderVariant] = []
     for language_pair, hosters in data.items():
         audio = getattr(language_pair[0], "value", str(language_pair[0]))
