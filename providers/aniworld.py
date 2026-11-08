@@ -5,7 +5,7 @@ import re
 from typing import Iterator
 
 from aniworld.models.aniworld_to import AniworldSeries
-from aniworld.search import fetch_genres, fetch_genre_animes
+from aniworld.search import GENRE_FALLBACK, fetch_genres, fetch_genre_animes
 
 from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle, ProviderVariant
 
@@ -41,6 +41,15 @@ class AniWorldProvider(BaseProvider):
         """Enumerate all visible AniWorld genre pages, deduplicated by canonical URL."""
         seen: set[str] = set()
         genres = fetch_genres() or []
+        fallback_genres = [
+            {"name": name, "slug": slug} for name, slug in GENRE_FALLBACK
+        ]
+        # The fallback list is useful for discovery, but it is not proof that
+        # the homepage's current genre index was read completely. Do not use
+        # such a pass to mark old provider entries as missing.
+        self.catalog_scan_complete = bool(genres) and genres != fallback_genres
+        if not genres:
+            raise RuntimeError("AniWorld genre index is empty")
         for genre in genres:
             slug = str(genre.get("slug") or "").strip()
             if not slug:
