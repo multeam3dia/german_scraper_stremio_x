@@ -8,10 +8,11 @@ The `providers/` package defines a shared provider contract and normalized
 records for titles, seasons, episodes, language variants, and hosters.
 
 - `AniWorldProvider` discovers series from the provider's genre pages.
-- `SerienstreamProvider` now discovers titles from the alphabetical `/serien?by=alpha`
-  index instead of only the homepage's featured sections. The scan remains
-  deliberately marked incomplete until pagination and full index coverage have
-  been validated against a live crawl.
+- `SerienstreamProvider` discovers titles from the single-page alphabetical `/serien`
+  index. The A-Z controls navigate within that page; the parser normalizes and
+  deduplicates series URLs. A successful index fetch is considered a complete
+  discovery pass, while unresolved IMDb IDs or per-title failures still make
+  the overall crawl partial.
 - IMDb identity is not guessed. Entries without a valid IMDb ID are skipped
   from the public catalog and counted as unresolved.
 - Verified title and episode structures are stored in SQLite. Provider source
