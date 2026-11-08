@@ -98,6 +98,33 @@ same purpose or publish port `10000` directly to the internet.
 The health check requests `/manifest.json`. The container restarts unless
 stopped manually.
 
+## MDBList catalogs and automatic list export
+
+The addon exposes two Stremio catalogs backed by the configured MDBList static lists:
+
+- **German Scraper X - Movies** (movie)
+- **German Scraper X - Shows** (series)
+
+The catalog endpoints read list items from MDBList and return Stremio metadata using
+IMDb IDs. Posters, backgrounds, descriptions, release years, genres and IMDb ratings
+are included when MDBList provides them. Catalog pages use Stremio's skip value
+and are cached in memory for five minutes.
+
+The existing background exporter remains enabled: after a stream lookup returns at
+least one usable stream, the title is queued for the matching static list. This means
+the lists can be curated manually in MDBList and also grow automatically as titles
+are successfully found by the scraper.
+
+Required Dockhand environment variables:
+
+- MDBLIST_API_KEY
+- MDBLIST_MOVIE_LIST_NAME=German Scraper Stremio X - Movies
+- MDBLIST_SHOW_LIST_NAME=German Scraper Stremio X - Shows
+
+The configured list names must match exactly and the MDBList list types must be
+Movie and Show respectively. Numeric MDBLIST_MOVIE_LIST_ID and
+MDBLIST_SHOW_LIST_ID settings can be used instead of names.
+
 ## Optional MDBList catalog export (proof of concept)
 
 When MDBList export is configured, the add-on automatically adds a movie or
