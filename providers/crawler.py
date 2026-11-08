@@ -7,6 +7,7 @@ from typing import Any
 from catalog_db import (
     finish_crawl_run,
     get_resolved_imdb_id,
+    init_db,
     mark_unresolved_title_resolved,
     record_unresolved_title,
     record_discovery,
@@ -25,6 +26,10 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
     Records without a valid IMDb ID are reported for later matching and are not
     admitted to the public catalog.
     """
+    # Make the CLI independently runnable with a fresh local database.
+    # On the VPS this is already done by application startup; init_db is idempotent.
+    init_db()
+
     supported_types = tuple(getattr(provider, "supported_media_types", ()) or ())
     media_type = supported_types[0] if supported_types else "series"
     run_id = start_crawl_run(provider.provider_id, media_type)
@@ -42,10 +47,10 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 provider_imdb_id = str(detail.imdb_id or "").strip()
                 resolved_id = (
                     provider_imdb_id
-                    if re.fullmatch(r"tt\d{7,10}", provider_imdb_id)
+                    if re.fullmatch(r"tt\\d{7,10}", provider_imdb_id)
                     else get_resolved_imdb_id(detail.provider, detail.url)
                 )
-                if not resolved_id or not re.fullmatch(r"tt\d{7,10}", str(resolved_id).strip()):
+                if not resolved_id or not re.fullmatch(r"tt\\d{7,10}", str(resolved_id).strip()):
                     unresolved += 1
                     record_unresolved_title(
                         detail.provider,
