@@ -198,7 +198,7 @@ def init_db() -> None:
         )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (2)")
+            db.execute("INSERT INTO schema_version(version) VALUES (3)")
         elif row["version"] < 3:
             db.execute("UPDATE schema_version SET version = 3")
         elif row["version"] > 3:
