@@ -174,32 +174,34 @@ same purpose or publish port `10000` directly to the internet.
 The health check requests `/manifest.json`. The container restarts unless
 stopped manually.
 
-## MDBList catalogs and automatic list export
+## SQLite catalogs and optional MDBList export
 
-The addon exposes two Stremio catalogs backed by the configured MDBList static lists:
+The two Stremio catalogs are served directly from the persistent SQLite provider
+index:
 
 - **German Scraper X - Movies** (movie)
 - **German Scraper X - Shows** (series)
 
-The catalog endpoints read list items from MDBList and return Stremio metadata using
-IMDb IDs. Posters, backgrounds, descriptions, release years, genres and IMDb ratings
-are included when MDBList provides them. Catalog pages use Stremio's skip value
-and are cached in memory for five minutes.
+Only titles with a verified IMDb ID and at least one provider marked as
+available are returned. Catalog requests support title search, canonical genre
+filtering, and Stremio pagination. Genre options in the manifest are generated
+from the canonical genres currently stored in SQLite.
 
-The existing background exporter remains enabled: after a stream lookup returns at
-least one usable stream, the title is queued for the matching static list. This means
-the lists can be curated manually in MDBList and also grow automatically as titles
-are successfully found by the scraper.
+MDBList is no longer the source of truth for Stremio catalog contents. The
+existing optional exporter can still add a title to a configured MDBList static
+list after a stream lookup returns at least one usable stream. This is useful
+for external lists, but it does not control whether a title appears in the
+SQLite-backed Stremio catalogs.
 
-Required Dockhand environment variables:
+To enable that optional export, configure:
 
-- MDBLIST_API_KEY
-- MDBLIST_MOVIE_LIST_NAME=German Scraper Stremio X - Movies
-- MDBLIST_SHOW_LIST_NAME=German Scraper Stremio X - Shows
+- `MDBLIST_API_KEY`
+- `MDBLIST_MOVIE_LIST_NAME=German Scraper Stremio X - Movies`
+- `MDBLIST_SHOW_LIST_NAME=German Scraper Stremio X - Shows`
 
-The configured list names must match exactly and the MDBList list types must be
-Movie and Show respectively. Numeric MDBLIST_MOVIE_LIST_ID and
-MDBLIST_SHOW_LIST_ID settings can be used instead of names.
+The configured list names must match exactly. Numeric
+`MDBLIST_MOVIE_LIST_ID` and `MDBLIST_SHOW_LIST_ID` settings can be used
+instead. If these settings are absent, MDBList export is skipped.
 
 ## MDBList export behavior
 
