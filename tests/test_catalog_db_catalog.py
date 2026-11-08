@@ -47,7 +47,7 @@ class CatalogDatabaseTests(unittest.TestCase):
         self.assertEqual(len(catalog_db.get_catalog_titles("series")), 1)
         self.assertEqual(
             catalog_db.get_catalog_titles("movie", skip=1, limit=1)[0]["title"],
-            "A Comedy",
+            "The Action Film",
         )
 
     def test_catalog_excludes_titles_without_available_provider(self):
