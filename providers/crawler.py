@@ -35,8 +35,11 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 detail = provider.get_title(reference.url)
                 # Prefer an IMDb ID exposed by the provider. If absent, reuse
                 # only a previously reviewed/resolved mapping for this exact URL.
-                resolved_id = detail.imdb_id or get_resolved_imdb_id(
-                    detail.provider, detail.url
+                provider_imdb_id = str(detail.imdb_id or "").strip()
+                resolved_id = (
+                    provider_imdb_id
+                    if re.fullmatch(r"tt\d{7,10}", provider_imdb_id)
+                    else get_resolved_imdb_id(detail.provider, detail.url)
                 )
                 if not resolved_id or not re.fullmatch(r"tt\d{7,10}", str(resolved_id).strip()):
                     unresolved += 1
