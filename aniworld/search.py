@@ -781,14 +781,14 @@ def fetch_all_series_index():
     # Require the index page's own heading before treating the response as
     # a successful catalogue response. This prevents login/error pages from
     # being interpreted as an empty catalogue.
-    if not re.search(r"Alle\\s+(?:Einträge|Serien)", page, re.IGNORECASE):
+    if not re.search(r"Alle\s+(?:Einträge|Serien)", page, re.IGNORECASE):
         logger.error("Serienstream all-series index marker was not found")
         return None
 
     results = []
     seen = set()
     pattern = re.compile(
-        r'<a\\b[^>]*href=["\\'](?P<href>(?:https?://[^/"\\']+)?/serie/(?P<slug>[^/"\\'?#]+)(?:/staffel-\\d+)?/?)["\\'][^>]*>(?P<inner>.*?)</a>',
+        r'<a\b[^>]*href=["\'](?P<href>(?:https?://[^/"\']+)?/serie/(?P<slug>[^/"\'?#]+)(?:/staffel-\d+)?/?)["\'][^>]*>(?P<inner>.*?)</a>',
         re.IGNORECASE | re.DOTALL,
     )
     for match in pattern.finditer(page):
@@ -796,21 +796,21 @@ def fetch_all_series_index():
         if not slug or slug in seen:
             continue
         inner = match.group("inner")
-        title_match = re.search(r'\\btitle=["\\']([^"\\']+)["\\']', match.group(0), re.I)
-        image_alt = re.search(r'\\balt=["\\']([^"\\']+)["\\']', inner, re.I)
+        title_match = re.search(r'\btitle=["\']([^"\']+)["\']', match.group(0), re.I)
+        image_alt = re.search(r'\balt=["\']([^"\']+)["\']', inner, re.I)
         raw_title = (
             image_alt.group(1) if image_alt else
             title_match.group(1) if title_match else
             re.sub(r"<[^>]+>", " ", inner)
         )
-        title = html_module.unescape(re.sub(r"\\s+", " ", raw_title)).strip()
+        title = html_module.unescape(re.sub(r"\s+", " ", raw_title)).strip()
         if not title:
             continue
 
         href = match.group("href")
         series_url = href if href.startswith("http") else f"https://serienstream.to/serie/{slug}"
         poster_match = re.search(
-            r'<img[^>]+(?:data-src|src)=["\\']([^"\\']+)["\\']',
+            r'<img[^>]+(?:data-src|src)=["\']([^"\']+)["\']',
             inner,
             re.IGNORECASE,
         )
