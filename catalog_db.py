@@ -107,6 +107,60 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_title_genres_genre
                 ON title_genres(genre_id, media_type, imdb_id);
 
+            CREATE TABLE IF NOT EXISTS provider_seasons (
+                media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+                imdb_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                provider_url TEXT NOT NULL,
+                is_movie_collection INTEGER NOT NULL DEFAULT 0,
+                last_seen_at TEXT NOT NULL,
+                PRIMARY KEY (media_type, imdb_id, provider, season_number),
+                FOREIGN KEY (media_type, imdb_id, provider)
+                    REFERENCES provider_entries(media_type, imdb_id, provider) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS provider_episodes (
+                media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+                imdb_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                episode_number INTEGER NOT NULL,
+                provider_url TEXT NOT NULL,
+                title TEXT,
+                title_original TEXT,
+                is_movie INTEGER NOT NULL DEFAULT 0,
+                last_seen_at TEXT NOT NULL,
+                PRIMARY KEY (media_type, imdb_id, provider, season_number, episode_number),
+                FOREIGN KEY (media_type, imdb_id, provider, season_number)
+                    REFERENCES provider_seasons(media_type, imdb_id, provider, season_number)
+                    ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS episode_sources (
+                media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+                imdb_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                season_number INTEGER NOT NULL,
+                episode_number INTEGER NOT NULL,
+                audio_language TEXT NOT NULL,
+                subtitle_language TEXT NOT NULL DEFAULT '',
+                hoster TEXT NOT NULL DEFAULT '',
+                source_url TEXT,
+                last_seen_at TEXT NOT NULL,
+                PRIMARY KEY (
+                    media_type, imdb_id, provider, season_number, episode_number,
+                    audio_language, subtitle_language, hoster
+                ),
+                FOREIGN KEY (media_type, imdb_id, provider, season_number, episode_number)
+                    REFERENCES provider_episodes(
+                        media_type, imdb_id, provider, season_number, episode_number
+                    ) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_provider_episodes_lookup
+                ON provider_episodes(media_type, imdb_id, provider, season_number);
+
             CREATE TABLE IF NOT EXISTS crawl_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 provider TEXT NOT NULL,
@@ -145,9 +199,9 @@ def init_db() -> None:
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             db.execute("INSERT INTO schema_version(version) VALUES (2)")
-        elif row["version"] < 2:
-            db.execute("UPDATE schema_version SET version = 2")
-        elif row["version"] > 2:
+        elif row["version"] < 3:
+            db.execute("UPDATE schema_version SET version = 3")
+        elif row["version"] > 3:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
@@ -384,4 +438,145 @@ def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
                 """
             ).fetchall()
     return [{"slug": row["slug"], "name": row["name"]} for row in rows]
+
+def record_series_structure(
+    media_type: str,
+    imdb_id: str,
+    provider: str,
+    seasons: list[dict[str, Any]],
+) -> None:
+    """Persist seasons, episodes and available language/hoster source variants.
+
+    Source URLs are provider redirect/embed URLs, not resolved temporary media
+    URLs. This keeps expiring playback tokens out of the catalog database.
+    """
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    if not IMDB_ID_RE.fullmatch(str(imdb_id or "")):
+        raise ValueError("A valid IMDb ID is required")
+    provider = str(provider or "").strip().lower()
+    if not provider:
+        raise ValueError("provider is required")
+
+    now = _utc_now()
+    with _connect() as db:
+        for season in seasons or []:
+            season_number = int(season.get("season_number", 0))
+            season_url = str(season.get("url") or "").strip()
+            if not season_url:
+                continue
+            db.execute(
+                """
+                INSERT INTO provider_seasons(
+                    media_type, imdb_id, provider, season_number,
+                    provider_url, is_movie_collection, last_seen_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(media_type, imdb_id, provider, season_number)
+                DO UPDATE SET provider_url=excluded.provider_url,
+                    is_movie_collection=excluded.is_movie_collection,
+                    last_seen_at=excluded.last_seen_at
+                """,
+                (media_type, imdb_id, provider, season_number, season_url,
+                 int(bool(season.get("is_movie_collection"))), now),
+            )
+            for episode in season.get("episodes") or []:
+                episode_number = int(episode.get("episode_number", 0))
+                episode_url = str(episode.get("url") or "").strip()
+                if not episode_url:
+                    continue
+                db.execute(
+                    """
+                    INSERT INTO provider_episodes(
+                        media_type, imdb_id, provider, season_number,
+                        episode_number, provider_url, title, title_original,
+                        is_movie, last_seen_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(
+                        media_type, imdb_id, provider, season_number, episode_number
+                    ) DO UPDATE SET provider_url=excluded.provider_url,
+                        title=COALESCE(excluded.title, provider_episodes.title),
+                        title_original=COALESCE(excluded.title_original, provider_episodes.title_original),
+                        is_movie=excluded.is_movie,
+                        last_seen_at=excluded.last_seen_at
+                    """,
+                    (media_type, imdb_id, provider, season_number, episode_number,
+                     episode_url, episode.get("title"), episode.get("title_original"),
+                     int(bool(episode.get("is_movie"))), now),
+                )
+                for variant in episode.get("variants") or []:
+                    audio = str(variant.get("audio_language") or "Unknown").strip()
+                    subtitles = str(variant.get("subtitle_language") or "").strip()
+                    hoster = str(variant.get("hoster") or "").strip()
+                    db.execute(
+                        """
+                        INSERT INTO episode_sources(
+                            media_type, imdb_id, provider, season_number, episode_number,
+                            audio_language, subtitle_language, hoster, source_url, last_seen_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(
+                            media_type, imdb_id, provider, season_number, episode_number,
+                            audio_language, subtitle_language, hoster
+                        ) DO UPDATE SET source_url=excluded.source_url,
+                            last_seen_at=excluded.last_seen_at
+                        """,
+                        (media_type, imdb_id, provider, season_number, episode_number,
+                         audio, subtitles, hoster, variant.get("source_url"), now),
+                    )
+
+
+def get_series_structure(media_type: str, imdb_id: str) -> list[dict[str, Any]]:
+    """Read the stored provider season/episode/source tree for one IMDb title."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        seasons = db.execute(
+            """
+            SELECT provider, season_number, provider_url, is_movie_collection
+            FROM provider_seasons
+            WHERE media_type=? AND imdb_id=?
+            ORDER BY provider, season_number
+            """,
+            (media_type, imdb_id),
+        ).fetchall()
+        result = []
+        for season in seasons:
+            episodes = db.execute(
+                """
+                SELECT provider, season_number, episode_number, provider_url,
+                       title, title_original, is_movie
+                FROM provider_episodes
+                WHERE media_type=? AND imdb_id=? AND provider=? AND season_number=?
+                ORDER BY episode_number
+                """,
+                (media_type, imdb_id, season["provider"], season["season_number"]),
+            ).fetchall()
+            episode_items = []
+            for episode in episodes:
+                sources = db.execute(
+                    """
+                    SELECT audio_language, subtitle_language, hoster, source_url
+                    FROM episode_sources
+                    WHERE media_type=? AND imdb_id=? AND provider=?
+                      AND season_number=? AND episode_number=?
+                    ORDER BY audio_language, hoster
+                    """,
+                    (media_type, imdb_id, episode["provider"],
+                     episode["season_number"], episode["episode_number"]),
+                ).fetchall()
+                episode_items.append({
+                    "episode_number": episode["episode_number"],
+                    "url": episode["provider_url"],
+                    "title": episode["title"],
+                    "title_original": episode["title_original"],
+                    "is_movie": bool(episode["is_movie"]),
+                    "variants": [dict(source) for source in sources],
+                })
+            result.append({
+                "provider": season["provider"],
+                "season_number": season["season_number"],
+                "url": season["provider_url"],
+                "is_movie_collection": bool(season["is_movie_collection"]),
+                "episodes": episode_items,
+            })
+    return result
 
