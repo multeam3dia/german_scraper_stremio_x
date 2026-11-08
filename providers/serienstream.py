@@ -5,7 +5,7 @@ import re
 from typing import Iterator
 
 from aniworld.models.s_to import SerienstreamSeries
-from aniworld.search import fetch_new_series, fetch_popular_series
+from aniworld.search import fetch_all_series_index
 
 from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle, ProviderVariant
 
@@ -34,28 +34,28 @@ def _variants(episode: object) -> list[ProviderVariant]:
 
 class SerienstreamProvider(BaseProvider):
     provider_id = "serienstream"
+    # Kept false until index pagination/coverage is validated against a live crawl.
     catalog_scan_complete = False
     supported_media_types = ("series",)
 
     def iter_catalog(self) -> Iterator[ProviderTitle]:
-        """Yield homepage discovery cards; this is NOT yet a complete s.to crawl."""
-        seen: set[str] = set()
-        for fetcher in (fetch_new_series, fetch_popular_series):
-            items = fetcher()
-            if items is None:
-                raise RuntimeError("Serienstream catalog discovery failed")
-            for item in items:
-                url = str(item.get("url") or "").strip()
-                if not url or url in seen:
-                    continue
-                seen.add(url)
-                yield ProviderTitle(
-                    provider=self.provider_id,
-                    media_type="series",
-                    title=str(item.get("title") or "").strip(),
-                    url=url,
-                    poster_url=item.get("poster_url"),
-                )
+        """Discover series from s.to's alphabetical all-series index."""
+        items = fetch_all_series_index()
+        if items is None:
+            raise RuntimeError("Serienstream all-series index discovery failed")
+
+        for item in items:
+            url = str(item.get("url") or "").strip()
+            title = str(item.get("title") or "").strip()
+            if not url or not title:
+                continue
+            yield ProviderTitle(
+                provider=self.provider_id,
+                media_type="series",
+                title=title,
+                url=url,
+                poster_url=item.get("poster_url"),
+            )
 
     def get_title(self, url: str) -> ProviderTitle:
         series = SerienstreamSeries(url)
