@@ -776,7 +776,7 @@ def _parse_serienstream_index(page, base_url):
             if tag == "a":
                 href = (attrs.get("href") or "").strip()
                 parsed = urlparse(urljoin(base_url, href))
-                match = re.match(r"^/serie/([^/?#]+)(?:/staffel-\\d+)?/?$", parsed.path)
+                match = re.match(r"^/serie/([^/?#]+)(?:/staffel-\d+)?/?$", parsed.path)
                 if match:
                     self.current = {
                         "slug": match.group(1),
@@ -846,7 +846,7 @@ def fetch_all_series_index():
         return None
 
     page = response.text
-    if not re.search(r"Alle\\s+Einträge", page, re.IGNORECASE):
+    if not re.search(r"Alle\s+Einträge", page, re.IGNORECASE):
         logger.error("Serienstream all-series index marker was not found")
         return None
 
