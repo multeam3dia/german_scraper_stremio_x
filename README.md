@@ -125,36 +125,17 @@ The configured list names must match exactly and the MDBList list types must be
 Movie and Show respectively. Numeric MDBLIST_MOVIE_LIST_ID and
 MDBLIST_SHOW_LIST_ID settings can be used instead of names.
 
-## Optional MDBList catalog export (proof of concept)
+## MDBList export behavior
 
-When MDBList export is configured, the add-on automatically adds a movie or
-series to the corresponding MDBList static list **only after a stream lookup
-has returned at least one usable stream**. This avoids populating the lists
-with titles that Cinemeta knows about but our German scraper sources do not
-currently serve.
+The addon automatically adds a movie or series to the corresponding static list
+**only after a stream lookup has returned at least one usable stream**. This avoids
+populating the lists with titles that our German scraper sources do not currently
+serve. It does not crawl all provider catalogs in the background.
 
-This is a discovery-on-play catalog: it grows as titles are requested in
-Stremio. It does not yet crawl all provider catalogs in the background.
-MDBList API calls run asynchronously and do not delay Stremio stream responses.
+MDBList API writes run asynchronously and do not delay Stremio stream responses.
 Each title is submitted once per running process after a successful API result.
+The exporter uses POST /lists/{listid}/items/add and submits IMDb IDs under
+movies or shows. If the MDBList settings are absent or invalid, export is skipped.
 
-Create two static lists in MDBList (one for movies and one for shows), for
-example `German Scraper Movies` and `German Scraper Shows`. Then set these
-environment variables in Dockhand:
-
-- `MDBLIST_API_KEY`: API key from MDBList Preferences.
-- `MDBLIST_MOVIE_LIST_NAME`: exact name of the movie list.
-- `MDBLIST_SHOW_LIST_NAME`: exact name of the show list.
-
-Alternatively, set `MDBLIST_MOVIE_LIST_ID` and
-`MDBLIST_SHOW_LIST_ID` to the numeric list IDs instead of using names. When
-names are used, the add-on resolves each list ID from the authenticated user's
-lists once and caches it for the process lifetime.
-
-No MDBList settings are required for normal scraper operation. If the variables
-are absent or invalid, export is skipped. The API key must remain a secret:
-do not commit it to Git or paste it into logs.
-
-The exporter uses the documented static-list endpoint
-`POST /lists/{listid}/items/add` and submits IMDb IDs under `movies` or
-`shows`. See the [MDBList API documentation](https://api.mdblist.com/docs/).
+The API key must remain a secret: do not commit it to Git or paste it into logs.
+See the MDBList API documentation: https://api.mdblist.com/docs/.
