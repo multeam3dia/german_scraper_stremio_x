@@ -15,6 +15,9 @@ records for titles, seasons, episodes, language variants, and hosters.
   from the public catalog and counted as unresolved.
 - Verified title and episode structures are stored in SQLite. Provider source
   URLs are stored, but expiring direct media URLs are not.
+- Provider-side genre labels are retained as raw metadata only. Canonical
+  Stremio genres are populated later by the TMDB/IMDb metadata enrichment step,
+  so tags such as language flags are not mistakenly exposed as genres.
 
 Run a crawl manually inside the application container:
 
