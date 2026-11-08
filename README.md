@@ -111,12 +111,18 @@ Stremio. It does not yet crawl all provider catalogs in the background.
 MDBList API calls run asynchronously and do not delay Stremio stream responses.
 Each title is submitted once per running process after a successful API result.
 
-Create two static lists in MDBList (one for movies and one for shows), then set
-these environment variables in Dockhand:
+Create two static lists in MDBList (one for movies and one for shows), for
+example `German Scraper Movies` and `German Scraper Shows`. Then set these
+environment variables in Dockhand:
 
 - `MDBLIST_API_KEY`: API key from MDBList Preferences.
-- `MDBLIST_MOVIE_LIST_ID`: numeric ID of the movie static list.
-- `MDBLIST_SHOW_LIST_ID`: numeric ID of the show static list.
+- `MDBLIST_MOVIE_LIST_NAME`: exact name of the movie list.
+- `MDBLIST_SHOW_LIST_NAME`: exact name of the show list.
+
+Alternatively, set `MDBLIST_MOVIE_LIST_ID` and
+`MDBLIST_SHOW_LIST_ID` to the numeric list IDs instead of using names. When
+names are used, the add-on resolves each list ID from the authenticated user's
+lists once and caches it for the process lifetime.
 
 No MDBList settings are required for normal scraper operation. If the variables
 are absent or invalid, export is skipped. The API key must remain a secret:
