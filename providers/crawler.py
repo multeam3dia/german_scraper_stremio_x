@@ -11,6 +11,7 @@ from catalog_db import (
     record_unresolved_title,
     record_discovery,
     record_series_structure,
+    reconcile_provider_availability,
     start_crawl_run,
 )
 from . import PROVIDERS
@@ -24,7 +25,9 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
     Records without a valid IMDb ID are reported for later matching and are not
     admitted to the public catalog.
     """
-    run_id = start_crawl_run(provider.provider_id, "series")
+    supported_types = tuple(getattr(provider, "supported_media_types", ()) or ())
+    media_type = supported_types[0] if supported_types else "series"
+    run_id = start_crawl_run(provider.provider_id, media_type)
     found = 0
     unresolved = 0
     failed = 0
@@ -108,6 +111,17 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 if unresolved or not complete else None
             ),
         )
+        reconciliation = (
+            reconcile_provider_availability(provider.provider_id, media_type, run_id)
+            if status == "completed"
+            else {
+                "skipped": True,
+                "reason": "crawl_not_complete",
+                "provider_entries_checked": 0,
+                "provider_entries_marked_missing": 0,
+                "titles_deactivated": 0,
+            }
+        )
     except Exception as exc:
         finish_crawl_run(
             run_id,
@@ -124,6 +138,7 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
         "titles_recorded": found,
         "unresolved_imdb": unresolved,
         "title_errors": failed,
+        "availability_reconciliation": reconciliation,
         "errors": errors,
     }
 
