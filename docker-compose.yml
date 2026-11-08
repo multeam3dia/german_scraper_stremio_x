@@ -7,6 +7,8 @@ services:
       context: https://github.com/multeam3dia/german_scraper_stremio_x.git#feature/aniworld-integration
       dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - ./data:/app/data
     init: true
     expose:
       - "10000"
