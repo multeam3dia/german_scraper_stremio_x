@@ -69,7 +69,7 @@ class SerienstreamProvider(BaseProvider):
             year=_year(series.release_year),
             poster_url=series.poster_url or None,
             description=series.description or None,
-            genres=[str(value) for value in (series.genres or [])],
+            provider_genres=[str(value) for value in (series.genres or [])],
             metadata={
                 "release_year": series.release_year,
                 "country": series.country,
