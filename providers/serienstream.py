@@ -34,8 +34,9 @@ def _variants(episode: object) -> list[ProviderVariant]:
 
 class SerienstreamProvider(BaseProvider):
     provider_id = "serienstream"
-    # Kept false until index pagination/coverage is validated against a live crawl.
-    catalog_scan_complete = False
+    # The provider's /serien index is a single page containing the full A-Z list.
+    # The crawler still marks the run partial if any title cannot be resolved.
+    catalog_scan_complete = True
     supported_media_types = ("series",)
 
     def iter_catalog(self) -> Iterator[ProviderTitle]:
