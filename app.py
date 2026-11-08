@@ -8,7 +8,7 @@ from aniworld.config import logger
 from mdblist import queue_verified_title, get_catalog_metas
 
 ADDON_ID = "org.stremio.german.scraper"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 MANIFEST = {
     "id": ADDON_ID,
