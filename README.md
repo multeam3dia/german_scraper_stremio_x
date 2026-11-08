@@ -215,47 +215,44 @@ The API key must remain a secret: do not commit it to Git or paste it into logs.
 See the MDBList API documentation: https://api.mdblist.com/docs/.
 
 
-## Persistent provider catalog index (new foundation)
+## Persistent provider catalog index
 
 The addon initializes a local SQLite database at `/app/data/catalog.sqlite3`
 (or the path configured by `CATALOG_DB_PATH`). Docker Compose mounts
 `./data` to `/app/data`, so the database survives container recreation.
 Keep this directory on persistent storage and include it in backups.
 
-The database is designed to become the source of truth for provider discovery:
+SQLite is the source of truth for provider discovery and Stremio catalog
+responses. The main tables are:
 
 - `titles`: canonical media identity (IMDb ID), title, year and metadata.
 - `provider_entries`: which provider exposes each title, its provider URL,
   last-seen/last-checked timestamps and availability state.
 - `crawl_runs`: scan history, progress and errors per provider.
-- `sync_outbox`: durable add/remove operations to be delivered to MDBList.
+- `sync_outbox`: durable add/remove operations reserved for MDBList delivery.
 - `unresolved_provider_titles`: provider titles without a verified IMDb ID,
-  retained with title, URL, year, poster and metadata for later identity matching.
-  These records are not exposed in Stremio catalogs until explicitly resolved.
-- `genres` and `title_genres`: normalized many-to-many genre assignments,
-  allowing each movie or series to appear in multiple genre catalogs.
+  retained with title, URL, year, poster and metadata. These are not exposed in
+  Stremio catalogs until identity has been resolved.
+- `genres` and `title_genres`: normalized many-to-many canonical genre
+  assignments.
 
-Genre names are stored canonically with a URL-safe slug. When a discovery
-refresh includes genre metadata, that title's genre assignments are replaced
-with the refreshed set; when genre metadata is omitted, existing assignments
-are preserved. The database exposes helper functions to list active genres
-and retrieve titles for a genre. This prepares dynamic Stremio catalogs without
-creating a separate MDBList list for every genre.
+The Stremio catalog endpoints read directly from SQLite. They return only
+verified titles with at least one provider marked as available, and support
+search, genre filtering, and pagination. The manifest's genre options are
+generated from the canonical genres currently assigned to active titles.
+Provider-specific labels such as GerDub and GerSub remain raw metadata and
+are never treated as canonical genres.
 
-Genre-specific Stremio catalog endpoints are **not enabled yet**. They will be
-added after the systematic provider crawler populates verified titles and
-their metadata.
+The provider crawler stores titles without a valid IMDb ID in
+`unresolved_provider_titles`. Repeated scans update the same provider URL
+record and increment its attempt count. The TMDB identity resolver can report
+high-confidence candidates and, with `--apply`, persist only matches that pass
+its confidence and margin thresholds. Ambiguous records remain outside the
+public catalog.
 
-The crawler now persists titles whose provider detail page does not expose
-a valid IMDb ID in `unresolved_provider_titles`. Repeated scans update the
-same provider URL record and increment its attempt count. These records can be
-retrieved with `get_unresolved_titles()` and marked resolved only after a
-separate identity check with `mark_unresolved_title_resolved()`. The catalog
-statistics include the number of unresolved titles. Automatic title-to-IMDb
-matching is not implemented yet; no fuzzy match is silently promoted.
-
-This is the storage foundation only. The systematic provider crawler and
-outbox worker are not enabled yet; until those are implemented, the existing
-playback-triggered MDBList export continues to work as documented above.
-A title must only be recorded as discovered after a provider detail page has
-been resolved and its IMDb identity has been matched with sufficient confidence.
+The provider crawler and TMDB metadata enrichment are implemented as manual
+CLI jobs, not as a scheduled service. Availability reconciliation (including
+safe removal after repeated failed scans) and the MDBList sync-outbox worker
+are still future work. A title is admitted to the public catalog only after
+its provider detail page has been resolved to a sufficiently certain IMDb
+identity.
