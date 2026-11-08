@@ -100,9 +100,16 @@ stopped manually.
 
 ## Optional MDBList catalog export (proof of concept)
 
-The add-on can push IMDb IDs that have **already been verified by a scraper
-source** into two MDBList static lists. This is an opt-in bridge for testing;
-it does not yet crawl provider catalogs or automatically discover all titles.
+When MDBList export is configured, the add-on automatically adds a movie or
+series to the corresponding MDBList static list **only after a stream lookup
+has returned at least one usable stream**. This avoids populating the lists
+with titles that Cinemeta knows about but our German scraper sources do not
+currently serve.
+
+This is a discovery-on-play catalog: it grows as titles are requested in
+Stremio. It does not yet crawl all provider catalogs in the background.
+MDBList API calls run asynchronously and do not delay Stremio stream responses.
+Each title is submitted once per running process after a successful API result.
 
 Create two static lists in MDBList (one for movies and one for shows), then set
 these environment variables in Dockhand:
@@ -110,26 +117,11 @@ these environment variables in Dockhand:
 - `MDBLIST_API_KEY`: API key from MDBList Preferences.
 - `MDBLIST_MOVIE_LIST_ID`: numeric ID of the movie static list.
 - `MDBLIST_SHOW_LIST_ID`: numeric ID of the show static list.
-- `MDBLIST_SYNC_TOKEN`: a separate long random token protecting the local
-  export endpoint. Do not reuse the MDBList API key.
 
-After redeploying, send a POST request to
-`/admin/mdblist/sync` with the header
-`X-MDBList-Sync-Token: <your-sync-token>` and a JSON body such as:
+No MDBList settings are required for normal scraper operation. If the variables
+are absent or invalid, export is skipped. The API key must remain a secret:
+do not commit it to Git or paste it into logs.
 
-```json
-{
-  "movies": ["tt0111161"],
-  "shows": ["tt0108778"]
-}
-```
-
-The example IDs are test fixtures only; use IDs for titles that you have
-actually confirmed in the relevant German scraper source. The endpoint adds
-items only; it never removes entries from your lists. It validates IMDb ID
-format, de-duplicates each request, and limits each media type to 50 IDs.
-API keys and sync tokens must never be committed to Git or pasted into logs.
-
-The MDBList API currently documents static-list item additions as
-`POST /lists/{listid}/items/add` with IMDb IDs in a `movies` or `shows`
-array. See the [MDBList API documentation](https://api.mdblist.com/docs/).
+The exporter uses the documented static-list endpoint
+`POST /lists/{listid}/items/add` and submits IMDb IDs under `movies` or
+`shows`. See the [MDBList API documentation](https://api.mdblist.com/docs/).
