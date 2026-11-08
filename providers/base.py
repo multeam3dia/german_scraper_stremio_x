@@ -21,7 +21,7 @@ class ProviderTitle:
     year: int | None = None
     poster_url: str | None = None
     description: str | None = None
-    genres: list[str] = field(default_factory=list)
+    provider_genres: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
