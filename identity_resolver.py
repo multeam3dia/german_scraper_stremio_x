@@ -20,6 +20,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from catalog_db import (
+    init_db,
     get_unresolved_titles,
     mark_unresolved_title_resolved,
     record_discovery,
