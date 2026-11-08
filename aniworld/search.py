@@ -835,7 +835,7 @@ def fetch_all_series_index():
     page; the A-Z controls are in-page navigation, not pagination. A failed
     request or unexpected page is returned as None, never as an empty success.
     """
-    from .models.s_to.http import sto_get
+    from .models.s_to.http import sto_get, sto_host
 
     url = "https://serienstream.to/serien"
     try:
@@ -850,7 +850,8 @@ def fetch_all_series_index():
         logger.error("Serienstream all-series index marker was not found")
         return None
 
-    base_url = getattr(response, "url", None) or url
+    # Keep generated series URLs on a host recognized by the existing s.to models.
+    base_url = f"https://{sto_host()}/serien"
     results = _parse_serienstream_index(page, base_url)
     if not results:
         logger.error("Serienstream all-series index contained no series links")
