@@ -27,7 +27,7 @@ from catalog_db import (
 
 logger = logging.getLogger(__name__)
 TMDB_API_BASE = "https://api.themoviedb.org/3"
-IMDB_ID_RE = re.compile(r"^tt\\d{7,10}$")
+IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 
@@ -84,7 +84,7 @@ def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]
 def _year_from_result(item: dict[str, Any], media_type: str) -> int | None:
     date_key = "first_air_date" if media_type == "series" else "release_date"
     value = item.get(date_key)
-    if isinstance(value, str) and re.match(r"^\\d{4}", value):
+    if isinstance(value, str) and re.match(r"^\d{4}", value):
         return int(value[:4])
     return None
 
