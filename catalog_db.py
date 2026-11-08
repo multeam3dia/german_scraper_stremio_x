@@ -18,7 +18,9 @@ MEDIA_TYPES = {"movie", "series"}
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Microsecond precision lets a completed scan distinguish entries seen
+    # during that scan from records left over from an earlier run.
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def _db_path() -> Path:
@@ -502,6 +504,115 @@ def finish_crawl_run(
             (_utc_now(), status, max(0, pages_scanned), max(0, titles_found),
              (error or "")[:1000] or None, run_id),
         )
+
+
+def reconcile_provider_availability(
+    provider: str,
+    media_type: str,
+    run_id: int,
+    *,
+    miss_threshold: int = 2,
+) -> dict[str, Any]:
+    """Age out provider entries only after a fully completed catalog scan.
+
+    One missed complete scan is tolerated. After the configured number of
+    consecutive complete scans, that provider is marked missing. A title is
+    removed from the public catalog only when no provider remains available.
+    Partial and failed runs are never used as evidence of disappearance.
+    """
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    provider = str(provider or "").strip().lower()
+    if not provider:
+        raise ValueError("provider is required")
+    try:
+        threshold = max(2, int(miss_threshold))
+    except (TypeError, ValueError):
+        threshold = 2
+
+    now = _utc_now()
+    with _connect() as db:
+        run = db.execute(
+            "SELECT provider, media_type, started_at, status FROM crawl_runs WHERE id=?",
+            (int(run_id),),
+        ).fetchone()
+        if run is None:
+            raise ValueError("Unknown crawl run")
+        if run["provider"] != provider or run["media_type"] != media_type:
+            raise ValueError("Crawl run does not match provider and media type")
+        if run["status"] != "completed":
+            return {
+                "skipped": True,
+                "reason": "crawl_not_complete",
+                "provider_entries_checked": 0,
+                "provider_entries_marked_missing": 0,
+                "titles_deactivated": 0,
+            }
+
+        missed = db.execute(
+            """
+            UPDATE provider_entries
+            SET consecutive_misses = consecutive_misses + 1,
+                last_checked_at = ?,
+                availability_status = CASE
+                    WHEN consecutive_misses + 1 >= ? THEN 'missing'
+                    ELSE availability_status
+                END
+            WHERE provider = ?
+              AND media_type = ?
+              AND last_seen_at < ?
+              AND availability_status != 'missing'
+            """,
+            (now, threshold, provider, media_type, run["started_at"]),
+        )
+        checked = int(missed.rowcount or 0)
+
+        deactivated_rows = db.execute(
+            """
+            SELECT t.imdb_id
+            FROM titles t
+            WHERE t.media_type = ?
+              AND t.catalog_active = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM provider_entries pe
+                  WHERE pe.media_type = t.media_type
+                    AND pe.imdb_id = t.imdb_id
+                    AND pe.availability_status = 'available'
+              )
+            """,
+            (media_type,),
+        ).fetchall()
+        for title_row in deactivated_rows:
+            imdb_id = str(title_row["imdb_id"])
+            db.execute(
+                "UPDATE titles SET catalog_active=0 WHERE media_type=? AND imdb_id=?",
+                (media_type, imdb_id),
+            )
+            db.execute(
+                """
+                INSERT OR IGNORE INTO sync_outbox(
+                    media_type, imdb_id, action, status, created_at, updated_at
+                ) VALUES (?, ?, 'remove', 'pending', ?, ?)
+                """,
+                (media_type, imdb_id, now, now),
+            )
+
+        marked_missing = db.execute(
+            """
+            SELECT COUNT(*) FROM provider_entries
+            WHERE provider=? AND media_type=?
+              AND availability_status='missing'
+              AND last_checked_at=?
+            """,
+            (provider, media_type, now),
+        ).fetchone()[0]
+
+    return {
+        "skipped": False,
+        "provider_entries_checked": checked,
+        "provider_entries_marked_missing": int(marked_missing),
+        "titles_deactivated": len(deactivated_rows),
+    }
 
 
 def get_catalog_stats() -> dict[str, int]:
