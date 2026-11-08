@@ -574,8 +574,11 @@ def get_catalog_titles(
     params: list[Any] = [media_type]
     query = str(search or "").strip()
     if query:
-        clauses.append("instr(lower(t.title), lower(?)) > 0")
-        params.append(query[:200])
+        clauses.append(
+            "(instr(lower(t.title), lower(?)) > 0 "
+            "OR instr(lower(t.metadata_json), lower(?)) > 0)"
+        )
+        params.extend([query[:200], query[:200]])
     selected_genre = str(genre or "").strip()
     if selected_genre:
         clauses.append(
