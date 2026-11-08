@@ -256,8 +256,23 @@ def record_discovery(
         raise ValueError("provider and title are required")
 
     now = _utc_now()
-    metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
     with _connect() as db:
+        existing = db.execute(
+            "SELECT metadata_json FROM titles WHERE media_type=? AND imdb_id=?",
+            (media_type, imdb_id),
+        ).fetchone()
+        merged_metadata = {}
+        if existing:
+            try:
+                stored = json.loads(existing["metadata_json"] or "{}")
+                if isinstance(stored, dict):
+                    merged_metadata.update(stored)
+            except (TypeError, json.JSONDecodeError):
+                pass
+        for key, value in (metadata or {}).items():
+            if value is not None:
+                merged_metadata[key] = value
+        metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
         db.execute(
             """
             INSERT INTO titles(
@@ -524,6 +539,214 @@ def get_title_genres(media_type: str, imdb_id: str) -> list[str]:
             (media_type, imdb_id),
         ).fetchall()
     return [str(row["name"]) for row in rows]
+
+
+def get_catalog_titles(
+    media_type: str,
+    *,
+    skip: int = 0,
+    limit: int = 100,
+    search: str = "",
+    genre: str = "",
+) -> list[dict[str, Any]]:
+    """Return one Stremio catalog page from verified, currently available titles."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    try:
+        offset = max(0, int(skip))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        page_size = max(1, min(100, int(limit)))
+    except (TypeError, ValueError):
+        page_size = 100
+
+    clauses = [
+        "t.media_type = ?",
+        "t.catalog_active = 1",
+        """EXISTS (
+            SELECT 1 FROM provider_entries pe
+            WHERE pe.media_type = t.media_type
+              AND pe.imdb_id = t.imdb_id
+              AND pe.availability_status = 'available'
+        )""",
+    ]
+    params: list[Any] = [media_type]
+    query = str(search or "").strip()
+    if query:
+        clauses.append("instr(lower(t.title), lower(?)) > 0")
+        params.append(query[:200])
+    selected_genre = str(genre or "").strip()
+    if selected_genre:
+        clauses.append(
+            """EXISTS (
+                SELECT 1
+                FROM title_genres tg
+                JOIN genres g ON g.id = tg.genre_id
+                WHERE tg.media_type = t.media_type
+                  AND tg.imdb_id = t.imdb_id
+                  AND (g.slug = ? OR g.name = ? COLLATE NOCASE)
+            )"""
+        )
+        params.extend([selected_genre, selected_genre])
+
+    with _connect() as db:
+        rows = db.execute(
+            f"""
+            SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
+            FROM titles t
+            WHERE {" AND ".join(clauses)}
+            ORDER BY t.last_verified_at DESC, t.title COLLATE NOCASE
+            LIMIT ? OFFSET ?
+            """,
+            (*params, page_size, offset),
+        ).fetchall()
+
+        imdb_ids = [str(row["imdb_id"]) for row in rows]
+        genres_by_id: dict[str, list[str]] = {imdb_id: [] for imdb_id in imdb_ids}
+        if imdb_ids:
+            placeholders = ",".join("?" for _ in imdb_ids)
+            genre_rows = db.execute(
+                f"""
+                SELECT tg.imdb_id, g.name
+                FROM title_genres tg
+                JOIN genres g ON g.id = tg.genre_id
+                WHERE tg.media_type = ? AND tg.imdb_id IN ({placeholders})
+                ORDER BY g.name COLLATE NOCASE
+                """,
+                (media_type, *imdb_ids),
+            ).fetchall()
+            for genre_row in genre_rows:
+                genres_by_id[str(genre_row["imdb_id"])].append(str(genre_row["name"]))
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        imdb_id = str(row["imdb_id"])
+        result.append({
+            "media_type": str(row["media_type"]),
+            "imdb_id": imdb_id,
+            "title": str(row["title"]),
+            "year": row["year"],
+            "metadata": metadata,
+            "genres": genres_by_id.get(imdb_id, []),
+        })
+    return result
+
+
+def get_metadata_candidates(*, limit: int = 500, force: bool = False) -> list[dict[str, Any]]:
+    """Return active titles that still need TMDB metadata enrichment."""
+    try:
+        max_items = max(1, min(5000, int(limit)))
+    except (TypeError, ValueError):
+        max_items = 500
+    with _connect() as db:
+        rows = db.execute(
+            """
+            SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
+            FROM titles t
+            WHERE t.catalog_active = 1
+              AND EXISTS (
+                  SELECT 1 FROM provider_entries pe
+                  WHERE pe.media_type = t.media_type
+                    AND pe.imdb_id = t.imdb_id
+                    AND pe.availability_status = 'available'
+              )
+            ORDER BY t.last_verified_at DESC, t.title COLLATE NOCASE
+            """
+        ).fetchall()
+
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        if not force and isinstance(metadata.get("tmdb"), dict):
+            continue
+        candidates.append({
+            "media_type": str(row["media_type"]),
+            "imdb_id": str(row["imdb_id"]),
+            "title": str(row["title"]),
+            "year": row["year"],
+            "metadata": metadata,
+        })
+        if len(candidates) >= max_items:
+            break
+    return candidates
+
+
+def update_title_metadata(
+    media_type: str,
+    imdb_id: str,
+    metadata: dict[str, Any],
+    *,
+    genres: Optional[list[str]] = None,
+) -> bool:
+    """Merge enriched metadata into a verified title and optionally replace genres."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    imdb_id = str(imdb_id or "").strip()
+    if not IMDB_ID_RE.fullmatch(imdb_id):
+        raise ValueError("A valid IMDb ID is required")
+
+    with _connect() as db:
+        row = db.execute(
+            "SELECT metadata_json FROM titles WHERE media_type=? AND imdb_id=?",
+            (media_type, imdb_id),
+        ).fetchone()
+        if row is None:
+            return False
+        try:
+            merged = json.loads(row["metadata_json"] or "{}")
+        except (TypeError, json.JSONDecodeError):
+            merged = {}
+        if not isinstance(merged, dict):
+            merged = {}
+        for key, value in (metadata or {}).items():
+            if value is not None:
+                merged[key] = value
+        db.execute(
+            "UPDATE titles SET metadata_json=? WHERE media_type=? AND imdb_id=?",
+            (json.dumps(merged, ensure_ascii=False), media_type, imdb_id),
+        )
+
+        if genres is not None:
+            db.execute(
+                "DELETE FROM title_genres WHERE media_type=? AND imdb_id=?",
+                (media_type, imdb_id),
+            )
+            for genre in genres:
+                name = str(genre or "").strip()
+                if not name:
+                    continue
+                slug = __import__("re").sub(
+                    r"[^a-z0-9]+", "-", name.casefold()
+                ).strip("-")
+                if not slug:
+                    continue
+                db.execute(
+                    "INSERT OR IGNORE INTO genres(slug, name) VALUES (?, ?)",
+                    (slug, name),
+                )
+                genre_row = db.execute(
+                    "SELECT id FROM genres WHERE slug=?", (slug,)
+                ).fetchone()
+                db.execute(
+                    """
+                    INSERT OR IGNORE INTO title_genres(media_type, imdb_id, genre_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (media_type, imdb_id, int(genre_row["id"])),
+                )
+    return True
 
 
 def get_genre_catalog(media_type: str, genre_slug: str) -> list[dict[str, Any]]:
