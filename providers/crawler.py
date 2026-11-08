@@ -5,6 +5,7 @@ from typing import Any
 
 from catalog_db import (
     finish_crawl_run,
+    record_unresolved_title,
     record_discovery,
     record_series_structure,
     start_crawl_run,
@@ -32,6 +33,20 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 detail = provider.get_title(reference.url)
                 if not detail.imdb_id:
                     unresolved += 1
+                    record_unresolved_title(
+                        detail.provider,
+                        detail.url,
+                        detail.title or reference.title,
+                        detail.media_type,
+                        year=detail.year,
+                        poster_url=detail.poster_url,
+                        description=detail.description,
+                        metadata={
+                            **detail.metadata,
+                            "provider_genres": detail.provider_genres,
+                        },
+                        error="Provider detail page did not expose a valid IMDb ID",
+                    )
                     continue
 
                 record_discovery(
