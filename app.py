@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from scraper import get_movie_streams, get_series_streams
 from aniworld.config import logger
-from mdblist import queue_verified_title
+from mdblist import queue_verified_title, get_catalog_metas
 
 ADDON_ID = "org.stremio.german.scraper"
 VERSION = "1.0.0"
@@ -16,8 +16,12 @@ MANIFEST = {
     "name": "German Scraper",
     "description": "German streams from AniWorld, Filmpalast, Serienstream, MegaKino, and Kinox.",
     "logo": "https://www.stremio.com/static/images/stremio-logo.png",
-    "resources": ["stream"],
+    "resources": ["stream", "catalog"],
     "types": ["movie", "series"],
+    "catalogs": [
+        {"type": "movie", "id": "german_scraper_movies", "name": "German Scraper X - Movies"},
+        {"type": "series", "id": "german_scraper_shows", "name": "German Scraper X - Shows"},
+    ],
     "idPrefixes": ["tt"],
 }
 
@@ -51,6 +55,23 @@ async def log_serienstream_login_configuration():
 @app.get("/manifest.json")
 async def get_manifest():
     return MANIFEST
+
+@app.get("/catalog/{type}/{catalog_id}.json")
+def get_catalog(type: str, catalog_id: str, skip: int = 0, search: str = ""):
+    """Return MDBList static-list items as Stremio catalog metadata."""
+    catalog_types = {
+        ("movie", "german_scraper_movies"): "movie",
+        ("series", "german_scraper_shows"): "series",
+    }
+    media_type = catalog_types.get((type, catalog_id))
+    if not media_type:
+        return {"metas": []}
+    try:
+        return {"metas": get_catalog_metas(media_type, skip=max(0, skip), search=search)}
+    except Exception as exc:
+        logger.error("MDBList catalog request failed for %s: %s", catalog_id, type(exc).__name__)
+        return {"metas": []}
+
 
 @app.get("/stream/{type}/{id}.json")
 def get_stream(type: str, id: str):
