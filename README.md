@@ -251,8 +251,11 @@ its confidence and margin thresholds. Ambiguous records remain outside the
 public catalog.
 
 The provider crawler and TMDB metadata enrichment are implemented as manual
-CLI jobs, not as a scheduled service. Availability reconciliation (including
-safe removal after repeated failed scans) and the MDBList sync-outbox worker
-are still future work. A title is admitted to the public catalog only after
-its provider detail page has been resolved to a sufficiently certain IMDb
-identity.
+CLI jobs, not as a scheduled service. After a fully completed provider scan,
+availability reconciliation increments misses only for entries not seen in
+that scan. One missed scan is tolerated; after two consecutive completed scans
+the provider entry is marked missing. A title remains visible while any other
+provider still confirms it. Partial or failed scans never remove titles.
+Automatic scheduling and the MDBList sync-outbox worker are still future work.
+A title is admitted to the public catalog only after its provider detail page
+has been resolved to a sufficiently certain IMDb identity.
