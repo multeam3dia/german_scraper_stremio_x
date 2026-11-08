@@ -42,8 +42,10 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                     provider_title=detail.title,
                     provider_url=detail.url,
                     year=detail.year,
-                    metadata=detail.metadata,
-                    genres=detail.genres,
+                    metadata={
+                        **detail.metadata,
+                        "provider_genres": detail.provider_genres,
+                    },
                 )
                 seasons = provider.get_seasons(detail)
                 record_series_structure(
