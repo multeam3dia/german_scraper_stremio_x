@@ -62,7 +62,7 @@ class AniWorldProvider(BaseProvider):
                         title=str(item.get("title") or "").strip(),
                         url=url,
                         poster_url=item.get("poster_url"),
-                        genres=[str(genre.get("name"))] if genre.get("name") else [],
+                        provider_genres=[str(genre.get("name"))] if genre.get("name") else [],
                     )
                 if not result.get("has_more"):
                     break
