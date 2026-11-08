@@ -486,8 +486,11 @@ def get_catalog_stats() -> dict[str, int]:
         pending = db.execute(
             "SELECT COUNT(*) FROM sync_outbox WHERE status IN ('pending', 'retry')"
         ).fetchone()[0]
+        unresolved = db.execute(
+            "SELECT COUNT(*) FROM unresolved_provider_titles WHERE resolved_imdb_id IS NULL"
+        ).fetchone()[0]
     return {"active_titles": int(titles), "active_providers": int(providers),
-            "pending_mdb_sync": int(pending)}
+            "pending_mdb_sync": int(pending), "unresolved_titles": int(unresolved)}
 
 def get_title_genres(media_type: str, imdb_id: str) -> list[str]:
     """Return canonical genre names assigned to a title."""
