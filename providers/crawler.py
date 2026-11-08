@@ -54,6 +54,8 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                         description=detail.description,
                         metadata={
                             **detail.metadata,
+                            "poster_url": detail.poster_url,
+                            "description": detail.description,
                             "provider_genres": detail.provider_genres,
                         },
                         error="Provider detail page did not expose a valid IMDb ID",
@@ -71,6 +73,8 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                     year=detail.year,
                     metadata={
                         **detail.metadata,
+                        "poster_url": detail.poster_url,
+                        "description": detail.description,
                         "provider_genres": detail.provider_genres,
                     },
                 )
