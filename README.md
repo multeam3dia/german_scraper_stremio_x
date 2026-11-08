@@ -155,6 +155,19 @@ The database is designed to become the source of truth for provider discovery:
   last-seen/last-checked timestamps and availability state.
 - `crawl_runs`: scan history, progress and errors per provider.
 - `sync_outbox`: durable add/remove operations to be delivered to MDBList.
+- `genres` and `title_genres`: normalized many-to-many genre assignments,
+  allowing each movie or series to appear in multiple genre catalogs.
+
+Genre names are stored canonically with a URL-safe slug. When a discovery
+refresh includes genre metadata, that title's genre assignments are replaced
+with the refreshed set; when genre metadata is omitted, existing assignments
+are preserved. The database exposes helper functions to list active genres
+and retrieve titles for a genre. This prepares dynamic Stremio catalogs without
+creating a separate MDBList list for every genre.
+
+Genre-specific Stremio catalog endpoints are **not enabled yet**. They will be
+added after the systematic provider crawler populates verified titles and
+their metadata.
 
 This is the storage foundation only. The systematic provider crawler and
 outbox worker are not enabled yet; until those are implemented, the existing
