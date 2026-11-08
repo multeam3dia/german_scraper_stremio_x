@@ -33,6 +33,7 @@ def _variants(episode: object) -> list[ProviderVariant]:
 
 class AniWorldProvider(BaseProvider):
     provider_id = "aniworld"
+    catalog_scan_complete = True
     supported_media_types = ("series",)
 
     def iter_catalog(self) -> Iterator[ProviderTitle]:
