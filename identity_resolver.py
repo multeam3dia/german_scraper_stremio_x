@@ -197,7 +197,7 @@ def resolve_unresolved_titles(
     search_fn: Callable[..., dict[str, Any]] = _tmdb_get,
 ) -> dict[str, Any]:
     """Evaluate queued titles and optionally persist only high-confidence matches."""
-    records = get_unresolved_titles(provider=provider, limit=limit)
+    init_db()\n    records = get_unresolved_titles(provider=provider, limit=limit)
     summary: dict[str, Any] = {
         "scanned": len(records),
         "matched": 0,
