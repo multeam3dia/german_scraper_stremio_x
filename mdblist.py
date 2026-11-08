@@ -309,7 +309,7 @@ def get_catalog_metas(media_type: str, skip: int = 0, search: str = "") -> List[
 
     try:
         response = niquests.get(
-            f"{API_BASE}/lists/{list_id}/items/{'movie' if media_type == 'movie' else 'show'}/",
+            f"{API_BASE}/lists/{list_id}/items/",
             params={
                 "apikey": api_key,
                 "limit": _CATALOG_PAGE_SIZE,
