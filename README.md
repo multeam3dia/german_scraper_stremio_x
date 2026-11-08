@@ -58,10 +58,25 @@ candidate and confidence details in title metadata. It does not silently
 promote ambiguous candidates. Re-run the provider crawl later to refresh the
 full season/episode structure for titles that have just been identified.
 
+## TMDB metadata enrichment
 
-This is an initial crawler foundation, not yet an automated schedule. Run it
-only after validating provider access and request behavior in the deployment
-environment. The existing Stremio stream routes are unchanged.
+After titles have a verified IMDb ID, enrich their display metadata and
+canonical genres using that IMDb ID. This is separate from identity matching:
+it never guesses or changes a title's IMDb identity.
+
+```bash
+python -m metadata_enricher --limit 500
+```
+
+The enrichment stores localized TMDB titles, poster and backdrop URLs,
+descriptions, release years, and canonical genre names in SQLite. Provider
+labels such as GerDub and GerSub remain separate and are never exposed as
+canonical genres. Use `--force` to refresh titles that already have TMDB
+metadata.
+
+The crawler and enrichment commands are currently run manually inside the
+application container. A scheduled crawl, availability reconciliation, and
+automatic outbox delivery are not enabled yet.
 
 ## Features
 - **Movies**: Scrapes **Filmpalast.to**, **MegaKino**, and **Kinox.to**, with AniWorld anime film collections as an additional source.
