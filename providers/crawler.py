@@ -6,6 +6,7 @@ from typing import Any
 
 from catalog_db import (
     finish_crawl_run,
+    get_resolved_imdb_id,
     record_unresolved_title,
     record_discovery,
     record_series_structure,
@@ -32,7 +33,12 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
         for reference in provider.iter_catalog():
             try:
                 detail = provider.get_title(reference.url)
-                if not detail.imdb_id or not re.fullmatch(r"tt\d{7,10}", str(detail.imdb_id).strip()):
+                # Prefer an IMDb ID exposed by the provider. If absent, reuse
+                # only a previously reviewed/resolved mapping for this exact URL.
+                resolved_id = detail.imdb_id or get_resolved_imdb_id(
+                    detail.provider, detail.url
+                )
+                if not resolved_id or not re.fullmatch(r"tt\d{7,10}", str(resolved_id).strip()):
                     unresolved += 1
                     record_unresolved_title(
                         detail.provider,
@@ -50,6 +56,7 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                     )
                     continue
 
+                detail.imdb_id = str(resolved_id).strip()
                 record_discovery(
                     detail.media_type,
                     detail.imdb_id,
