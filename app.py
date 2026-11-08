@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from scraper import get_movie_streams, get_series_streams
 from aniworld.config import logger
 from mdblist import queue_verified_title, get_catalog_metas
+from catalog_db import init_db
 
 ADDON_ID = "org.stremio.german.scraper"
 VERSION = "1.1.0"
@@ -34,6 +35,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def initialize_catalog_database():
+    """Initialize the persistent provider catalog index."""
+    init_db()
+    logger.info("Persistent catalog database initialized")
+
 
 @app.on_event("startup")
 async def log_serienstream_login_configuration():
