@@ -28,6 +28,37 @@ python -m providers --provider aniworld
 python -m providers --provider serienstream
 ```
 
+## Provider identity resolution (TMDB)
+
+Titles without a verified IMDb ID are retained in the SQLite
+`unresolved_provider_titles` queue. The optional identity resolver uses TMDB
+search results and TMDB external IDs to find an IMDb ID. It compares normalized
+titles and release years, and requires both a high confidence score and a clear
+margin over the next candidate. Ambiguous matches are left unresolved.
+
+Configure one of the following container environment variables:
+
+- `TMDB_READ_ACCESS_TOKEN` (recommended, TMDB API v4 read access token), or
+- `TMDB_API_KEY` (TMDB API v3 key).
+
+The resolver is report-only by default. First inspect candidates:
+
+```bash
+python -m identity_resolver --provider serienstream --limit 500
+```
+
+Only after reviewing the report, persist high-confidence matches:
+
+```bash
+python -m identity_resolver --provider serienstream --limit 500 --apply
+```
+
+Omit `--provider` to process both providers. The resolver records the TMDB
+candidate and confidence details in title metadata. It does not silently
+promote ambiguous candidates. Re-run the provider crawl later to refresh the
+full season/episode structure for titles that have just been identified.
+
+
 This is an initial crawler foundation, not yet an automated schedule. Run it
 only after validating provider access and request behavior in the deployment
 environment. The existing Stremio stream routes are unchanged.
