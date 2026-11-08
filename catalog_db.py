@@ -87,6 +87,29 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_provider_entries_status
                 ON provider_entries(provider, availability_status, last_checked_at);
 
+            CREATE TABLE IF NOT EXISTS unresolved_provider_titles (
+                provider TEXT NOT NULL,
+                provider_url TEXT NOT NULL,
+                provider_title TEXT NOT NULL,
+                normalized_title TEXT NOT NULL,
+                media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+                year INTEGER,
+                poster_url TEXT,
+                description TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at TEXT,
+                last_error TEXT,
+                resolved_imdb_id TEXT,
+                resolved_at TEXT,
+                PRIMARY KEY (provider, provider_url)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_unresolved_titles_pending
+                ON unresolved_provider_titles(resolved_imdb_id, provider, last_seen_at);
+
             CREATE TABLE IF NOT EXISTS genres (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 slug TEXT NOT NULL UNIQUE,
@@ -198,10 +221,10 @@ def init_db() -> None:
         )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (3)")
-        elif row["version"] < 3:
-            db.execute("UPDATE schema_version SET version = 3")
-        elif row["version"] > 3:
+            db.execute("INSERT INTO schema_version(version) VALUES (4)")
+        elif row["version"] < 4:
+            db.execute("UPDATE schema_version SET version = 4")
+        elif row["version"] > 4:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
@@ -310,6 +333,112 @@ def record_discovery(
             (media_type, imdb_id, now, now),
         )
 
+
+
+def record_unresolved_title(
+    provider: str,
+    provider_url: str,
+    title: str,
+    media_type: str = "series",
+    *,
+    year: Optional[int] = None,
+    poster_url: Optional[str] = None,
+    description: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Persist a provider title that could not yet be matched to an IMDb ID.
+
+    This is deliberately separate from the public catalog: unresolved titles
+    are retained for review/retry but are never exposed as verified entries.
+    """
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("media_type must be 'movie' or 'series'")
+    provider = str(provider or "").strip().lower()
+    provider_url = str(provider_url or "").strip()
+    title = str(title or "").strip()
+    if not provider or not provider_url or not title:
+        raise ValueError("provider, provider_url and title are required")
+
+    normalized = __import__("re").sub(
+        r"[^a-z0-9]+", " ", title.casefold()
+    ).strip()
+    now = _utc_now()
+    with _connect() as db:
+        db.execute(
+            """
+            INSERT INTO unresolved_provider_titles(
+                provider, provider_url, provider_title, normalized_title,
+                media_type, year, poster_url, description, metadata_json,
+                first_seen_at, last_seen_at, attempts, last_attempt_at, last_error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+            ON CONFLICT(provider, provider_url) DO UPDATE SET
+                provider_title=excluded.provider_title,
+                normalized_title=excluded.normalized_title,
+                media_type=excluded.media_type,
+                year=COALESCE(excluded.year, unresolved_provider_titles.year),
+                poster_url=COALESCE(excluded.poster_url, unresolved_provider_titles.poster_url),
+                description=COALESCE(excluded.description, unresolved_provider_titles.description),
+                metadata_json=CASE WHEN excluded.metadata_json='{}'
+                    THEN unresolved_provider_titles.metadata_json
+                    ELSE excluded.metadata_json END,
+                last_seen_at=excluded.last_seen_at,
+                attempts=unresolved_provider_titles.attempts + 1,
+                last_attempt_at=excluded.last_attempt_at,
+                last_error=excluded.last_error
+            """,
+            (provider, provider_url, title, normalized, media_type, year,
+             poster_url, description, json.dumps(metadata or {}, ensure_ascii=False),
+             now, now, now, (error or "")[:1000] or None),
+        )
+
+
+def get_unresolved_titles(
+    provider: Optional[str] = None, limit: int = 500
+) -> list[dict[str, Any]]:
+    """Return unresolved provider records for matching/review tooling."""
+    limit = max(1, min(int(limit), 5000))
+    with _connect() as db:
+        if provider:
+            rows = db.execute(
+                """
+                SELECT * FROM unresolved_provider_titles
+                WHERE resolved_imdb_id IS NULL AND provider = ?
+                ORDER BY last_seen_at DESC LIMIT ?
+                """,
+                (provider.strip().lower(), limit),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                """
+                SELECT * FROM unresolved_provider_titles
+                WHERE resolved_imdb_id IS NULL
+                ORDER BY last_seen_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+    return [
+        {**dict(row), "metadata": json.loads(row["metadata_json"] or "{}")}
+        for row in rows
+    ]
+
+
+def mark_unresolved_title_resolved(
+    provider: str, provider_url: str, imdb_id: str
+) -> None:
+    """Mark a queued record as resolved after a separate confidence check."""
+    imdb_id = str(imdb_id or "").strip()
+    if not IMDB_ID_RE.fullmatch(imdb_id):
+        raise ValueError("A valid IMDb ID is required")
+    with _connect() as db:
+        db.execute(
+            """
+            UPDATE unresolved_provider_titles
+            SET resolved_imdb_id=?, resolved_at=?, last_error=NULL
+            WHERE provider=? AND provider_url=?
+            """,
+            (imdb_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
+        )
 
 def start_crawl_run(provider: str, media_type: str) -> int:
     if media_type not in MEDIA_TYPES:
