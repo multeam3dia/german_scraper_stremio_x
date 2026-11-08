@@ -2,6 +2,31 @@
 
 This Stremio addon provides German streams for movies and series from multiple sources.
 
+## Provider crawler foundation
+
+The `providers/` package defines a shared provider contract and normalized
+records for titles, seasons, episodes, language variants, and hosters.
+
+- `AniWorldProvider` discovers series from the provider's genre pages.
+- `SerienstreamProvider` currently discovers the homepage's new/popular
+  sections only. It is deliberately marked as an incomplete catalog scan;
+  full genre/pagination crawling is still required.
+- IMDb identity is not guessed. Entries without a valid IMDb ID are skipped
+  from the public catalog and counted as unresolved.
+- Verified title and episode structures are stored in SQLite. Provider source
+  URLs are stored, but expiring direct media URLs are not.
+
+Run a crawl manually inside the application container:
+
+```bash
+python -m providers --provider aniworld
+python -m providers --provider serienstream
+```
+
+This is an initial crawler foundation, not yet an automated schedule. Run it
+only after validating provider access and request behavior in the deployment
+environment. The existing Stremio stream routes are unchanged.
+
 ## Features
 - **Movies**: Scrapes **Filmpalast.to**, **MegaKino**, and **Kinox.to**, with AniWorld anime film collections as an additional source.
 - **Series**: Scrapes **Serienstream.to**, **Kinox.to**, **MegaKino**, and **AniWorld**.
