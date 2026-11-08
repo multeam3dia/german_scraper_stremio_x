@@ -97,3 +97,39 @@ same purpose or publish port `10000` directly to the internet.
 
 The health check requests `/manifest.json`. The container restarts unless
 stopped manually.
+
+## Optional MDBList catalog export (proof of concept)
+
+The add-on can push IMDb IDs that have **already been verified by a scraper
+source** into two MDBList static lists. This is an opt-in bridge for testing;
+it does not yet crawl provider catalogs or automatically discover all titles.
+
+Create two static lists in MDBList (one for movies and one for shows), then set
+these environment variables in Dockhand:
+
+- `MDBLIST_API_KEY`: API key from MDBList Preferences.
+- `MDBLIST_MOVIE_LIST_ID`: numeric ID of the movie static list.
+- `MDBLIST_SHOW_LIST_ID`: numeric ID of the show static list.
+- `MDBLIST_SYNC_TOKEN`: a separate long random token protecting the local
+  export endpoint. Do not reuse the MDBList API key.
+
+After redeploying, send a POST request to
+`/admin/mdblist/sync` with the header
+`X-MDBList-Sync-Token: <your-sync-token>` and a JSON body such as:
+
+```json
+{
+  "movies": ["tt0111161"],
+  "shows": ["tt0108778"]
+}
+```
+
+The example IDs are test fixtures only; use IDs for titles that you have
+actually confirmed in the relevant German scraper source. The endpoint adds
+items only; it never removes entries from your lists. It validates IMDb ID
+format, de-duplicates each request, and limits each media type to 50 IDs.
+API keys and sync tokens must never be committed to Git or pasted into logs.
+
+The MDBList API currently documents static-list item additions as
+`POST /lists/{listid}/items/add` with IMDb IDs in a `movies` or `shows`
+array. See the [MDBList API documentation](https://api.mdblist.com/docs/).
