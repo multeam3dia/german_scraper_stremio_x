@@ -231,6 +231,7 @@ def _item_to_stremio_meta(item: Dict, media_type: str):
     imdb_id = (
         ids.get("imdb")
         or item.get("imdb_id")
+        or item.get("imdbid")
         or item.get("imdb")
     )
     if not isinstance(imdb_id, str) or not IMDB_ID_RE.fullmatch(imdb_id.strip()):
@@ -308,7 +309,7 @@ def get_catalog_metas(media_type: str, skip: int = 0, search: str = "") -> List[
 
     try:
         response = niquests.get(
-            f"{API_BASE}/lists/{list_id}/items",
+            f"{API_BASE}/lists/{list_id}/items/{'movie' if media_type == 'movie' else 'show'}/",
             params={
                 "apikey": api_key,
                 "limit": _CATALOG_PAGE_SIZE,
@@ -326,14 +327,22 @@ def get_catalog_metas(media_type: str, skip: int = 0, search: str = "") -> List[
     except Exception as exc:
         raise MDBListAPIError("MDBList returned invalid catalog JSON") from exc
 
+    items = _extract_list_items(payload)
     metas = []
-    for item in _extract_list_items(payload):
+    rejected = 0
+    for item in items:
         meta = _item_to_stremio_meta(item, media_type)
         if not meta:
+            rejected += 1
             continue
         if search and search.casefold() not in meta["name"].casefold():
             continue
         metas.append(meta)
+
+    logger.info(
+        "MDBList catalog fetched: type=%s list_id=%s items=%d metas=%d rejected=%d response_type=%s",
+        media_type, list_id, len(items), len(metas), rejected, type(payload).__name__,
+    )
 
     with _LOCK:
         _CATALOG_CACHE[cache_key] = (now, metas)
