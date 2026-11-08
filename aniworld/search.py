@@ -759,6 +759,84 @@ def fetch_popular_series():
     )
 
 
+
+def fetch_all_series_index():
+    """Fetch the alphabetical all-series index from serienstream.
+
+    The index page is a much broader discovery source than the homepage's
+    featured sections. This function intentionally reports transport/markup
+    failures as None rather than silently falling back to a partial list.
+    """
+    from .models.s_to.http import sto_get
+
+    url = "https://serienstream.to/serien?by=alpha"
+    try:
+        response = sto_get(url)
+        response.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch serienstream all-series index: {exc}")
+        return None
+
+    page = response.text
+    # Require the index page's own heading before treating the response as
+    # a successful catalogue response. This prevents login/error pages from
+    # being interpreted as an empty catalogue.
+    if not re.search(r"Alle\\s+(?:Einträge|Serien)", page, re.IGNORECASE):
+        logger.error("Serienstream all-series index marker was not found")
+        return None
+
+    results = []
+    seen = set()
+    pattern = re.compile(
+        r'<a\\b[^>]*href=["\\'](?P<href>(?:https?://[^/"\\']+)?/serie/(?P<slug>[^/"\\'?#]+)(?:/staffel-\\d+)?/?)["\\'][^>]*>(?P<inner>.*?)</a>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(page):
+        slug = match.group("slug")
+        if not slug or slug in seen:
+            continue
+        inner = match.group("inner")
+        title_match = re.search(r'\\btitle=["\\']([^"\\']+)["\\']', match.group(0), re.I)
+        image_alt = re.search(r'\\balt=["\\']([^"\\']+)["\\']', inner, re.I)
+        raw_title = (
+            image_alt.group(1) if image_alt else
+            title_match.group(1) if title_match else
+            re.sub(r"<[^>]+>", " ", inner)
+        )
+        title = html_module.unescape(re.sub(r"\\s+", " ", raw_title)).strip()
+        if not title:
+            continue
+
+        href = match.group("href")
+        series_url = href if href.startswith("http") else f"https://serienstream.to/serie/{slug}"
+        poster_match = re.search(
+            r'<img[^>]+(?:data-src|src)=["\\']([^"\\']+)["\\']',
+            inner,
+            re.IGNORECASE,
+        )
+        poster = ""
+        if poster_match:
+            poster = html_module.unescape(poster_match.group(1).strip())
+            if poster.startswith("//"):
+                poster = "https:" + poster
+            elif poster.startswith("/"):
+                poster = "https://serienstream.to" + poster
+
+        seen.add(slug)
+        results.append({
+            "title": title,
+            "url": series_url,
+            "genre": "",
+            "poster_url": poster,
+        })
+
+    if not results:
+        logger.error("Serienstream all-series index contained no series links")
+        return None
+    logger.info(f"Serienstream all-series index discovered {len(results)} entries")
+    return results
+
+
 def _curses_menu(stdscr, options):
     """Display a simple curses menu to select an option with scrolling support."""
     import curses
