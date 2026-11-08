@@ -139,3 +139,25 @@ movies or shows. If the MDBList settings are absent or invalid, export is skippe
 
 The API key must remain a secret: do not commit it to Git or paste it into logs.
 See the MDBList API documentation: https://api.mdblist.com/docs/.
+
+
+## Persistent provider catalog index (new foundation)
+
+The addon initializes a local SQLite database at `/app/data/catalog.sqlite3`
+(or the path configured by `CATALOG_DB_PATH`). Docker Compose mounts
+`./data` to `/app/data`, so the database survives container recreation.
+Keep this directory on persistent storage and include it in backups.
+
+The database is designed to become the source of truth for provider discovery:
+
+- `titles`: canonical media identity (IMDb ID), title, year and metadata.
+- `provider_entries`: which provider exposes each title, its provider URL,
+  last-seen/last-checked timestamps and availability state.
+- `crawl_runs`: scan history, progress and errors per provider.
+- `sync_outbox`: durable add/remove operations to be delivered to MDBList.
+
+This is the storage foundation only. The systematic provider crawler and
+outbox worker are not enabled yet; until those are implemented, the existing
+playback-triggered MDBList export continues to work as documented above.
+A title must only be recorded as discovered after a provider detail page has
+been resolved and its IMDb identity has been matched with sufficient confidence.
