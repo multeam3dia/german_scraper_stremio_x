@@ -1,10 +1,14 @@
+import hmac
+import os
 import uvicorn
 from urllib.parse import urlparse
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from scraper import get_movie_streams, get_series_streams
 from aniworld.config import logger
+from mdblist import MDBListAPIError, MDBListConfigurationError, sync_imdb_ids
 
 ADDON_ID = "org.stremio.german.scraper"
 VERSION = "1.0.0"
@@ -84,6 +88,41 @@ def get_stream(type: str, id: str):
             seen_urls.add(s["url"])
 
     return {"streams": unique_streams}
+
+
+class MDBListSyncRequest(BaseModel):
+    """IMDb IDs already confirmed by one of the configured scraper sources."""
+
+    movies: list[str] = Field(default_factory=list)
+    shows: list[str] = Field(default_factory=list)
+
+
+@app.post("/admin/mdblist/sync")
+def sync_mdblist_catalog(
+    payload: MDBListSyncRequest,
+    x_mdblist_sync_token: str = Header(default=""),
+):
+    """Add verified IMDb IDs to the configured MDBList static lists.
+
+    This endpoint is disabled unless all MDBList settings are configured and
+    protected by a separate high-entropy admin token.
+    """
+    expected_token = os.getenv("MDBLIST_SYNC_TOKEN", "").strip()
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="MDBList sync is not configured")
+    if not hmac.compare_digest(x_mdblist_sync_token, expected_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        return sync_imdb_ids(payload.movies, payload.shows)
+    except MDBListConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except MDBListAPIError:
+        logger.warning("MDBList sync request failed")
+        raise HTTPException(status_code=502, detail="MDBList API request failed")
+
 
 @app.get("/")
 async def root():
