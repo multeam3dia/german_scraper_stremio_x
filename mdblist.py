@@ -191,3 +191,140 @@ def queue_verified_title(media_type: str, imdb_id: str) -> bool:
         logger.warning("Could not queue MDBList export for %s %s", media_type, imdb_id)
         return False
     return True
+
+
+# --- Stremio catalog reader -------------------------------------------------
+
+import time
+
+_CATALOG_CACHE = {}
+_CATALOG_CACHE_TTL = 300
+_CATALOG_PAGE_SIZE = 100
+
+
+def _extract_list_items(payload):
+    """Accept the list-shaped responses used by MDBList API versions."""
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("items", "results", "movies", "shows"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+    raise MDBListAPIError("MDBList returned an unexpected catalog response")
+
+
+def _item_to_stremio_meta(item: Dict, media_type: str):
+    if not isinstance(item, dict):
+        return None
+    ids = item.get("ids") if isinstance(item.get("ids"), dict) else {}
+    imdb_id = (
+        ids.get("imdb")
+        or item.get("imdb_id")
+        or item.get("imdb")
+    )
+    if not isinstance(imdb_id, str) or not IMDB_ID_RE.fullmatch(imdb_id.strip()):
+        return None
+    imdb_id = imdb_id.strip()
+
+    title = item.get("title") or item.get("name")
+    if not title:
+        return None
+
+    poster = item.get("poster") or item.get("poster_url")
+    if isinstance(poster, dict):
+        poster = poster.get("url") or poster.get("full")
+    background = item.get("backdrop") or item.get("backdrop_url") or item.get("background")
+    if isinstance(background, dict):
+        background = background.get("url") or background.get("full")
+
+    description = item.get("description") or item.get("overview") or item.get("plot")
+    year = item.get("year")
+    if not year:
+        released = item.get("released") or item.get("release_date") or item.get("first_aired")
+        if isinstance(released, str) and len(released) >= 4 and released[:4].isdigit():
+            year = released[:4]
+
+    genres = item.get("genres") or []
+    if not isinstance(genres, list):
+        genres = []
+    genres = [
+        str(g.get("name") if isinstance(g, dict) else g)
+        for g in genres if g
+    ]
+
+    ratings = item.get("ratings") if isinstance(item.get("ratings"), dict) else {}
+    imdb_rating = item.get("imdb_rating") or item.get("imdbrating")
+    imdb_data = ratings.get("imdb") if isinstance(ratings.get("imdb"), dict) else {}
+    imdb_rating = imdb_rating or imdb_data.get("rating")
+
+    meta = {
+        "id": imdb_id,
+        "type": media_type,
+        "name": str(title),
+    }
+    if poster:
+        meta["poster"] = poster
+    if background:
+        meta["background"] = background
+    if description:
+        meta["description"] = str(description)
+    if year:
+        meta["releaseInfo"] = str(year)[:4]
+    if genres:
+        meta["genres"] = genres
+    try:
+        if imdb_rating is not None:
+            meta["imdbRating"] = str(round(float(imdb_rating), 1))
+    except (TypeError, ValueError):
+        pass
+    return meta
+
+
+def get_catalog_metas(media_type: str, skip: int = 0, search: str = "") -> List[Dict]:
+    """Read one page from the configured MDBList static list for Stremio."""
+    if media_type not in {"movie", "series"}:
+        return []
+    api_key = _required_env("MDBLIST_API_KEY")
+    list_id = _resolve_list_id(api_key, media_type)
+    offset = max(0, int(skip))
+    search = (search or "").strip()
+    cache_key = (media_type, list_id, offset, search.casefold())
+    now = time.monotonic()
+    with _LOCK:
+        cached = _CATALOG_CACHE.get(cache_key)
+        if cached and now - cached[0] < _CATALOG_CACHE_TTL:
+            return list(cached[1])
+
+    try:
+        response = niquests.get(
+            f"{API_BASE}/lists/{list_id}/items",
+            params={
+                "apikey": api_key,
+                "limit": _CATALOG_PAGE_SIZE,
+                "offset": offset,
+                "append_to_response": "genres,poster,description,ratings",
+            },
+            timeout=20,
+        )
+    except Exception as exc:
+        raise MDBListAPIError("Could not retrieve MDBList catalog items") from exc
+    if response.status_code >= 400:
+        raise MDBListAPIError(f"MDBList returned HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except Exception as exc:
+        raise MDBListAPIError("MDBList returned invalid catalog JSON") from exc
+
+    metas = []
+    for item in _extract_list_items(payload):
+        meta = _item_to_stremio_meta(item, media_type)
+        if not meta:
+            continue
+        if search and search.casefold() not in meta["name"].casefold():
+            continue
+        metas.append(meta)
+
+    with _LOCK:
+        _CATALOG_CACHE[cache_key] = (now, metas)
+    return metas
