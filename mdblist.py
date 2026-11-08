@@ -74,16 +74,26 @@ def _resolve_list_id(api_key: str, media_type: str) -> int:
     if not isinstance(lists, list):
         raise MDBListAPIError("MDBList returned an unexpected list response")
 
-    expected_type = "movie" if media_type == "movie" else "show"
+    # The /lists/user response does not consistently expose a mediatype
+    # field for every list. The configured movie/show list names are distinct,
+    # so resolve by exact name first and use mediatype only to disambiguate
+    # duplicate names when MDBList provides it.
     matches = [
         item for item in lists
         if isinstance(item, dict)
         and str(item.get("name", "")).strip() == list_name
-        and str(item.get("mediatype", "")).strip().lower() == expected_type
     ]
+    if len(matches) > 1:
+        expected_type = "movie" if media_type == "movie" else "show"
+        typed_matches = [
+            item for item in matches
+            if str(item.get("mediatype", "")).strip().lower() == expected_type
+        ]
+        if typed_matches:
+            matches = typed_matches
     if len(matches) != 1:
         raise MDBListConfigurationError(
-            f"Expected exactly one {expected_type} list named {list_name!r}; found {len(matches)}"
+            f"Expected exactly one list named {list_name!r}; found {len(matches)}"
         )
     try:
         list_id = int(matches[0]["id"])
