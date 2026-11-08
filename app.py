@@ -1,12 +1,12 @@
 import uvicorn
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from scraper import get_movie_streams, get_series_streams
 from aniworld.config import logger
-from mdblist import queue_verified_title, get_catalog_metas
-from catalog_db import init_db
+from mdblist import queue_verified_title
+from catalog_db import get_catalog_titles, init_db, list_genres
 
 ADDON_ID = "org.stremio.german.scraper"
 VERSION = "1.1.0"
@@ -60,30 +60,136 @@ async def log_serienstream_login_configuration():
         flush=True,
     )
 
-@app.get("/manifest.json")
-async def get_manifest():
-    return MANIFEST
+def _catalog_manifest_entry(media_type: str, catalog_id: str, name: str) -> dict:
+    genres = [item["name"] for item in list_genres(media_type)]
+    extra = [
+        {"name": "search", "isRequired": False},
+        {"name": "skip", "isRequired": False},
+    ]
+    if genres:
+        extra.insert(1, {"name": "genre", "isRequired": False})
+    entry = {
+        "type": media_type,
+        "id": catalog_id,
+        "name": name,
+        "extra": extra,
+    }
+    if genres:
+        entry["genres"] = genres
+    return entry
 
-@app.get("/catalog/{type}/{catalog_id}.json")
-def get_catalog(type: str, catalog_id: str, skip: int = 0, search: str = ""):
-    """Return MDBList static-list items as Stremio catalog metadata."""
+
+def _catalog_meta(record: dict) -> dict:
+    """Convert one verified SQLite title into a Stremio Meta Preview Object."""
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    tmdb = metadata.get("tmdb") if isinstance(metadata.get("tmdb"), dict) else {}
+
+    meta = {
+        "id": record["imdb_id"],
+        "type": record["media_type"],
+        "name": str(tmdb.get("title") or record.get("title") or record["imdb_id"]),
+        "posterShape": "poster",
+    }
+    poster = tmdb.get("poster_url") or metadata.get("poster_url") or metadata.get("poster")
+    background = (
+        tmdb.get("backdrop_url")
+        or metadata.get("backdrop_url")
+        or metadata.get("background")
+    )
+    description = tmdb.get("overview") or metadata.get("description")
+    year = record.get("year") or tmdb.get("year") or metadata.get("release_year")
+    genres = record.get("genres") or tmdb.get("genres") or []
+
+    if poster:
+        meta["poster"] = poster
+    if background:
+        meta["background"] = background
+    if description:
+        meta["description"] = str(description)
+    if year:
+        meta["releaseInfo"] = str(year)[:4]
+    if isinstance(genres, list) and genres:
+        meta["genres"] = [str(value) for value in genres if value]
+    imdb_rating = tmdb.get("imdb_rating") or metadata.get("imdb_rating")
+    try:
+        if imdb_rating is not None:
+            meta["imdbRating"] = str(round(float(imdb_rating), 1))
+    except (TypeError, ValueError):
+        pass
+    return meta
+
+
+def _catalog_response(
+    media_type: str,
+    catalog_id: str,
+    *,
+    skip: object = 0,
+    search: str = "",
+    genre: str = "",
+) -> dict:
     catalog_types = {
         ("movie", "german_scraper_movies"): "movie",
         ("series", "german_scraper_shows"): "series",
     }
-    media_type = catalog_types.get((type, catalog_id))
-    if not media_type:
+    expected_type = catalog_types.get((media_type, catalog_id))
+    if not expected_type:
         return {"metas": []}
     try:
-        return {"metas": get_catalog_metas(media_type, skip=max(0, skip), search=search)}
+        records = get_catalog_titles(
+            expected_type,
+            skip=skip,
+            limit=100,
+            search=search,
+            genre=genre,
+        )
+        return {"metas": [_catalog_meta(record) for record in records]}
     except Exception as exc:
-        # MDBListAPIError messages contain only a safe status/diagnostic,
-        # never the request URL or API key.
         logger.error(
-            "MDBList catalog request failed for %s: %s: %s",
+            "SQLite catalog request failed for %s: %s: %s",
             catalog_id, exc.__class__.__name__, str(exc),
         )
         return {"metas": []}
+
+
+@app.get("/manifest.json")
+async def get_manifest():
+    manifest = dict(MANIFEST)
+    manifest["catalogs"] = [
+        _catalog_manifest_entry(
+            "movie", "german_scraper_movies", "German Scraper X - Movies"
+        ),
+        _catalog_manifest_entry(
+            "series", "german_scraper_shows", "German Scraper X - Shows"
+        ),
+    ]
+    return manifest
+
+
+@app.get("/catalog/{type}/{catalog_id}.json")
+def get_catalog(
+    type: str,
+    catalog_id: str,
+    skip: int = 0,
+    search: str = "",
+    genre: str = "",
+):
+    """Serve verified catalog entries directly from the persistent SQLite index."""
+    return _catalog_response(
+        type, catalog_id, skip=skip, search=search, genre=genre
+    )
+
+
+@app.get("/catalog/{type}/{catalog_id}/{extra}.json")
+def get_catalog_with_extra(type: str, catalog_id: str, extra: str):
+    """Handle Stremio's path-encoded search, genre and pagination arguments."""
+    values = parse_qs(extra, keep_blank_values=True)
+    return _catalog_response(
+        type,
+        catalog_id,
+        skip=values.get("skip", ["0"])[-1],
+        search=values.get("search", [""])[-1],
+        genre=values.get("genre", [""])[-1],
+    )
 
 
 @app.get("/stream/{type}/{id}.json")
