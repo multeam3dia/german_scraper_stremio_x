@@ -187,6 +187,11 @@ available are returned. Catalog requests support title search, canonical genre
 filtering, and Stremio pagination. Genre options in the manifest are generated
 from the canonical genres currently stored in SQLite.
 
+The systematic provider adapters currently cover series (AniWorld and
+Serienstream). The Movies catalog endpoint is in place, but it will remain
+empty until a movie provider has a validated full-catalog discovery adapter.
+The existing playback-time movie stream lookup is unchanged.
+
 MDBList is no longer the source of truth for Stremio catalog contents. The
 existing optional exporter can still add a title to a configured MDBList static
 list after a stream lookup returns at least one usable stream. This is useful
