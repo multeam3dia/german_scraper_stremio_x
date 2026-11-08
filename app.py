@@ -1,9 +1,6 @@
-import hmac
-import os
 import uvicorn
 from urllib.parse import urlparse
-from fastapi import FastAPI, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from scraper import get_movie_streams, get_series_streams
