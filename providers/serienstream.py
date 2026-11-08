@@ -33,6 +33,7 @@ def _variants(episode: object) -> list[ProviderVariant]:
 
 class SerienstreamProvider(BaseProvider):
     provider_id = "serienstream"
+    catalog_scan_complete = False
     supported_media_types = ("series",)
 
     def iter_catalog(self) -> Iterator[ProviderTitle]:
