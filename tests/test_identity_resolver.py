@@ -95,6 +95,9 @@ class IdentityResolverTests(unittest.TestCase):
         summary = resolve_unresolved_titles(apply=True, search_fn=fake_get)
         self.assertEqual(summary["applied"], 1)
         self.assertEqual(catalog_db.get_unresolved_titles(), [])
+        self.assertEqual(
+            catalog_db.get_resolved_imdb_id("serienstream", url), "tt5753856"
+        )
         self.assertEqual(catalog_db.get_catalog_stats()["active_titles"], 1)
 
 
