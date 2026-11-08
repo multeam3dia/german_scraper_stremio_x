@@ -34,18 +34,6 @@ def _required_env(name: str) -> str:
     return value
 
 
-def _list_id(name: str) -> int:
-    value = _required_env(name)
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise MDBListConfigurationError(f"{name} must be a positive integer") from exc
-    if parsed <= 0:
-        raise MDBListConfigurationError(f"{name} must be a positive integer")
-    return parsed
-
-
-
 def _resolve_list_id(api_key: str, media_type: str) -> int:
     """Resolve a configured numeric list ID or exact user-list name."""
     id_env = "MDBLIST_MOVIE_LIST_ID" if media_type == "movie" else "MDBLIST_SHOW_LIST_ID"
