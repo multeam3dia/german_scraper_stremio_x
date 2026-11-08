@@ -7,6 +7,7 @@ from typing import Any
 from catalog_db import (
     finish_crawl_run,
     get_resolved_imdb_id,
+    mark_unresolved_title_resolved,
     record_unresolved_title,
     record_discovery,
     record_series_structure,
@@ -72,6 +73,11 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                         **detail.metadata,
                         "provider_genres": detail.provider_genres,
                     },
+                )
+                # If the provider now exposes an IMDb ID directly, retire any
+                # older unresolved queue entry for this exact provider URL.
+                mark_unresolved_title_resolved(
+                    detail.provider, detail.url, detail.imdb_id
                 )
                 seasons = provider.get_seasons(detail)
                 record_series_structure(
