@@ -205,15 +205,11 @@ instead. If these settings are absent, MDBList export is skipped.
 
 ## MDBList export behavior
 
-The addon automatically adds a movie or series to the corresponding static list
-**only after a stream lookup has returned at least one usable stream**. This avoids
-populating the lists with titles that our German scraper sources do not currently
-serve. It does not crawl all provider catalogs in the background.
-
-MDBList API writes run asynchronously and do not delay Stremio stream responses.
-Each title is submitted once per running process after a successful API result.
-The exporter uses POST /lists/{listid}/items/add and submits IMDb IDs under
-movies or shows. If the MDBList settings are absent or invalid, export is skipped.
+The addon adds a movie or series to the corresponding MDBList static list
+**only after a stream lookup has returned at least one usable stream**. MDBList
+API writes run asynchronously and do not delay Stremio stream responses.
+If the MDBList settings are absent or invalid, export is skipped. The exporter
+uses the MDBList API to submit IMDb IDs under movies or shows.
 
 The API key must remain a secret: do not commit it to Git or paste it into logs.
 See the MDBList API documentation: https://api.mdblist.com/docs/.
