@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from aniworld.search import GENRE_FALLBACK
 from providers.aniworld import AniWorldProvider
+from providers.base import ProviderTitle
+from providers.serienstream import SerienstreamProvider
 
 
 class AniWorldAdapterTests(unittest.TestCase):
@@ -43,6 +45,48 @@ class AniWorldAdapterTests(unittest.TestCase):
             list(provider.iter_catalog())
 
         self.assertFalse(provider.catalog_scan_complete)
+
+
+class SerienstreamLazyStructureTests(unittest.TestCase):
+    def test_structure_loading_does_not_read_episode_details(self):
+        class FakeEpisode:
+            url = "https://serienstream.to/serie/example/staffel-1/episode-1"
+            episode_number = 1
+
+            @property
+            def title_de(self):
+                raise AssertionError("episode title must not trigger an episode-page request")
+
+            @property
+            def title_en(self):
+                raise AssertionError("episode title must not trigger an episode-page request")
+
+            @property
+            def provider_data(self):
+                raise AssertionError("provider data must wait until playback")
+
+        class FakeSeason:
+            url = "https://serienstream.to/serie/example/staffel-1"
+            season_number = 1
+            episodes = [FakeEpisode()]
+
+        class FakeSeries:
+            def __init__(self, url):
+                self.seasons = [FakeSeason()]
+
+        title = ProviderTitle(
+            provider="serienstream",
+            media_type="series",
+            title="Example",
+            url="https://serienstream.to/serie/example",
+        )
+        with patch("providers.serienstream.SerienstreamSeries", FakeSeries):
+            seasons = SerienstreamProvider().get_seasons(title)
+
+        self.assertEqual(len(seasons), 1)
+        self.assertEqual(len(seasons[0].episodes), 1)
+        self.assertIsNone(seasons[0].episodes[0].title)
+        self.assertEqual(seasons[0].episodes[0].variants, [])
 
 
 if __name__ == "__main__":
