@@ -3,7 +3,8 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from scraper import get_movie_streams, get_series_streams
+from scraper import get_movie_streams, get_metadata
+from providers.lazy import get_series_meta, get_series_streams_for_episode
 from aniworld.config import logger
 from mdblist import queue_verified_title
 from catalog_db import get_catalog_titles, init_db, list_genres
@@ -17,7 +18,7 @@ MANIFEST = {
     "name": "German Scraper",
     "description": "German streams and verified availability catalogs from AniWorld, Serienstream, Filmpalast, and MegaKino.",
     "logo": "https://www.stremio.com/static/images/stremio-logo.png",
-    "resources": ["stream", "catalog"],
+    "resources": ["stream", "catalog", "meta"],
     "types": ["movie", "series"],
     "catalogs": [
         {"type": "movie", "id": "german_scraper_movies", "name": "German Scraper X - Movies"},
@@ -192,6 +193,32 @@ def get_catalog_with_extra(type: str, catalog_id: str, extra: str):
     )
 
 
+@app.get("/meta/{type}/{id}.json")
+def get_meta(type: str, id: str):
+    """Return provider-backed episode metadata for series, on demand."""
+    imdb_id = id.split(":", 1)[0]
+    if type == "series":
+        try:
+            return get_series_meta(imdb_id)
+        except Exception as exc:
+            logger.error(
+                "Series metadata request failed for %s: %s: %s",
+                imdb_id, type(exc).__name__, str(exc),
+            )
+            fallback = get_metadata("series", imdb_id)
+            if isinstance(fallback, dict):
+                fallback = dict(fallback)
+                fallback["videos"] = []
+                return {"meta": fallback}
+            return {"meta": None}
+
+    if type == "movie":
+        meta = get_metadata("movie", imdb_id)
+        return {"meta": meta} if isinstance(meta, dict) else {"meta": None}
+
+    return {"meta": None}
+
+
 @app.get("/stream/{type}/{id}.json")
 def get_stream(type: str, id: str):
     logger.info(f"Stream request: Type={type}, ID={id}")
@@ -205,7 +232,7 @@ def get_stream(type: str, id: str):
                 imdb_id = parts[0]
                 season = int(parts[1])
                 episode = int(parts[2])
-                streams = get_series_streams(imdb_id, season, episode)
+                streams = get_series_streams_for_episode(imdb_id, season, episode)
     except Exception as e:
         logger.error(f"Error handling stream request for {id}: {e}")
 
