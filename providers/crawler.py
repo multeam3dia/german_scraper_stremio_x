@@ -1,4 +1,4 @@
-"""Run a provider catalog crawl and persist verified title structures."""
+"""Run a provider catalog crawl and persist verified title availability."""
 from __future__ import annotations
 
 import re
