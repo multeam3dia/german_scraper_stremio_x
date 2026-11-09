@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from threading import RLock
 from typing import Any
 
 from catalog_db import (
@@ -28,6 +30,16 @@ try:
     )
 except (TypeError, ValueError):
     STRUCTURE_CACHE_TTL_SECONDS = 86400
+
+try:
+    STREAM_CACHE_TTL_SECONDS = max(
+        0, int(os.getenv("EPISODE_STREAM_CACHE_TTL_SECONDS", "30"))
+    )
+except (TypeError, ValueError):
+    STREAM_CACHE_TTL_SECONDS = 30
+
+_STREAM_CACHE: dict[tuple[str, int, int], tuple[float, list[dict[str, Any]]]] = {}
+_STREAM_CACHE_LOCK = RLock()
 
 
 def ensure_series_structure(imdb_id: str) -> list[dict[str, Any]]:
@@ -280,7 +292,18 @@ def get_series_streams_for_episode(
     season_number: int,
     episode_number: int,
 ) -> list[dict[str, Any]]:
-    """Resolve only providers recorded as available for this exact IMDb title."""
+    """Resolve only known providers; keep temporary stream URLs in a short memory cache."""
+    cache_key = (imdb_id, int(season_number), int(episode_number))
+    now = time.monotonic()
+    with _STREAM_CACHE_LOCK:
+        cached = _STREAM_CACHE.get(cache_key)
+        if cached:
+            cached_at, cached_streams = cached
+            cache_ttl = STREAM_CACHE_TTL_SECONDS if cached_streams else min(10, STREAM_CACHE_TTL_SECONDS)
+            if now - cached_at < cache_ttl:
+                return [dict(stream) for stream in cached_streams]
+            _STREAM_CACHE.pop(cache_key, None)
+
     entries = get_available_provider_entries("series", imdb_id)
     structures = ensure_series_structure(imdb_id)
     meta = _canonical_meta(imdb_id)
@@ -330,4 +353,11 @@ def get_series_streams_for_episode(
                 provider_id,
                 type(exc).__name__,
             )
+    # Resolved media URLs may expire, so cache them only in process memory and
+    # for a short period. Never write signed playback URLs to SQLite.
+    with _STREAM_CACHE_LOCK:
+        _STREAM_CACHE[cache_key] = (
+            time.monotonic(),
+            [dict(stream) for stream in streams],
+        )
     return streams
