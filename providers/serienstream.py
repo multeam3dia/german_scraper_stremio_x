@@ -7,29 +7,12 @@ from typing import Iterator
 from aniworld.models.s_to import SerienstreamSeries
 from aniworld.search import fetch_all_series_index
 
-from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle, ProviderVariant
+from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
 
 def _year(value: object) -> int | None:
     match = re.search(r"\b(19|20)\d{2}\b", str(value or ""))
     return int(match.group(0)) if match else None
-
-
-def _variants(episode: object) -> list[ProviderVariant]:
-    provider_data = getattr(episode, "provider_data", {}) or {}
-    data = getattr(provider_data, "_data", provider_data) or {}
-    variants: list[ProviderVariant] = []
-    for language_pair, hosters in data.items():
-        audio = getattr(language_pair[0], "value", str(language_pair[0]))
-        subtitles = getattr(language_pair[1], "value", str(language_pair[1]))
-        for hoster, source_url in (hosters or {}).items():
-            variants.append(ProviderVariant(
-                audio_language=str(audio),
-                subtitle_language=None if subtitles.lower() == "none" else str(subtitles),
-                hoster=str(hoster),
-                source_url=str(source_url),
-            ))
-    return variants
 
 
 class SerienstreamProvider(BaseProvider):
