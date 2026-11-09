@@ -203,7 +203,7 @@ def get_meta(type: str, id: str):
         except Exception as exc:
             logger.error(
                 "Series metadata request failed for %s: %s: %s",
-                imdb_id, type(exc).__name__, str(exc),
+                imdb_id, exc.__class__.__name__, str(exc),
             )
             fallback = get_metadata("series", imdb_id)
             if isinstance(fallback, dict):
