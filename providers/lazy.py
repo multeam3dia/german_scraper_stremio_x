@@ -137,6 +137,7 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
     available_ids = {
         str(entry.get("provider") or "").strip().lower()
         for entry in entries
+        if str(entry.get("provider") or "").strip().lower() in PROVIDERS
     }
     videos_by_key: dict[tuple[int, int], dict[str, Any]] = {}
 
