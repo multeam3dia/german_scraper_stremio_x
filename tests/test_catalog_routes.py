@@ -68,6 +68,7 @@ class CatalogRouteTests(unittest.TestCase):
 
     def test_manifest_advertises_search_pagination_and_available_genres(self):
         manifest = asyncio.run(app.get_manifest())
+        self.assertIn("meta", manifest["resources"])
         movie_catalog = next(
             item for item in manifest["catalogs"]
             if item["id"] == "german_scraper_movies"
