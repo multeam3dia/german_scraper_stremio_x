@@ -37,6 +37,9 @@ python -m providers --provider serienstream
 
 The structure-cache lifetime can be changed with the container environment
 variable `SERIES_STRUCTURE_CACHE_TTL_SECONDS` (default: `86400` seconds).
+Resolved playback URLs are cached in process memory for 30 seconds by default
+(`EPISODE_STREAM_CACHE_TTL_SECONDS`) and are never written to SQLite because
+they may contain temporary access tokens.
 
 ## Provider identity resolution (TMDB)
 
