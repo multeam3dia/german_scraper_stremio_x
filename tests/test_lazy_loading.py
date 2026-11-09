@@ -132,9 +132,11 @@ class LazyLoadingTests(unittest.TestCase):
         ):
             response = get_series_meta("tt2468101")
             streams = get_series_streams_for_episode("tt2468101", 1, 1)
+            cached_streams = get_series_streams_for_episode("tt2468101", 1, 1)
 
         self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468101:1:1")
         self.assertEqual(len(streams), 1)
+        self.assertEqual(cached_streams, streams)
         self.assertEqual(_LazyPlaybackProvider.seasons_calls, 1)
         self.assertEqual(_LazyPlaybackProvider.stream_calls, 1)
 
