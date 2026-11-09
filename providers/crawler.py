@@ -11,7 +11,6 @@ from catalog_db import (
     mark_unresolved_title_resolved,
     record_unresolved_title,
     record_discovery,
-    record_series_structure,
     reconcile_provider_availability,
     start_crawl_run,
 )
@@ -20,11 +19,11 @@ from .base import BaseProvider
 
 
 def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
-    """Discover titles, resolve provider details, and store verified IMDb records.
+    """Discover provider titles and persist verified IMDb records.
 
-    Provider listing failures never count as evidence that a title disappeared.
-    Records without a valid IMDb ID are reported for later matching and are not
-    admitted to the public catalog.
+    Season and episode structures are intentionally deferred until a user opens
+    a series. Provider listing failures never count as evidence that a title
+    disappeared. Records without a valid IMDb ID remain in the review queue.
     """
     # Make the CLI independently runnable with a fresh local database.
     # On the VPS this is already done by application startup; init_db is idempotent.
@@ -90,13 +89,6 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 # older unresolved queue entry for this exact provider URL.
                 mark_unresolved_title_resolved(
                     detail.provider, detail.url, detail.imdb_id
-                )
-                seasons = provider.get_seasons(detail)
-                record_series_structure(
-                    detail.media_type,
-                    detail.imdb_id,
-                    detail.provider,
-                    [season.to_dict() for season in seasons],
                 )
                 found += 1
             except Exception as exc:
