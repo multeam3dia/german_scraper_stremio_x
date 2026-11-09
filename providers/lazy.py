@@ -85,7 +85,11 @@ def ensure_series_structure(imdb_id: str) -> list[dict[str, Any]]:
                 type(exc).__name__,
             )
 
-    return get_series_structure("series", imdb_id)
+    available_ids = {str(entry.get("provider") or "").strip().lower() for entry in entries}
+    return [
+        item for item in get_series_structure("series", imdb_id)
+        if item.get("provider") in available_ids
+    ]
 
 
 def _canonical_meta(imdb_id: str) -> dict[str, Any]:
