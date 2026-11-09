@@ -9,7 +9,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -162,6 +162,16 @@ def init_db() -> None:
                     ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS provider_structure_cache (
+                media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+                imdb_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (media_type, imdb_id, provider),
+                FOREIGN KEY (media_type, imdb_id, provider)
+                    REFERENCES provider_entries(media_type, imdb_id, provider) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS episode_sources (
                 media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
                 imdb_id TEXT NOT NULL,
@@ -223,10 +233,10 @@ def init_db() -> None:
         )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (4)")
-        elif row["version"] < 4:
-            db.execute("UPDATE schema_version SET version = 4")
-        elif row["version"] > 4:
+            db.execute("INSERT INTO schema_version(version) VALUES (5)")
+        elif row["version"] < 5:
+            db.execute("UPDATE schema_version SET version = 5")
+        elif row["version"] > 5:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
@@ -957,6 +967,12 @@ def record_series_structure(
 
     now = _utc_now()
     with _connect() as db:
+        # Replace the previous snapshot atomically. Foreign-key cascades remove
+        # obsolete episodes and source variants for this provider/title pair.
+        db.execute(
+            "DELETE FROM provider_seasons WHERE media_type=? AND imdb_id=? AND provider=?",
+            (media_type, imdb_id, provider),
+        )
         for season in seasons or []:
             season_number = int(season.get("season_number", 0))
             season_url = str(season.get("url") or "").strip()
@@ -1077,3 +1093,77 @@ def get_series_structure(media_type: str, imdb_id: str) -> list[dict[str, Any]]:
             })
     return result
 
+
+
+
+def get_available_provider_entries(media_type: str, imdb_id: str) -> list[dict[str, Any]]:
+    """Return only provider URLs that currently confirm title availability."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        rows = db.execute(
+            """
+            SELECT provider, provider_title, provider_url
+            FROM provider_entries
+            WHERE media_type=? AND imdb_id=?
+              AND availability_status='available'
+              AND provider_url IS NOT NULL AND provider_url != ''
+            ORDER BY provider
+            """,
+            (media_type, imdb_id),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def is_provider_structure_fresh(
+    media_type: str,
+    imdb_id: str,
+    provider: str,
+    *,
+    ttl_seconds: int = 86400,
+) -> bool:
+    """Check whether a provider's cached season/episode structure is still fresh."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    try:
+        ttl = max(60, int(ttl_seconds))
+    except (TypeError, ValueError):
+        ttl = 86400
+    with _connect() as db:
+        row = db.execute(
+            """
+            SELECT fetched_at FROM provider_structure_cache
+            WHERE media_type=? AND imdb_id=? AND provider=?
+            """,
+            (media_type, imdb_id, provider.strip().lower()),
+        ).fetchone()
+    if row is None:
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(str(row["fetched_at"]))
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - fetched_at).total_seconds() < ttl
+    except (TypeError, ValueError):
+        return False
+
+
+def mark_provider_structure_fetched(
+    media_type: str,
+    imdb_id: str,
+    provider: str,
+) -> None:
+    """Persist the successful refresh time for one provider's series structure."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    now = _utc_now()
+    with _connect() as db:
+        db.execute(
+            """
+            INSERT INTO provider_structure_cache(media_type, imdb_id, provider, fetched_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(media_type, imdb_id, provider)
+            DO UPDATE SET fetched_at=excluded.fetched_at
+            """,
+            (media_type, imdb_id, provider.strip().lower(), now),
+        )
