@@ -295,7 +295,7 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                     proxy_headers = {"request": request_headers}
 
                     stream_entry = {
-                        "name": f"[{provider_site_name}] {name}",
+                        "name": name,
                         "title": f"{meta_title} | {audio.value} | {name}",
                         "url": direct_url,
                         "behaviorHints": {
@@ -435,7 +435,7 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                     request_headers.update(playback_headers)
 
                     entry = {
-                        "name": f"[AniWorld] {provider_name}",
+                        "name": provider_name,
                         "title": f"{display_title} | {language} | {provider_name}",
                         "url": direct_url,
                         "behaviorHints": {
