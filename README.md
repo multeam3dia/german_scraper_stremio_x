@@ -15,8 +15,15 @@ records for titles, seasons, episodes, language variants, and hosters.
   the overall crawl partial.
 - IMDb identity is not guessed. Entries without a valid IMDb ID are skipped
   from the public catalog and counted as unresolved.
-- Verified title and episode structures are stored in SQLite. Provider source
-  URLs are stored, but expiring direct media URLs are not.
+- The initial crawl verifies each listed title, reads its provider detail page
+  for the IMDb identity, and stores the title/provider URL relationship. It does
+  **not** enumerate seasons, episodes, or hosters.
+- Season and episode lists are fetched only when Stremio opens a series. This
+  reads the series page and season listing pages, but not individual episode
+  pages. The result is cached in SQLite for 24 hours by default.
+- An individual episode page is fetched only when playback is requested, and
+  only from providers recorded as available for that IMDb title. Temporary
+  direct media URLs are never persisted.
 - Provider-side genre labels are retained as raw metadata only. Canonical
   Stremio genres are populated later by the TMDB/IMDb metadata enrichment step,
   so tags such as language flags are not mistakenly exposed as genres.
@@ -27,6 +34,9 @@ Run a crawl manually inside the application container:
 python -m providers --provider aniworld
 python -m providers --provider serienstream
 ```
+
+The structure-cache lifetime can be changed with the container environment
+variable `SERIES_STRUCTURE_CACHE_TTL_SECONDS` (default: `86400` seconds).
 
 ## Provider identity resolution (TMDB)
 
