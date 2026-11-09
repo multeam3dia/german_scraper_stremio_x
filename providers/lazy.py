@@ -85,7 +85,11 @@ def ensure_series_structure(imdb_id: str) -> list[dict[str, Any]]:
                 type(exc).__name__,
             )
 
-    available_ids = {str(entry.get("provider") or "").strip().lower() for entry in entries}
+    available_ids = {
+        str(entry.get("provider") or "").strip().lower()
+        for entry in entries
+        if str(entry.get("provider") or "").strip().lower() in PROVIDERS
+    }
     return [
         item for item in get_series_structure("series", imdb_id)
         if item.get("provider") in available_ids
@@ -229,7 +233,11 @@ def _find_provider_episode(
             return None
         matches = []
         for season_data in provider_seasons:
+            if season_data.get("is_movie_collection"):
+                continue
             for episode_data in season_data.get("episodes") or []:
+                if episode_data.get("is_movie"):
+                    continue
                 names = {
                     clean_for_match(episode_data.get("title") or ""),
                     clean_for_match(episode_data.get("title_original") or ""),
