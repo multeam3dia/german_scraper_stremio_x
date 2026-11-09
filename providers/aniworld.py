@@ -7,29 +7,12 @@ from typing import Iterator
 from aniworld.models.aniworld_to import AniworldSeries
 from aniworld.search import GENRE_FALLBACK, fetch_genres, fetch_genre_animes
 
-from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle, ProviderVariant
+from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
 
 def _year(value: object) -> int | None:
     match = re.search(r"\b(19|20)\d{2}\b", str(value or ""))
     return int(match.group(0)) if match else None
-
-
-def _variants(episode: object) -> list[ProviderVariant]:
-    provider_data = getattr(episode, "provider_data", {}) or {}
-    data = getattr(provider_data, "_data", provider_data) or {}
-    variants: list[ProviderVariant] = []
-    for language_pair, hosters in data.items():
-        audio = getattr(language_pair[0], "value", str(language_pair[0]))
-        subtitles = getattr(language_pair[1], "value", str(language_pair[1]))
-        for hoster, source_url in (hosters or {}).items():
-            variants.append(ProviderVariant(
-                audio_language=str(audio),
-                subtitle_language=None if subtitles.lower() == "none" else str(subtitles),
-                hoster=str(hoster),
-                source_url=str(source_url),
-            ))
-    return variants
 
 
 class AniWorldProvider(BaseProvider):
@@ -115,8 +98,10 @@ class AniWorldProvider(BaseProvider):
                     url=str(episode.url),
                     season_number=season_number,
                     episode_number=int(getattr(episode, "episode_number", 0) or 0),
-                    title=getattr(episode, "title_de", None) or None,
-                    title_original=getattr(episode, "title_en", None) or None,
+                    # Read only values already parsed from the season page.
+                    # The public properties fetch the episode page when empty.
+                    title=getattr(episode, "_AniworldEpisode__title_de", None) or None,
+                    title_original=getattr(episode, "_AniworldEpisode__title_en", None) or None,
                     is_movie=bool(getattr(episode, "is_movie", False) or is_movies),
                 ))
             result.append(ProviderSeason(
