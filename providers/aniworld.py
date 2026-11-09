@@ -118,7 +118,6 @@ class AniWorldProvider(BaseProvider):
                     title=getattr(episode, "title_de", None) or None,
                     title_original=getattr(episode, "title_en", None) or None,
                     is_movie=bool(getattr(episode, "is_movie", False) or is_movies),
-                    variants=_variants(episode),
                 ))
             result.append(ProviderSeason(
                 provider=self.provider_id,
@@ -128,3 +127,16 @@ class AniWorldProvider(BaseProvider):
                 episodes=episodes,
             ))
         return result
+
+    def get_episode_streams(
+        self,
+        episode_url: str,
+        display_title: str,
+        binge_group: str | None = None,
+    ) -> list[dict]:
+        """Fetch one AniWorld episode page and resolve its available streams."""
+        from aniworld.models.aniworld_to.episode import AniworldEpisode
+        from scraper import _extract_aniworld_streams
+
+        episode = AniworldEpisode(episode_url)
+        return _extract_aniworld_streams(episode, display_title, binge_group)
