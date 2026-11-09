@@ -117,7 +117,7 @@ def _canonical_videos(meta: dict[str, Any]) -> dict[tuple[int, int], dict[str, A
 
 
 def get_series_meta(imdb_id: str) -> dict[str, Any]:
-    """Return Cinemeta metadata enriched with the providers' real episode list."""
+    """Return Cinemeta metadata with only episodes confirmed by a provider."""
     meta = _canonical_meta(imdb_id)
     entries = get_available_provider_entries("series", imdb_id)
     if not meta:
@@ -130,38 +130,35 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
 
     structures = ensure_series_structure(imdb_id)
     canonical = _canonical_videos(meta)
+    available_ids = {
+        str(entry.get("provider") or "").strip().lower()
+        for entry in entries
+    }
     videos_by_key: dict[tuple[int, int], dict[str, Any]] = {}
 
-    for season_data in structures:
-        if season_data.get("is_movie_collection"):
-            continue
-        try:
-            season_number = int(season_data.get("season_number", 0))
-        except (TypeError, ValueError):
-            continue
-        for episode_data in season_data.get("episodes") or []:
-            if episode_data.get("is_movie"):
-                continue
-            try:
-                episode_number = int(episode_data.get("episode_number", 0))
-            except (TypeError, ValueError):
-                continue
+    if canonical:
+        # Prefer Cinemeta's canonical numbering. AniWorld episode numbers can
+        # differ; _find_provider_episode maps those by exact episode title.
+        for key, source_video in sorted(canonical.items()):
+            season_number, episode_number = key
             if episode_number <= 0:
                 continue
-
-            key = (season_number, episode_number)
-            if key in videos_by_key:
-                continue
-            source_video = canonical.get(key, {})
-            title = (
-                source_video.get("title")
-                or episode_data.get("title")
-                or episode_data.get("title_original")
-                or f"Episode {episode_number}"
+            target_title = str(source_video.get("title") or "").strip() or None
+            confirmed = any(
+                _find_provider_episode(
+                    provider_id,
+                    structures,
+                    season_number,
+                    episode_number,
+                    target_title,
+                )
+                for provider_id in available_ids
             )
+            if not confirmed:
+                continue
             video = {
                 "id": f"{imdb_id}:{season_number}:{episode_number}",
-                "title": str(title),
+                "title": str(target_title or f"Episode {episode_number}"),
                 "season": season_number,
                 "episode": episode_number,
             }
@@ -169,14 +166,44 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
                 if source_video.get(field):
                     video[field] = source_video[field]
             videos_by_key[key] = video
+    else:
+        # If Cinemeta has no episode list, fall back to the provider's own
+        # numbering and title data, still deduplicating across providers.
+        for season_data in structures:
+            if season_data.get("is_movie_collection"):
+                continue
+            try:
+                season_number = int(season_data.get("season_number", 0))
+            except (TypeError, ValueError):
+                continue
+            for episode_data in season_data.get("episodes") or []:
+                if episode_data.get("is_movie"):
+                    continue
+                try:
+                    episode_number = int(episode_data.get("episode_number", 0))
+                except (TypeError, ValueError):
+                    continue
+                if episode_number <= 0:
+                    continue
+                key = (season_number, episode_number)
+                if key in videos_by_key:
+                    continue
+                title = (
+                    episode_data.get("title")
+                    or episode_data.get("title_original")
+                    or f"Episode {episode_number}"
+                )
+                videos_by_key[key] = {
+                    "id": f"{imdb_id}:{season_number}:{episode_number}",
+                    "title": str(title),
+                    "season": season_number,
+                    "episode": episode_number,
+                }
 
     meta["id"] = imdb_id
     meta["type"] = "series"
-    meta["videos"] = [
-        videos_by_key[key] for key in sorted(videos_by_key)
-    ]
+    meta["videos"] = [videos_by_key[key] for key in sorted(videos_by_key)]
     return {"meta": meta}
-
 
 def _find_provider_episode(
     provider_id: str,
