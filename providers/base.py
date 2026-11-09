@@ -92,5 +92,14 @@ class BaseProvider(ABC):
     def get_seasons(self, title: ProviderTitle) -> list[ProviderSeason]:
         """Return seasons/film collections and their episode/source variants."""
 
+    def get_episode_streams(
+        self,
+        episode_url: str,
+        display_title: str,
+        binge_group: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Resolve streams for one episode, only when playback is requested."""
+        return []
+
     def healthcheck(self) -> dict[str, Any]:
         return {"provider": self.provider_id, "implemented": True}
