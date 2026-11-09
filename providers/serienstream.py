@@ -93,9 +93,10 @@ class SerienstreamProvider(BaseProvider):
                     url=str(episode.url),
                     season_number=season_number,
                     episode_number=int(getattr(episode, "episode_number", 0) or 0),
-                    title=getattr(episode, "title_de", None) or None,
-                    title_original=getattr(episode, "title_en", None) or None,
-                    variants=_variants(episode),
+                    # SerienStream only exposes episode titles on the episode
+                    # page. Do not touch title_de/title_en during structure loading.
+                    title=None,
+                    title_original=None,
                 ))
             result.append(ProviderSeason(
                 provider=self.provider_id,
@@ -104,3 +105,16 @@ class SerienstreamProvider(BaseProvider):
                 episodes=episodes,
             ))
         return result
+
+    def get_episode_streams(
+        self,
+        episode_url: str,
+        display_title: str,
+        binge_group: str | None = None,
+    ) -> list[dict]:
+        """Fetch one SerienStream episode page and resolve its available streams."""
+        from aniworld.models.s_to.episode import SerienstreamEpisode
+        from scraper import extract_streams
+
+        episode = SerienstreamEpisode(episode_url)
+        return extract_streams(episode, "SerienStream", display_title, binge_group)
