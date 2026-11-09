@@ -47,6 +47,51 @@ class AniWorldAdapterTests(unittest.TestCase):
         self.assertFalse(provider.catalog_scan_complete)
 
 
+class AniWorldLazyStructureTests(unittest.TestCase):
+    def test_structure_loading_uses_only_season_page_title_cache(self):
+        class FakeEpisode:
+            url = "https://aniworld.to/anime/stream/example/staffel-1/episode-1"
+            episode_number = 1
+            is_movie = False
+            _AniworldEpisode__title_de = "Pilot"
+            _AniworldEpisode__title_en = "Pilot"
+
+            @property
+            def title_de(self):
+                raise AssertionError("title property must not fetch episode page")
+
+            @property
+            def title_en(self):
+                raise AssertionError("title property must not fetch episode page")
+
+            @property
+            def provider_data(self):
+                raise AssertionError("provider data must wait until playback")
+
+        class FakeSeason:
+            url = "https://aniworld.to/anime/stream/example/staffel-1"
+            season_number = 1
+            are_movies = False
+            episodes = [FakeEpisode()]
+
+        class FakeSeries:
+            def __init__(self, url):
+                self.seasons = [FakeSeason()]
+
+        title = ProviderTitle(
+            provider="aniworld",
+            media_type="series",
+            title="Example",
+            url="https://aniworld.to/anime/stream/example",
+        )
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            seasons = AniWorldProvider().get_seasons(title)
+
+        self.assertEqual(seasons[0].episodes[0].title, "Pilot")
+        self.assertEqual(seasons[0].episodes[0].title_original, "Pilot")
+        self.assertEqual(seasons[0].episodes[0].variants, [])
+
+
 class SerienstreamLazyStructureTests(unittest.TestCase):
     def test_structure_loading_does_not_read_episode_details(self):
         class FakeEpisode:
