@@ -106,39 +106,67 @@ class LazyLoadingTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["provider_url"], "https://provider.example/series/example")
 
-    def test_series_meta_and_playback_use_cached_provider_structure(self):
+    def test_series_meta_keeps_canonical_episodes_without_catalog_entries(self):
+        canonical_meta = {
+            "id": "tt2468101",
+            "type": "series",
+            "name": "Example",
+            "videos": [{
+                "id": "cinemeta-video-id",
+                "title": "Pilot",
+                "season": 1,
+                "episode": 1,
+                "released": "2020-01-01",
+            }],
+        }
+        with patch(
+            "providers.lazy._canonical_meta", return_value=canonical_meta
+        ), patch("providers.lazy.ensure_series_structure", return_value=[]):
+            response = get_series_meta("tt2468101")
+
+        video = response["meta"]["videos"][0]
+        self.assertEqual(video["id"], "tt2468101:1:1")
+        self.assertEqual(video["title"], "Pilot")
+        self.assertEqual(video["released"], "2020-01-01")
+
+    def test_empty_catalog_still_triggers_live_stream_search_every_time(self):
+        expected_streams = [{
+            "name": "Example Hoster",
+            "url": "https://cdn.example/video.mp4",
+        }]
+        with patch("scraper.get_series_streams", return_value=expected_streams) as live_search:
+            first = get_series_streams_for_episode("tt2468101", 1, 1)
+            second = get_series_streams_for_episode("tt2468101", 1, 1)
+
+        self.assertEqual(first, expected_streams)
+        self.assertEqual(second, expected_streams)
+        self.assertEqual(live_search.call_count, 2)
+        live_search.assert_any_call("tt2468101", 1, 1)
+
+    def test_series_meta_uses_cached_structure_only_as_a_fallback(self):
         catalog_db.record_discovery(
             "series",
-            "tt2468101",
+            "tt2468102",
             "testprovider",
             "Example",
             provider_title="Example",
             provider_url="https://provider.example/series/example",
         )
         _LazyPlaybackProvider.seasons_calls = 0
-        _LazyPlaybackProvider.stream_calls = 0
         canonical_meta = {
-            "id": "tt2468101",
+            "id": "tt2468102",
             "type": "series",
             "name": "Example",
-            "videos": [{
-                "title": "Pilot",
-                "season": 1,
-                "episode": 1,
-            }],
+            "videos": [],
         }
-        with patch.dict("providers.lazy.PROVIDERS", {"testprovider": _LazyPlaybackProvider}), patch(
-            "providers.lazy._canonical_meta", return_value=canonical_meta
-        ):
-            response = get_series_meta("tt2468101")
-            streams = get_series_streams_for_episode("tt2468101", 1, 1)
-            cached_streams = get_series_streams_for_episode("tt2468101", 1, 1)
+        with patch.dict(
+            "providers.lazy.PROVIDERS",
+            {"testprovider": _LazyPlaybackProvider},
+        ), patch("providers.lazy._canonical_meta", return_value=canonical_meta):
+            response = get_series_meta("tt2468102")
 
-        self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468101:1:1")
-        self.assertEqual(len(streams), 1)
-        self.assertEqual(cached_streams, streams)
+        self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468102:1:1")
         self.assertEqual(_LazyPlaybackProvider.seasons_calls, 1)
-        self.assertEqual(_LazyPlaybackProvider.stream_calls, 1)
 
     def test_provider_structure_cache_has_persistent_freshness(self):
         catalog_db.record_discovery(
