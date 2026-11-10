@@ -1,8 +1,10 @@
 """Tests for the SQLite-backed Stremio catalog routes."""
 
+import asyncio
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import catalog_db
 import app
@@ -64,6 +66,47 @@ class CatalogRouteTests(unittest.TestCase):
             "movie", "german_scraper_movies", "genre=Action&skip=0&search=Localized"
         )
         self.assertEqual([meta["id"] for meta in response["metas"]], ["tt1234567"])
+
+    def test_local_catalog_can_be_disabled_without_disabling_live_resources(self):
+        with patch.dict(os.environ, {"ENABLE_LOCAL_CATALOG": "false"}):
+            manifest = app._manifest_response()
+            catalog = app.get_catalog("series", "german_scraper_shows")
+
+        self.assertEqual(manifest["catalogs"], [])
+        self.assertIn("stream", manifest["resources"])
+        self.assertIn("meta", manifest["resources"])
+        self.assertEqual(catalog, {"metas": []})
+
+    def test_sqlite_failure_does_not_break_app_startup_or_manifest(self):
+        with patch.dict(os.environ, {"ENABLE_LOCAL_CATALOG": "true"}), patch(
+            "app.init_db", side_effect=RuntimeError("database unavailable")
+        ), patch(
+            "app.list_genres", side_effect=RuntimeError("database unavailable")
+        ):
+            asyncio.run(app.initialize_catalog_database())
+            manifest = app._manifest_response()
+
+        self.assertEqual(len(manifest["catalogs"]), 2)
+        self.assertIn("stream", manifest["resources"])
+
+    def test_meta_fallback_preserves_canonical_episode_list(self):
+        canonical_meta = {
+            "id": "tt7654321",
+            "type": "series",
+            "name": "Example",
+            "videos": [{
+                "id": "tt7654321:1:1",
+                "title": "Pilot",
+                "season": 1,
+                "episode": 1,
+            }],
+        }
+        with patch("app.get_series_meta", side_effect=RuntimeError("catalog unavailable")), patch(
+            "app.get_metadata", return_value=canonical_meta
+        ):
+            response = app.get_meta("series", "tt7654321")
+
+        self.assertEqual(response["meta"]["videos"], canonical_meta["videos"])
 
     def test_manifest_advertises_search_pagination_and_available_genres(self):
         manifest = app._manifest_response()
