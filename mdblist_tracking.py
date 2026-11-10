@@ -23,7 +23,7 @@ from playback_events import PlaybackEvent
 API_BASE = "https://api.mdblist.com"
 APP_NAME = "german-scraper-x"
 APP_VERSION = "1.4.0"
-IMDB_ID_RE = re.compile(r"^tt\\d{7,10}$")
+IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 logger = logging.getLogger(__name__)
 _DB_LOCK = Lock()
 
