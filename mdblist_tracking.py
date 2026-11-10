@@ -218,10 +218,15 @@ def _build_payload(event: PlaybackEvent, progress: float) -> Optional[dict[str, 
     if event.media_type not in {"movie", "series"}:
         return None
 
+    supported_ids = (
+        {"imdb", "tmdb", "trakt", "mdblist", "kitsu"}
+        if event.media_type == "movie"
+        else {"imdb", "tmdb", "trakt", "mdblist", "tvdb"}
+    )
     ids = {
         str(key).lower(): str(value).strip()
         for key, value in event.ids.items()
-        if str(key).lower() in SUPPORTED_IDS
+        if str(key).lower() in supported_ids
         and value is not None
         and str(value).strip()
     }
