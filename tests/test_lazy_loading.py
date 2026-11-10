@@ -134,7 +134,12 @@ class LazyLoadingTests(unittest.TestCase):
             "name": "Example Hoster",
             "url": "https://cdn.example/video.mp4",
         }]
-        with patch("scraper.get_series_streams", return_value=expected_streams) as live_search:
+        with patch(
+            "providers.lazy.get_available_provider_entries",
+            side_effect=AssertionError("live playback must not query the catalog"),
+        ), patch(
+            "scraper.get_series_streams", return_value=expected_streams
+        ) as live_search:
             first = get_series_streams_for_episode("tt2468101", 1, 1)
             second = get_series_streams_for_episode("tt2468101", 1, 1)
 
@@ -142,6 +147,27 @@ class LazyLoadingTests(unittest.TestCase):
         self.assertEqual(second, expected_streams)
         self.assertEqual(live_search.call_count, 2)
         live_search.assert_any_call("tt2468101", 1, 1)
+
+    def test_series_meta_survives_sqlite_failure(self):
+        canonical_meta = {
+            "id": "tt2468103",
+            "type": "series",
+            "name": "Example",
+            "videos": [{
+                "title": "Pilot",
+                "season": 1,
+                "episode": 1,
+            }],
+        }
+        with patch(
+            "providers.lazy._canonical_meta", return_value=canonical_meta
+        ), patch(
+            "providers.lazy.get_available_provider_entries",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            response = get_series_meta("tt2468103")
+
+        self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468103:1:1")
 
     def test_series_meta_uses_cached_structure_only_as_a_fallback(self):
         catalog_db.record_discovery(
