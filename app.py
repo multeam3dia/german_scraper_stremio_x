@@ -8,6 +8,12 @@ from scraper import get_movie_streams, get_metadata
 from providers.lazy import get_series_meta, get_series_streams_for_episode
 from aniworld.config import logger
 from mdblist import queue_verified_title
+from mdblist_tracking import (
+    get_mdblist_playback,
+    get_mdblist_status,
+    init_db as init_mdblist_tracking_db,
+    scrobble_event as mdblist_scrobble_event,
+)
 from catalog_db import get_catalog_titles, init_db, list_genres
 from playback_events import PlaybackEventError, playback_event_from_payload, stremio_player_event
 from simkl_tracking import (
@@ -92,6 +98,12 @@ async def initialize_catalog_database():
 async def initialize_simkl_tracking_database():
     """Initialize encrypted token storage and playback-event state."""
     init_simkl_db()
+
+
+@app.on_event("startup")
+async def initialize_mdblist_tracking_database():
+    """Initialize MDBList playback event deduplication state."""
+    init_mdblist_tracking_db()
 
 
 @app.on_event("startup")
@@ -237,10 +249,13 @@ def _manifest_response(enable_player_events: bool = False) -> dict:
 @app.get("/manifest.json")
 async def get_manifest(request: Request):
     token_configured = bool(os.getenv("PLAYER_EVENT_PATH_TOKEN", "").strip())
-    simkl_configured = bool(os.getenv("SIMKL_CLIENT_ID", "").strip())
+    tracking_configured = bool(
+        os.getenv("SIMKL_CLIENT_ID", "").strip()
+        or os.getenv("MDBLIST_API_KEY", "").strip()
+    )
     enable_player_events = (
         token_configured
-        and simkl_configured
+        and tracking_configured
         and getattr(request.state, "tokenized_addon", False)
     )
     return _manifest_response(enable_player_events=enable_player_events)
@@ -345,6 +360,48 @@ def _require_tokenized_addon(request: Request) -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
+def _dispatch_tracking_event(event):
+    """Send one normalized event independently to every configured tracker."""
+    try:
+        simkl_result = scrobble_event(event)
+    except SimklError:
+        simkl_result = {"status": "error", "reason": "simkl_error"}
+    except Exception as exc:
+        logger.warning("Unexpected Simkl tracking error: %s", exc.__class__.__name__)
+        simkl_result = {"status": "error", "reason": "unexpected_error"}
+
+    try:
+        mdblist_result = mdblist_scrobble_event(event)
+    except Exception as exc:
+        logger.warning("Unexpected MDBList tracking error: %s", exc.__class__.__name__)
+        mdblist_result = {"status": "error", "reason": "unexpected_error"}
+
+    providers = {"simkl": simkl_result, "mdblist": mdblist_result}
+    statuses = [str(result.get("status") or "unknown") for result in providers.values()]
+    successful = [
+        name for name, result in providers.items()
+        if result.get("status") in {"sent", "duplicate_watch"}
+    ]
+    if any(providers[name].get("status") == "sent" for name in successful):
+        overall_status = "sent"
+    elif successful:
+        overall_status = "duplicate_watch"
+    elif "rate_limited" in statuses:
+        overall_status = "rate_limited"
+    elif "error" in statuses:
+        overall_status = "error"
+    elif "ignored" in statuses:
+        overall_status = "ignored"
+    else:
+        overall_status = "not_connected"
+
+    primary_name = successful[0] if successful else "simkl"
+    primary = dict(providers[primary_name])
+    primary["status"] = overall_status
+    primary["providers"] = providers
+    return primary
+
+
 @app.get("/player/{type}/{video_id}/{extra}.json")
 def get_player_event(request: Request, type: str, video_id: str, extra: str):
     """Adapt Stremio player events to the shared playback contract."""
@@ -366,7 +423,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
             type, video_id, action, current_time_ms, duration_ms
         )
         logger.info(
-            "SIMKL-PLAYER-DIAGNOSTIC received: media=%s action=%s "
+            "PLAYBACK-TRACKING-DIAGNOSTIC received: media=%s action=%s "
             "current_time_ms=%s duration_ms=%s progress=%s",
             event.media_key,
             event.action,
@@ -375,7 +432,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
             event.progress,
         )
 
-        result = scrobble_event(event)
+        result = _dispatch_tracking_event(event)
         result_status = (
             str(result.get("status") or "unknown")
             if isinstance(result, dict)
@@ -391,7 +448,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
             result.get("http_status") if isinstance(result, dict) else None
         )
         log_message = (
-            "SIMKL-PLAYER-DIAGNOSTIC result: media=%s action=%s "
+            "PLAYBACK-TRACKING-DIAGNOSTIC result: media=%s action=%s "
             "status=%s simkl_action=%s reason=%s http_status=%s progress=%s"
         )
         log_args = (
@@ -412,7 +469,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
         return result
     except PlaybackEventError as exc:
         logger.warning(
-            "SIMKL-PLAYER-DIAGNOSTIC ignored before Simkl: "
+            "PLAYBACK-TRACKING-DIAGNOSTIC ignored before tracking: "
             "media_type=%s action=%s reason=%s",
             type,
             action or "unknown",
@@ -421,7 +478,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
         return {"status": "ignored", "reason": exc.reason}
     except SimklError as exc:
         logger.warning(
-            "SIMKL-PLAYER-DIAGNOSTIC Simkl exception: "
+            "PLAYBACK-TRACKING-DIAGNOSTIC Simkl exception: "
             "media_type=%s action=%s error_type=%s",
             type,
             action or "unknown",
@@ -430,7 +487,7 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
         return {"status": "error"}
     except Exception as exc:
         logger.error(
-            "SIMKL-PLAYER-DIAGNOSTIC unexpected error: "
+            "PLAYBACK-TRACKING-DIAGNOSTIC unexpected error: "
             "media_type=%s action=%s error_type=%s",
             type,
             action or "unknown",
@@ -451,7 +508,7 @@ async def ingest_playback_event(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON playback event")
     try:
-        return scrobble_event(event)
+        return _dispatch_tracking_event(event)
     except SimklError as exc:
         logger.warning("Playback event could not be processed: %s", str(exc))
         return {"status": "error"}
@@ -585,6 +642,20 @@ def simkl_auth_status(request: Request):
 def simkl_status(request: Request):
     _require_tokenized_addon(request)
     return get_simkl_status()
+
+
+@app.get("/mdblist/status")
+def mdblist_status(request: Request):
+    """Check the MDBList API key and show current quota headers."""
+    _require_tokenized_addon(request)
+    return get_mdblist_status()
+
+
+@app.get("/mdblist/playback")
+def mdblist_playback(request: Request):
+    """Return paused MDBList sessions for cross-device Continue Watching."""
+    _require_tokenized_addon(request)
+    return get_mdblist_playback()
 
 
 @app.get("/")
