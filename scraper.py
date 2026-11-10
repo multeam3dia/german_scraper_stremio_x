@@ -298,6 +298,8 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                             "proxyHeaders": proxy_headers
                         }
                     }
+                    if is_hls:
+                        stream_entry["type"] = "hls"
 
                     if binge_group:
                         stream_entry["behaviorHints"]["bingeGroup"] = binge_group
@@ -438,6 +440,8 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                             "proxyHeaders": {"request": request_headers},
                         },
                     }
+                    if is_hls:
+                        entry["type"] = "hls"
                     if binge_group:
                         entry["behaviorHints"]["bingeGroup"] = binge_group
                     streams.append(entry)
