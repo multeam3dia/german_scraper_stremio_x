@@ -39,6 +39,14 @@ MANIFEST = {
 
 app = FastAPI(title="German Scraper Stremio Addon", version=VERSION)
 
+
+def _local_catalog_enabled() -> bool:
+    """Whether the optional SQLite-backed Stremio catalogs are advertised."""
+    return os.getenv("ENABLE_LOCAL_CATALOG", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -66,9 +74,18 @@ async def tokenized_addon_paths(request: Request, call_next):
 
 @app.on_event("startup")
 async def initialize_catalog_database():
-    """Initialize the persistent provider catalog index."""
-    init_db()
-    logger.info("Persistent catalog database initialized")
+    """Initialize the optional local catalog without making it an app dependency."""
+    if not _local_catalog_enabled():
+        logger.info("Local SQLite catalog disabled; live provider playback remains enabled")
+        return
+    try:
+        init_db()
+        logger.info("Persistent catalog database initialized")
+    except Exception as exc:
+        logger.warning(
+            "Local SQLite catalog could not be initialized; continuing without it: %s",
+            type(exc).__name__,
+        )
 
 
 @app.on_event("startup")
@@ -95,7 +112,15 @@ async def log_serienstream_login_configuration():
     )
 
 def _catalog_manifest_entry(media_type: str, catalog_id: str, name: str) -> dict:
-    genres = [item["name"] for item in list_genres(media_type)]
+    try:
+        genres = [item["name"] for item in list_genres(media_type)]
+    except Exception as exc:
+        logger.warning(
+            "Could not load optional catalog genres for %s: %s",
+            media_type,
+            type(exc).__name__,
+        )
+        genres = []
     extra = [
         {"name": "search", "isRequired": False},
         {"name": "skip", "isRequired": False},
@@ -166,7 +191,7 @@ def _catalog_response(
         ("series", "german_scraper_shows"): "series",
     }
     expected_type = catalog_types.get((media_type, catalog_id))
-    if not expected_type:
+    if not expected_type or not _local_catalog_enabled():
         return {"metas": []}
     try:
         records = get_catalog_titles(
@@ -194,14 +219,18 @@ def _manifest_response(enable_player_events: bool = False) -> dict:
             "types": ["movie", "series"],
             "idPrefixes": ["tt"],
         })
-    manifest["catalogs"] = [
-        _catalog_manifest_entry(
-            "movie", "german_scraper_movies", "German Scraper X - Movies"
-        ),
-        _catalog_manifest_entry(
-            "series", "german_scraper_shows", "German Scraper X - Shows"
-        ),
-    ]
+    manifest["catalogs"] = (
+        [
+            _catalog_manifest_entry(
+                "movie", "german_scraper_movies", "German Scraper X - Movies"
+            ),
+            _catalog_manifest_entry(
+                "series", "german_scraper_shows", "German Scraper X - Shows"
+            ),
+        ]
+        if _local_catalog_enabled()
+        else []
+    )
     return manifest
 
 
@@ -258,9 +287,9 @@ def get_meta(type: str, id: str):
             )
             fallback = get_metadata("series", imdb_id)
             if isinstance(fallback, dict):
-                fallback = dict(fallback)
-                fallback["videos"] = []
-                return {"meta": fallback}
+                # Preserve Cinemeta's canonical episodes. A provider catalog or
+                # structure-cache failure must not hide the series episode list.
+                return {"meta": dict(fallback)}
             return {"meta": None}
 
     if type == "movie":
