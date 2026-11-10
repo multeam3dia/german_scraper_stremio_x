@@ -15,11 +15,13 @@ from threading import Lock
 from typing import Any, Optional
 
 import niquests
+
+from playback_events import PlaybackEvent
 from cryptography.fernet import Fernet, InvalidToken
 
 API_BASE = "https://api.simkl.com"
 APP_NAME = "German Scraper X"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 REFRESH_TTL_SECONDS = 180 * 24 * 60 * 60
 DEFAULT_ACCESS_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -423,7 +425,7 @@ def _get_access_token(force_refresh: bool = False) -> Optional[str]:
     return credentials["access_token"]
 
 
-def _event_is_duplicate(media_type: str, video_id: str, action: str, now: int) -> bool:
+def _event_is_duplicate(media_type: str, media_key: str, action: str, now: int) -> bool:
     db = _connect()
     try:
         row = db.execute(
@@ -431,20 +433,19 @@ def _event_is_duplicate(media_type: str, video_id: str, action: str, now: int) -
             SELECT last_action, last_event_at FROM simkl_event_state
             WHERE media_type = ? AND video_id = ?
             """,
-            (media_type, video_id),
+            (media_type, media_key),
         ).fetchone()
     finally:
         db.close()
     if row is None or str(row["last_action"]) != action:
         return False
     age = now - int(row["last_event_at"])
-    # Stremio repeats start/pause when seeking. Simkl explicitly advises not
-    # to send a scrobble for seeks, so consecutive equal states are coalesced.
+    # Coalesce duplicate states from any client, including seeks that resend state.
     return age < (6 * 60 * 60 if action in {"start", "pause"} else 60 * 60)
 
 
 def _record_event(
-    media_type: str, video_id: str, action: str, progress: float, now: int
+    media_type: str, media_key: str, action: str, progress: float, now: int
 ) -> None:
     db = _connect()
     try:
@@ -454,49 +455,66 @@ def _record_event(
                 (media_type, video_id, last_action, last_event_at, last_progress)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (media_type, video_id, action, now, progress),
+            (media_type, media_key, action, now, progress),
         )
         db.commit()
     finally:
         db.close()
 
 
-def _build_media_payload(media_type: str, video_id: str) -> Optional[dict[str, Any]]:
-    if media_type not in {"movie", "series"}:
+def _build_media_payload(event: PlaybackEvent) -> Optional[dict[str, Any]]:
+    """Build a Simkl payload from canonical identity, independent of client format."""
+    if event.media_type not in {"movie", "series"}:
         return None
-    parts = video_id.split(":")
-    imdb_id = parts[0].strip()
-    if not IMDB_ID_RE.fullmatch(imdb_id):
+
+    allowed_ids = {
+        "imdb", "tmdb", "tvdb", "trakt", "simkl",
+        "anidb", "mal", "anilist", "kitsu",
+    }
+    ids = {
+        str(key).lower(): str(value).strip()
+        for key, value in event.ids.items()
+        if str(key).lower() in allowed_ids and value is not None and str(value).strip()
+    }
+    if not ids:
         return None
+    imdb_id = ids.get("imdb")
+    if imdb_id and not IMDB_ID_RE.fullmatch(imdb_id):
+        ids.pop("imdb", None)
+        imdb_id = None
+    if not ids:
+        return None
+
     season = episode = None
-    if media_type == "series":
-        if len(parts) != 3:
-            return None
+    if event.media_type == "series":
         try:
-            season, episode = int(parts[1]), int(parts[2])
+            season = int(event.season)
+            episode = int(event.episode)
         except (TypeError, ValueError):
             return None
         if season < 0 or episode < 1:
             return None
 
-    try:
-        from catalog_db import get_title_for_tracking
-        record = get_title_for_tracking(media_type, imdb_id) or {}
-    except Exception:
-        record = {}
+    record: dict[str, Any] = {}
+    if imdb_id:
+        try:
+            from catalog_db import get_title_for_tracking
+            record = get_title_for_tracking(event.media_type, imdb_id) or {}
+        except Exception:
+            record = {}
 
-    item: dict[str, Any] = {"ids": {"imdb": imdb_id}}
-    title = str(record.get("title") or "").strip()
+    item: dict[str, Any] = {"ids": ids}
+    title = str(event.title or record.get("title") or "").strip()
     if title:
         item["title"] = title
-    year = record.get("year")
+    year = event.year or record.get("year")
     if year:
         try:
             item["year"] = int(str(year)[:4])
         except (TypeError, ValueError):
             pass
 
-    if media_type == "movie":
+    if event.media_type == "movie":
         return {"movie": item}
     return {
         "show": item,
@@ -504,43 +522,33 @@ def _build_media_payload(media_type: str, video_id: str) -> Optional[dict[str, A
     }
 
 
-def _progress_from_ms(current_time_ms: int, duration_ms: int) -> Optional[float]:
-    try:
-        current = max(0, int(current_time_ms))
-        duration = int(duration_ms)
-    except (TypeError, ValueError):
-        return None
-    if duration <= 0:
-        return None
-    return round(min(100.0, max(0.0, current / duration * 100.0)), 2)
-
-
-def scrobble_player_event(
-    media_type: str,
-    video_id: str,
-    action: str,
-    current_time_ms: int,
-    duration_ms: int,
-) -> dict[str, Any]:
-    """Translate a Stremio player event into one Simkl scrobble request."""
-    if action not in {"start", "pause", "stop"}:
+def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
+    """Send one normalized playback event to Simkl, regardless of its client."""
+    if not isinstance(event, PlaybackEvent):
+        return {"status": "ignored", "reason": "invalid_event"}
+    if event.action not in {"start", "pause", "stop"}:
         return {"status": "ignored", "reason": "unsupported_action"}
-    payload = _build_media_payload(media_type, video_id)
+
+    payload = _build_media_payload(event)
     if payload is None:
         return {"status": "ignored", "reason": "unsupported_media_id"}
 
-    progress = _progress_from_ms(current_time_ms, duration_ms)
+    progress = event.progress
     if progress is None:
-        if action != "start":
+        if event.action != "start":
             return {"status": "ignored", "reason": "duration_unknown"}
         progress = 0.0
-    if action == "start":
-        payload["progress"] = progress
-    else:
-        payload["progress"] = progress
+    try:
+        progress = float(progress)
+    except (TypeError, ValueError):
+        return {"status": "ignored", "reason": "invalid_progress"}
+    if not 0.0 <= progress <= 100.0:
+        return {"status": "ignored", "reason": "invalid_progress"}
+    payload["progress"] = progress
 
     now = int(time.time())
-    if _event_is_duplicate(media_type, video_id, action, now):
+    media_key = event.media_key
+    if _event_is_duplicate(event.media_type, media_key, event.action, now):
         return {"status": "ignored", "reason": "duplicate_state"}
 
     token = _get_access_token()
@@ -553,7 +561,7 @@ def scrobble_player_event(
         "app-version": APP_VERSION,
     }
     status, data = _api_post(
-        f"/scrobble/{action}",
+        f"/scrobble/{event.action}",
         payload,
         access_token=token,
         json_body=True,
@@ -563,28 +571,31 @@ def scrobble_player_event(
         refreshed = _get_access_token(force_refresh=True)
         if refreshed:
             status, data = _api_post(
-                f"/scrobble/{action}",
+                f"/scrobble/{event.action}",
                 payload,
                 access_token=refreshed,
                 json_body=True,
                 params=params,
             )
-    if status == 409 and action == "stop":
-        _record_event(media_type, video_id, action, progress, now)
+    if status == 409 and event.action == "stop":
+        _record_event(event.media_type, media_key, event.action, progress, now)
         return {"status": "duplicate_watch"}
     if status == 400 and str(data.get("error") or data.get("code") or "").upper() == "RATE_LIMIT":
-        logger.warning("Simkl rate-limited a scrobble event for %s %s", media_type, video_id)
+        logger.warning(
+            "Simkl rate-limited a %s event from %s for %s",
+            event.action, event.source, media_key,
+        )
         return {"status": "rate_limited"}
     if status >= 400:
         logger.warning(
-            "Simkl scrobble failed for %s %s (%s): HTTP %s",
-            media_type, video_id, action, status,
+            "Simkl scrobble failed for %s from %s (%s): HTTP %s",
+            media_key, event.source, event.action, status,
         )
         return {"status": "error", "http_status": status}
 
-    _record_event(media_type, video_id, action, progress, now)
+    _record_event(event.media_type, media_key, event.action, progress, now)
     return {
         "status": "sent",
-        "action": str(data.get("action") or action),
+        "action": str(data.get("action") or event.action),
         "progress": progress,
     }
