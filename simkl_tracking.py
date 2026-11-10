@@ -20,8 +20,7 @@ from playback_events import PlaybackEvent
 from cryptography.fernet import Fernet, InvalidToken
 
 API_BASE = "https://api.simkl.com"
-APP_NAME = "German Scraper X"
-APP_ID = "german-scraper-x"
+APP_NAME = "german-scraper-x"
 APP_VERSION = "1.4.0"
 IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 REFRESH_TTL_SECONDS = 180 * 24 * 60 * 60
@@ -558,7 +557,7 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
 
     params = {
         "client_id": _client_id(),
-        "app-name": APP_ID,
+        "app-name": APP_NAME,
         "app-version": APP_VERSION,
     }
     status, data = _api_post(
