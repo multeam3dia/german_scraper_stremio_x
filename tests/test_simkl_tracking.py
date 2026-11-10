@@ -1,4 +1,4 @@
-"""Tests for Simkl AUTH V2 and Stremio player-event scrobbling."""
+"""Tests for Simkl tracking using the client-neutral playback event contract."""
 
 import os
 import tempfile
@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import catalog_db
 import simkl_tracking
+from playback_events import PlaybackEvent
 
 
 class _FakeResponse:
@@ -64,33 +65,64 @@ class SimklTrackingTests(unittest.TestCase):
             {"tmdb": {"title": "Canonical title", "year": 2021}},
         )
 
-    def test_movie_payload_uses_canonical_metadata_and_imdb_id(self):
+    def _event(
+        self,
+        media_type="movie",
+        action="start",
+        progress=0.0,
+        source="stremio",
+        season=None,
+        episode=None,
+    ):
+        return PlaybackEvent(
+            source=source,
+            media_type=media_type,
+            ids={"imdb": "tt1234567"},
+            action=action,
+            progress=progress,
+            season=season,
+            episode=episode,
+        )
+
+    def test_movie_payload_uses_canonical_metadata_and_multiple_ids(self):
         self._record_title("movie")
-        payload = simkl_tracking._build_media_payload("movie", "tt1234567")
+        event = PlaybackEvent(
+            source="gmca",
+            media_type="movie",
+            ids={"imdb": "tt1234567", "tmdb": "98765"},
+            action="start",
+            progress=0.0,
+        )
+        payload = simkl_tracking._build_media_payload(event)
 
         self.assertEqual(payload["movie"]["ids"]["imdb"], "tt1234567")
+        self.assertEqual(payload["movie"]["ids"]["tmdb"], "98765")
         self.assertEqual(payload["movie"]["title"], "Canonical title")
         self.assertEqual(payload["movie"]["year"], 2021)
 
-    def test_series_payload_uses_stremio_season_and_episode(self):
+    def test_series_payload_is_independent_of_client_id_format(self):
         self._record_title("series")
-        payload = simkl_tracking._build_media_payload("series", "tt1234567:2:4")
+        event = self._event(
+            media_type="series",
+            source="gmca",
+            season=2,
+            episode=4,
+        )
+        payload = simkl_tracking._build_media_payload(event)
 
         self.assertEqual(payload["show"]["ids"]["imdb"], "tt1234567")
         self.assertEqual(payload["episode"], {"season": 2, "number": 4})
 
-    def test_start_event_sends_percentage_and_coalesces_seek_events(self):
+    def test_start_event_sends_percentage_and_coalesces_cross_client_duplicates(self):
         self._record_title("movie")
+        first_event = self._event(progress=50.0, source="stremio")
+        second_event = self._event(progress=58.0, source="gmca")
         with patch(
             "simkl_tracking.niquests.post",
             return_value=_FakeResponse(200, {"action": "start"}),
         ) as post:
-            first = simkl_tracking.scrobble_player_event(
-                "movie", "tt1234567", "start", 30_000, 60_000
-            )
-            second = simkl_tracking.scrobble_player_event(
-                "movie", "tt1234567", "start", 35_000, 60_000
-            )
+            first = simkl_tracking.scrobble_event(first_event)
+            second = simkl_tracking.scrobble_event(second_event)
 
         self.assertEqual(first["status"], "sent")
         self.assertEqual(first["progress"], 50.0)
@@ -101,16 +133,20 @@ class SimklTrackingTests(unittest.TestCase):
 
     def test_pause_and_stop_are_forwarded_as_distinct_actions(self):
         self._record_title("series")
+        paused_event = self._event(
+            media_type="series", action="pause", progress=75.0,
+            source="gmca", season=1, episode=2,
+        )
+        stopped_event = self._event(
+            media_type="series", action="stop", progress=85.0,
+            source="gmca", season=1, episode=2,
+        )
         with patch(
             "simkl_tracking.niquests.post",
             return_value=_FakeResponse(200, {"action": "pause"}),
         ) as post:
-            paused = simkl_tracking.scrobble_player_event(
-                "series", "tt1234567:1:2", "pause", 45_000, 60_000
-            )
-            stopped = simkl_tracking.scrobble_player_event(
-                "series", "tt1234567:1:2", "stop", 51_000, 60_000
-            )
+            paused = simkl_tracking.scrobble_event(paused_event)
+            stopped = simkl_tracking.scrobble_event(stopped_event)
 
         self.assertEqual(paused["status"], "sent")
         self.assertEqual(stopped["status"], "sent")
@@ -123,9 +159,9 @@ class SimklTrackingTests(unittest.TestCase):
         })
         self.assertEqual(post.call_args_list[1].kwargs["json"]["progress"], 85.0)
 
-    def test_pause_or_stop_without_duration_is_not_scrobbled(self):
-        result = simkl_tracking.scrobble_player_event(
-            "movie", "tt1234567", "stop", 50_000, 0
+    def test_pause_or_stop_without_progress_is_not_scrobbled(self):
+        result = simkl_tracking.scrobble_event(
+            self._event(action="stop", progress=None)
         )
         self.assertEqual(result, {"status": "ignored", "reason": "duration_unknown"})
 
