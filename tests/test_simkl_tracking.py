@@ -129,6 +129,8 @@ class SimklTrackingTests(unittest.TestCase):
         self.assertEqual(second, {"status": "ignored", "reason": "duplicate_state"})
         self.assertEqual(post.call_count, 1)
         self.assertEqual(post.call_args.kwargs["json"]["progress"], 50.0)
+        self.assertEqual(post.call_args.kwargs["params"]["app-name"], "german-scraper-x")
+        self.assertEqual(post.call_args.kwargs["headers"]["User-Agent"], "German Scraper X/1.4.0")
         self.assertTrue(post.call_args.args[0].endswith("/scrobble/start"))
 
     def test_pause_and_stop_are_forwarded_as_distinct_actions(self):
