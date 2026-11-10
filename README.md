@@ -334,6 +334,44 @@ The Stremio addon protocol defines `player` events for Stremio core 0.64 and
 newer. Enable Stremio's **Share playback events** option where the client exposes
 it, then reinstall the tokenized addon. Client support still needs to be verified
 on each target build.
-The current upstream GMCA Stremio backend does not yet dispatch these events;
-GMCA needs a client-side change before Switch playback can be scrobbled through
-this route.
+### Client-neutral playback event contract
+
+Stremio's native player route is only an adapter. It converts Stremio's event
+format into a shared \`PlaybackEvent\` contract; Simkl tracking does not parse
+Stremio IDs or depend on a particular client.
+
+The same contract is available to future clients through the protected endpoint:
+
+\`POST /PLAYER_EVENT_PATH_TOKEN/playback/event\`
+
+Example request body:
+
+\`\`\`json
+{
+  "source": "gmca",
+  "action": "start",
+  "media_type": "series",
+  "ids": {
+    "imdb": "tt1234567",
+    "tmdb": "98765"
+  },
+  "season": 1,
+  "episode": 2,
+  "progress": 14.5,
+  "title": "Example series",
+  "year": 2024
+}
+\`\`\`
+
+The event contract accepts \`start\`, \`pause\` and \`stop\`; \`media_type\` is
+\`movie\` or \`series\`; identifiers can include IMDb, TMDB, TVDB, Trakt, Simkl
+and supported anime IDs; and \`progress\` is a percentage from 0 to 100.
+Series events also include canonical season and episode numbers. The
+\`source\` field identifies the client for diagnostics, while deduplication
+uses the media identity and playback state across clients.
+
+This endpoint is the planned integration point for GMCA. The upstream
+[GMCA project](https://github.com/thcolin/gamepad-media-center-aggregator)
+still needs a client-side change to dispatch actual Switch playback state
+transitions to it; that work is deliberately deferred. The server-side event
+contract and Simkl tracking layer are now independent of Stremio.
