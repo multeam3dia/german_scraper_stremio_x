@@ -286,6 +286,10 @@ provider still confirms it. Partial or failed scans never remove titles.
 Automatic scheduling and the MDBList sync-outbox worker are still future work.
 A title is admitted to the public catalog only after its provider detail page
 has been resolved to a sufficiently certain IMDb identity.
+## MDBList playback tracking (optional)
+
+MDBList can now receive Stremio playback events alongside Simkl and return saved paused progress. Setup and test instructions are in [MDBLIST_SCROBBLING.md](MDBLIST_SCROBBLING.md). The integration reuses `MDBLIST_API_KEY`; no separate OAuth setup is required.
+
 ## Simkl scrobbling (optional)
 
 German Scraper X can receive Stremio player events and send them to Simkl. This is
