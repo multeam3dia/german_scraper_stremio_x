@@ -21,9 +21,14 @@ records for titles, seasons, episodes, language variants, and hosters.
 - Season and episode lists are fetched only when Stremio opens a series. This
   reads the series page and season listing pages, but not individual episode
   pages. The result is cached in SQLite for 24 hours by default.
-- An individual episode page is fetched only when playback is requested, and
-  only from providers recorded as available for that IMDb title. Temporary
-  direct media URLs are never persisted.
+- Live playback is independent of the crawler and SQLite catalog. Every
+  series stream request searches the compatible live providers; no prior
+  catalog entry is required. AniWorld is queried for animation titles and
+  Serienstream is searched live for series playback.
+- Provider season/episode structures in SQLite are optional comparison and
+  metadata-fallback data. A missing or stale structure never blocks live
+  provider lookup. Temporary direct media URLs are never persisted or reused
+  as completed stream results; only simultaneous in-flight lookups are shared.
 - Provider-side genre labels are retained as raw metadata only. Canonical
   Stremio genres are populated later by the TMDB/IMDb metadata enrichment step,
   so tags such as language flags are not mistakenly exposed as genres.
@@ -37,9 +42,9 @@ python -m providers --provider serienstream
 
 The structure-cache lifetime can be changed with the container environment
 variable `SERIES_STRUCTURE_CACHE_TTL_SECONDS` (default: `86400` seconds).
-Resolved playback URLs are cached in process memory for 30 seconds by default
-(`EPISODE_STREAM_CACHE_TTL_SECONDS`) and are never written to SQLite because
-they may contain temporary access tokens.
+Completed stream results are not cached: later playback requests perform a new
+provider lookup. Concurrent requests for the same Serienstream episode may
+share one in-flight lookup.
 
 ## Provider identity resolution (TMDB)
 
@@ -189,8 +194,10 @@ stopped manually.
 
 ## SQLite catalogs and optional MDBList export
 
-The two Stremio catalogs are served directly from the persistent SQLite provider
-index:
+The optional two Stremio catalogs are served directly from the persistent SQLite provider
+index. Set `ENABLE_LOCAL_CATALOG=false` to omit these catalogs from the Stremio
+manifest and skip SQLite catalog initialization. This does not disable metadata
+or live stream lookup:
 
 - **German Scraper X - Movies** (movie)
 - **German Scraper X - Shows** (series)
@@ -240,8 +247,10 @@ The addon initializes a local SQLite database at `/app/data/catalog.sqlite3`
 `./data` to `/app/data`, so the database survives container recreation.
 Keep this directory on persistent storage and include it in backups.
 
-SQLite is the source of truth for provider discovery and Stremio catalog
-responses. The main tables are:
+SQLite is the source of truth for the optional local provider catalog and its
+cached season/episode structures. It is not the source of truth for live stream
+availability: every playback request checks compatible providers independently.
+The main tables are:
 
 - `titles`: canonical media identity (IMDb ID), title, year and metadata.
 - `provider_entries`: which provider exposes each title, its provider URL,
