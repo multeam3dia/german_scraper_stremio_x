@@ -277,3 +277,63 @@ provider still confirms it. Partial or failed scans never remove titles.
 Automatic scheduling and the MDBList sync-outbox worker are still future work.
 A title is admitted to the public catalog only after its provider detail page
 has been resolved to a sufficiently certain IMDb identity.
+## Simkl scrobbling (optional)
+
+German Scraper X can receive Stremio player events and send them to Simkl. This is
+separate from the SQLite catalog and provider availability: it does not change
+which titles appear in Stremio or which provider is used for playback.
+
+### Configuration
+
+1. Create an AUTH V2 app in [Simkl Developer Settings](https://simkl.com/settings/developer/).
+   Choose **TV, devices & command line**. This is the device/PIN flow intended
+   for consoles and headless services; it does not require a client secret.
+2. Add these variables to the stack's `.env` file (or Dockhand environment):
+
+   ```dotenv
+   SIMKL_CLIENT_ID=your_simkl_v2_client_id
+   PLAYER_EVENT_PATH_TOKEN=replace_with_a_long_random_hex_secret
+   ```
+
+   Generate the path secret with `openssl rand -hex 32`. Do not reuse a password
+   or publish this value.
+3. Recreate the container so the new environment variables are loaded.
+4. Install the tokenized manifest URL in Stremio:
+
+   `https://your-public-host/PLAYER_EVENT_PATH_TOKEN/manifest.json`
+
+   Replace the final path segment with the exact value configured above. The
+   ordinary `/manifest.json` intentionally does **not** advertise player events.
+   The secret path prevents arbitrary visitors from sending fake watch events
+   to the connected Simkl account.
+5. Open the matching setup page:
+
+   `https://your-public-host/PLAYER_EVENT_PATH_TOKEN/simkl/connect`
+
+   Press **Mit Simkl verbinden**, open the Simkl approval link and authorize the
+   app. The page polls until the device flow completes.
+
+### Behaviour and storage
+
+- Stremio `start`, `pause` and `stop` events are forwarded to the matching
+  Simkl scrobble endpoint. IMDb IDs and canonical season/episode numbers are used.
+- Playback position and duration arrive in milliseconds and are converted to a
+  percentage. Simkl's default stop threshold is 80%: a stop at or above it marks
+  the item watched; an earlier stop saves a resumable playback.
+- No periodic heartbeat is sent. Repeated consecutive start/pause states are
+  coalesced because Stremio also emits those states when the user seeks.
+- Access and refresh tokens are encrypted at rest. The encryption key is kept
+  in `./data/simkl_tokens.key`; the encrypted credentials and event state are
+  in `./data/simkl_tracking.sqlite3`. Back up both files together. The key file
+  is created with owner-only permissions. An optional stable Fernet key can be
+  supplied through `SIMKL_TOKEN_ENCRYPTION_KEY`.
+- Keep the tokenized manifest URL private. Anyone who obtains it can submit
+  player events to this one connected Simkl account.
+
+The Stremio addon protocol defines `player` events for Stremio core 0.64 and
+newer. Enable Stremio's **Share playback events** option where the client exposes
+it, then reinstall the tokenized addon. Client support still needs to be verified
+on each target build.
+The current upstream GMCA Stremio backend does not yet dispatch these events;
+GMCA needs a client-side change before Switch playback can be scrobbled through
+this route.

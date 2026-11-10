@@ -1167,3 +1167,33 @@ def mark_provider_structure_fetched(
             """,
             (media_type, imdb_id, provider.strip().lower(), now),
         )
+
+def get_title_for_tracking(media_type: str, imdb_id: str) -> Optional[dict[str, Any]]:
+    """Return canonical title/year for a Simkl scrobble without a network lookup."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    with _connect() as db:
+        row = db.execute(
+            """
+            SELECT title, year, metadata_json
+            FROM titles
+            WHERE media_type = ? AND imdb_id = ?
+            """,
+            (media_type, imdb_id),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    tmdb = metadata.get("tmdb") if isinstance(metadata.get("tmdb"), dict) else {}
+    title = tmdb.get("title") or tmdb.get("name") or row["title"]
+    year = tmdb.get("year") or row["year"]
+    try:
+        year = int(str(year)[:4]) if year else None
+    except (TypeError, ValueError):
+        year = None
+    return {"title": str(title or "").strip(), "year": year}

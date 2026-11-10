@@ -1,6 +1,5 @@
 """Tests for the SQLite-backed Stremio catalog routes."""
 
-import asyncio
 import os
 import tempfile
 import unittest
@@ -67,8 +66,17 @@ class CatalogRouteTests(unittest.TestCase):
         self.assertEqual([meta["id"] for meta in response["metas"]], ["tt1234567"])
 
     def test_manifest_advertises_search_pagination_and_available_genres(self):
-        manifest = asyncio.run(app.get_manifest())
+        manifest = app._manifest_response()
         self.assertIn("meta", manifest["resources"])
+        self.assertNotIn("player", manifest["resources"])
+        player_manifest = app._manifest_response(enable_player_events=True)
+        self.assertIn(
+            "player",
+            [
+                resource if isinstance(resource, str) else resource.get("name")
+                for resource in player_manifest["resources"]
+            ],
+        )
         movie_catalog = next(
             item for item in manifest["catalogs"]
             if item["id"] == "german_scraper_movies"

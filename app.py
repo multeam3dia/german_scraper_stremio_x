@@ -1,16 +1,25 @@
+import os
 import uvicorn
 from urllib.parse import parse_qs, urlparse
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from scraper import get_movie_streams, get_metadata
 from providers.lazy import get_series_meta, get_series_streams_for_episode
 from aniworld.config import logger
 from mdblist import queue_verified_title
 from catalog_db import get_catalog_titles, init_db, list_genres
+from simkl_tracking import (
+    SimklError,
+    get_simkl_status,
+    init_db as init_simkl_db,
+    poll_device_authorization,
+    scrobble_player_event,
+    start_device_authorization,
+)
 
 ADDON_ID = "org.stremio.german.scraper"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 MANIFEST = {
     "id": ADDON_ID,
@@ -37,11 +46,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def tokenized_addon_paths(request: Request, call_next):
+    """Expose event resources only through a private, tokenized addon URL."""
+    token = os.getenv("PLAYER_EVENT_PATH_TOKEN", "").strip().strip("/")
+    request.state.tokenized_addon = False
+    if token:
+        prefix = f"/{token}"
+        path = request.scope.get("path", "")
+        if path == prefix or path.startswith(prefix + "/"):
+            request.scope["path"] = path[len(prefix):] or "/"
+            raw_path = request.scope.get("raw_path")
+            if raw_path:
+                request.scope["raw_path"] = raw_path[len(prefix.encode("utf-8")):] or b"/"
+            request.state.tokenized_addon = True
+    return await call_next(request)
+
 @app.on_event("startup")
 async def initialize_catalog_database():
     """Initialize the persistent provider catalog index."""
     init_db()
     logger.info("Persistent catalog database initialized")
+
+
+@app.on_event("startup")
+async def initialize_simkl_tracking_database():
+    """Initialize encrypted token storage and playback-event state."""
+    init_simkl_db()
 
 
 @app.on_event("startup")
@@ -152,9 +184,15 @@ def _catalog_response(
         return {"metas": []}
 
 
-@app.get("/manifest.json")
-async def get_manifest():
+def _manifest_response(enable_player_events: bool = False) -> dict:
     manifest = dict(MANIFEST)
+    manifest["resources"] = list(MANIFEST["resources"])
+    if enable_player_events:
+        manifest["resources"].append({
+            "name": "player",
+            "types": ["movie", "series"],
+            "idPrefixes": ["tt"],
+        })
     manifest["catalogs"] = [
         _catalog_manifest_entry(
             "movie", "german_scraper_movies", "German Scraper X - Movies"
@@ -164,6 +202,18 @@ async def get_manifest():
         ),
     ]
     return manifest
+
+
+@app.get("/manifest.json")
+async def get_manifest(request: Request):
+    token_configured = bool(os.getenv("PLAYER_EVENT_PATH_TOKEN", "").strip())
+    simkl_configured = bool(os.getenv("SIMKL_CLIENT_ID", "").strip())
+    enable_player_events = (
+        token_configured
+        and simkl_configured
+        and getattr(request.state, "tokenized_addon", False)
+    )
+    return _manifest_response(enable_player_events=enable_player_events)
 
 
 @app.get("/catalog/{type}/{catalog_id}.json")
@@ -257,6 +307,170 @@ def get_stream(type: str, id: str):
         queue_verified_title(type, media_id)
 
     return {"streams": unique_streams}
+
+
+def _require_tokenized_addon(request: Request) -> None:
+    token_configured = bool(os.getenv("PLAYER_EVENT_PATH_TOKEN", "").strip())
+    if not token_configured or not getattr(request.state, "tokenized_addon", False):
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@app.get("/player/{type}/{video_id}/{extra}.json")
+def get_player_event(request: Request, type: str, video_id: str, extra: str):
+    """Receive Stremio 5 player events and forward real state changes to Simkl."""
+    _require_tokenized_addon(request)
+    if type not in {"movie", "series"}:
+        return {"status": "ignored", "reason": "unsupported_type"}
+
+    values = parse_qs(extra, keep_blank_values=True)
+    action = values.get("action", [""])[-1].strip().lower()
+    try:
+        current_time_ms = max(0, int(values.get("currentTime", ["0"])[-1] or 0))
+    except (TypeError, ValueError):
+        current_time_ms = 0
+    try:
+        duration_ms = max(0, int(values.get("duration", ["0"])[-1] or 0))
+    except (TypeError, ValueError):
+        duration_ms = 0
+
+    try:
+        return scrobble_player_event(
+            type, video_id, action, current_time_ms, duration_ms
+        )
+    except SimklError as exc:
+        logger.warning("Simkl player event could not be processed: %s", str(exc))
+        return {"status": "error"}
+    except Exception as exc:
+        logger.error(
+            "Unexpected Simkl player event error: %s",
+            exc.__class__.__name__,
+        )
+        return {"status": "error"}
+
+
+@app.get("/simkl/connect")
+def simkl_connect_page(request: Request):
+    """Small PIN-flow page; the private addon path protects setup actions."""
+    _require_tokenized_addon(request)
+    return HTMLResponse(
+        """<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simkl verbinden – German Scraper X</title>
+<style>
+body{font:16px system-ui,sans-serif;max-width:620px;margin:3rem auto;padding:0 1rem;line-height:1.5}
+button{font:inherit;padding:.7rem 1rem;cursor:pointer}code{font-size:1.3rem;font-weight:700}
+#status{margin-top:1.2rem;padding:1rem;background:#f2f2f2;border-radius:8px}
+</style>
+</head>
+<body>
+<h1>Simkl verbinden</h1>
+<p>Verbinde dein Simkl-Konto einmalig. German Scraper X speichert die Tokens verschlüsselt auf dem Server.</p>
+<button id="start">Mit Simkl verbinden</button>
+<div id="status" role="status">Noch nicht verbunden.</div>
+<script>
+const statusBox=document.getElementById("status");
+const button=document.getElementById("start");
+let pollTimer=null;
+function show(text){statusBox.textContent=text;}
+async function poll(){
+  try{
+    const response=await fetch("auth/status",{cache:"no-store"});
+    const data=await response.json();
+    if(data.status==="connected"){
+      show("Simkl ist verbunden. Scrobbling ist aktiviert.");
+      button.disabled=false;
+      return;
+    }
+    if(data.status==="connected_readonly"){
+      show("Simkl wurde verbunden, aber ohne Schreibberechtigung. Bitte die App mit media:read und media:write autorisieren.");
+      button.disabled=false;
+      return;
+    }
+    if(data.status==="pending"){
+      show("Warte auf Freigabe bei Simkl …");
+      pollTimer=setTimeout(poll,Math.max(5,data.retry_after||5)*1000);
+      return;
+    }
+    if(data.status==="expired"){
+      show("Der Code ist abgelaufen. Bitte starte die Verbindung erneut.");
+      button.disabled=false;
+      return;
+    }
+    show("Verbindungsstatus: "+(data.message||data.status||"unbekannt"));
+    button.disabled=false;
+  }catch(error){
+    show("Verbindungsprüfung fehlgeschlagen. Bitte erneut versuchen.");
+    button.disabled=false;
+  }
+}
+button.addEventListener("click",async()=>{
+  if(pollTimer) clearTimeout(pollTimer);
+  button.disabled=true;
+  show("Fordere einen Simkl-Code an …");
+  try{
+    const response=await fetch("auth/start",{method:"POST",cache:"no-store"});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.detail||"Simkl konnte nicht gestartet werden");
+    if(data.status==="connected"){show("Simkl ist bereits verbunden.");button.disabled=false;return;}
+    if(data.status==="connected_readonly"){show("Simkl ist verbunden, aber ohne Schreibberechtigung. Bitte die App mit media:read und media:write autorisieren.");button.disabled=false;return;}
+    const link=document.createElement("a");
+    link.href=data.verification_uri_complete;
+    link.target="_blank";
+    link.rel="noopener noreferrer";
+    link.textContent="Simkl-Freigabe öffnen";
+    statusBox.replaceChildren();
+    statusBox.append("Öffne ",link," und bestätige die Verbindung. Code: ");
+    const code=document.createElement("code");
+    code.textContent=data.user_code;
+    statusBox.append(code);
+    pollTimer=setTimeout(poll,Math.max(5,data.interval||5)*1000);
+  }catch(error){
+    show(error.message||"Simkl-Verbindung konnte nicht gestartet werden.");
+    button.disabled=false;
+  }
+});
+</script>
+</body>
+</html>"""
+    )
+
+
+@app.post("/simkl/auth/start")
+def simkl_auth_start(request: Request):
+    _require_tokenized_addon(request)
+    try:
+        status = get_simkl_status()
+        if status.get("connected"):
+            if "media:write" not in str(status.get("scope") or ""):
+                return {"status": "connected_readonly"}
+            return {"status": "connected"}
+        return start_device_authorization()
+    except SimklError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/simkl/auth/status")
+def simkl_auth_status(request: Request):
+    _require_tokenized_addon(request)
+    try:
+        status = get_simkl_status()
+        if status.get("connected"):
+            if "media:write" not in str(status.get("scope") or ""):
+                return {"status": "connected_readonly"}
+            return {"status": "connected"}
+        return poll_device_authorization()
+    except SimklError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/simkl/status")
+def simkl_status(request: Request):
+    _require_tokenized_addon(request)
+    return get_simkl_status()
+
 
 @app.get("/")
 async def root():
