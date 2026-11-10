@@ -349,6 +349,7 @@ def _require_tokenized_addon(request: Request) -> None:
 def get_player_event(request: Request, type: str, video_id: str, extra: str):
     """Adapt Stremio player events to the shared playback contract."""
     _require_tokenized_addon(request)
+    action = ""
     try:
         values = parse_qs(extra, keep_blank_values=True)
         action = values.get("action", [""])[-1].strip().lower()
@@ -360,18 +361,75 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
             duration_ms = max(0, int(values.get("duration", ["0"])[-1] or 0))
         except (TypeError, ValueError):
             duration_ms = 0
+
         event = stremio_player_event(
             type, video_id, action, current_time_ms, duration_ms
         )
-        return scrobble_event(event)
+        logger.info(
+            "SIMKL-PLAYER-DIAGNOSTIC received: media=%s action=%s "
+            "current_time_ms=%s duration_ms=%s progress=%s",
+            event.media_key,
+            event.action,
+            current_time_ms,
+            duration_ms,
+            event.progress,
+        )
+
+        result = scrobble_event(event)
+        result_status = (
+            str(result.get("status") or "unknown")
+            if isinstance(result, dict)
+            else "invalid_response"
+        )
+        result_reason = (
+            result.get("reason") if isinstance(result, dict) else None
+        )
+        http_status = (
+            result.get("http_status") if isinstance(result, dict) else None
+        )
+        log_message = (
+            "SIMKL-PLAYER-DIAGNOSTIC result: media=%s action=%s "
+            "status=%s reason=%s http_status=%s progress=%s"
+        )
+        log_args = (
+            event.media_key,
+            event.action,
+            result_status,
+            result_reason,
+            http_status,
+            event.progress,
+        )
+        if result_status in {"sent", "duplicate_watch"}:
+            logger.info(log_message, *log_args)
+        elif result_status == "ignored":
+            logger.info(log_message, *log_args)
+        else:
+            logger.warning(log_message, *log_args)
+        return result
     except PlaybackEventError as exc:
+        logger.warning(
+            "SIMKL-PLAYER-DIAGNOSTIC ignored before Simkl: "
+            "media_type=%s action=%s reason=%s",
+            type,
+            action or "unknown",
+            exc.reason,
+        )
         return {"status": "ignored", "reason": exc.reason}
     except SimklError as exc:
-        logger.warning("Simkl player event could not be processed: %s", str(exc))
+        logger.warning(
+            "SIMKL-PLAYER-DIAGNOSTIC Simkl exception: "
+            "media_type=%s action=%s error_type=%s",
+            type,
+            action or "unknown",
+            exc.__class__.__name__,
+        )
         return {"status": "error"}
     except Exception as exc:
         logger.error(
-            "Unexpected Stremio player event error: %s",
+            "SIMKL-PLAYER-DIAGNOSTIC unexpected error: "
+            "media_type=%s action=%s error_type=%s",
+            type,
+            action or "unknown",
             exc.__class__.__name__,
         )
         return {"status": "error"}
