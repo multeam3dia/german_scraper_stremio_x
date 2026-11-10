@@ -9,17 +9,18 @@ from providers.lazy import get_series_meta, get_series_streams_for_episode
 from aniworld.config import logger
 from mdblist import queue_verified_title
 from catalog_db import get_catalog_titles, init_db, list_genres
+from playback_events import PlaybackEventError, playback_event_from_payload, stremio_player_event
 from simkl_tracking import (
     SimklError,
     get_simkl_status,
     init_db as init_simkl_db,
     poll_device_authorization,
-    scrobble_player_event,
+    scrobble_event,
     start_device_authorization,
 )
 
 ADDON_ID = "org.stremio.german.scraper"
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 MANIFEST = {
     "id": ADDON_ID,
@@ -317,32 +318,55 @@ def _require_tokenized_addon(request: Request) -> None:
 
 @app.get("/player/{type}/{video_id}/{extra}.json")
 def get_player_event(request: Request, type: str, video_id: str, extra: str):
-    """Receive Stremio 5 player events and forward real state changes to Simkl."""
+    """Adapt Stremio player events to the shared playback contract."""
     _require_tokenized_addon(request)
-    if type not in {"movie", "series"}:
-        return {"status": "ignored", "reason": "unsupported_type"}
-
-    values = parse_qs(extra, keep_blank_values=True)
-    action = values.get("action", [""])[-1].strip().lower()
     try:
-        current_time_ms = max(0, int(values.get("currentTime", ["0"])[-1] or 0))
-    except (TypeError, ValueError):
-        current_time_ms = 0
-    try:
-        duration_ms = max(0, int(values.get("duration", ["0"])[-1] or 0))
-    except (TypeError, ValueError):
-        duration_ms = 0
-
-    try:
-        return scrobble_player_event(
+        values = parse_qs(extra, keep_blank_values=True)
+        action = values.get("action", [""])[-1].strip().lower()
+        try:
+            current_time_ms = max(0, int(values.get("currentTime", ["0"])[-1] or 0))
+        except (TypeError, ValueError):
+            current_time_ms = 0
+        try:
+            duration_ms = max(0, int(values.get("duration", ["0"])[-1] or 0))
+        except (TypeError, ValueError):
+            duration_ms = 0
+        event = stremio_player_event(
             type, video_id, action, current_time_ms, duration_ms
         )
+        return scrobble_event(event)
+    except PlaybackEventError as exc:
+        return {"status": "ignored", "reason": exc.reason}
     except SimklError as exc:
         logger.warning("Simkl player event could not be processed: %s", str(exc))
         return {"status": "error"}
     except Exception as exc:
         logger.error(
-            "Unexpected Simkl player event error: %s",
+            "Unexpected Stremio player event error: %s",
+            exc.__class__.__name__,
+        )
+        return {"status": "error"}
+
+
+@app.post("/playback/event")
+async def ingest_playback_event(request: Request):
+    """Receive source-neutral events from clients such as a future GMCA adapter."""
+    _require_tokenized_addon(request)
+    try:
+        payload = await request.json()
+        event = playback_event_from_payload(payload)
+    except PlaybackEventError as exc:
+        return {"status": "ignored", "reason": exc.reason}
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON playback event")
+    try:
+        return scrobble_event(event)
+    except SimklError as exc:
+        logger.warning("Playback event could not be processed: %s", str(exc))
+        return {"status": "error"}
+    except Exception as exc:
+        logger.error(
+            "Unexpected normalized playback event error: %s",
             exc.__class__.__name__,
         )
         return {"status": "error"}
