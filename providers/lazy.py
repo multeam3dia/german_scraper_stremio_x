@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 import os
-import time
-from threading import RLock
 from typing import Any
 
 from catalog_db import (
@@ -30,17 +28,6 @@ try:
     )
 except (TypeError, ValueError):
     STRUCTURE_CACHE_TTL_SECONDS = 86400
-
-try:
-    STREAM_CACHE_TTL_SECONDS = max(
-        0, int(os.getenv("EPISODE_STREAM_CACHE_TTL_SECONDS", "30"))
-    )
-except (TypeError, ValueError):
-    STREAM_CACHE_TTL_SECONDS = 30
-
-_STREAM_CACHE: dict[tuple[str, int, int], tuple[float, list[dict[str, Any]]]] = {}
-_STREAM_CACHE_LOCK = RLock()
-
 
 def ensure_series_structure(imdb_id: str) -> list[dict[str, Any]]:
     """Load stale/missing season lists for known providers and return the cache."""
@@ -133,9 +120,24 @@ def _canonical_videos(meta: dict[str, Any]) -> dict[tuple[int, int], dict[str, A
 
 
 def get_series_meta(imdb_id: str) -> dict[str, Any]:
-    """Return Cinemeta metadata with only episodes confirmed by a provider."""
+    """Return canonical episodes; provider structures are optional comparison/fallback data."""
     meta = _canonical_meta(imdb_id)
-    entries = get_available_provider_entries("series", imdb_id)
+    structures: list[dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
+
+    # SQLite may enrich the response with provider-side structure when
+    # Cinemeta has no episode list. It must never decide whether canonical
+    # episodes are visible, and database errors must not break metadata.
+    try:
+        entries = get_available_provider_entries("series", imdb_id)
+        structures = ensure_series_structure(imdb_id)
+    except Exception as exc:
+        logger.warning(
+            "Optional provider structure lookup failed for %s: %s",
+            imdb_id,
+            type(exc).__name__,
+        )
+
     if not meta:
         meta = {
             "id": imdb_id,
@@ -144,48 +146,27 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
             "posterShape": "poster",
         }
 
-    structures = ensure_series_structure(imdb_id)
     canonical = _canonical_videos(meta)
-    available_ids = {
-        str(entry.get("provider") or "").strip().lower()
-        for entry in entries
-        if str(entry.get("provider") or "").strip().lower() in PROVIDERS
-    }
     videos_by_key: dict[tuple[int, int], dict[str, Any]] = {}
 
     if canonical:
-        # Prefer Cinemeta's canonical numbering. AniWorld episode numbers can
-        # differ; _find_provider_episode maps those by exact episode title.
+        # Cinemeta is the canonical episode list. Provider structure is useful
+        # for later comparison, but an empty/stale catalog must not hide items.
         for key, source_video in sorted(canonical.items()):
             season_number, episode_number = key
             if episode_number <= 0:
                 continue
-            target_title = str(source_video.get("title") or "").strip() or None
-            confirmed = any(
-                _find_provider_episode(
-                    provider_id,
-                    structures,
-                    season_number,
-                    episode_number,
-                    target_title,
-                )
-                for provider_id in available_ids
-            )
-            if not confirmed:
-                continue
-            video = {
+            video = dict(source_video)
+            video.update({
                 "id": f"{imdb_id}:{season_number}:{episode_number}",
-                "title": str(target_title or f"Episode {episode_number}"),
                 "season": season_number,
                 "episode": episode_number,
-            }
-            for field in ("released", "thumbnail", "overview"):
-                if source_video.get(field):
-                    video[field] = source_video[field]
+            })
+            video.setdefault("title", f"Episode {episode_number}")
             videos_by_key[key] = video
     else:
-        # If Cinemeta has no episode list, fall back to the provider's own
-        # numbering and title data, still deduplicating across providers.
+        # Only when Cinemeta has no usable episode list may the optional
+        # provider structure cache supply a fallback list.
         for season_data in structures:
             if season_data.get("is_movie_collection"):
                 continue
@@ -221,6 +202,7 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
     meta["type"] = "series"
     meta["videos"] = [videos_by_key[key] for key in sorted(videos_by_key)]
     return {"meta": meta}
+
 
 def _find_provider_episode(
     provider_id: str,
@@ -292,72 +274,21 @@ def get_series_streams_for_episode(
     season_number: int,
     episode_number: int,
 ) -> list[dict[str, Any]]:
-    """Resolve only known providers; keep temporary stream URLs in a short memory cache."""
-    cache_key = (imdb_id, int(season_number), int(episode_number))
-    now = time.monotonic()
-    with _STREAM_CACHE_LOCK:
-        cached = _STREAM_CACHE.get(cache_key)
-        if cached:
-            cached_at, cached_streams = cached
-            cache_ttl = STREAM_CACHE_TTL_SECONDS if cached_streams else min(10, STREAM_CACHE_TTL_SECONDS)
-            if now - cached_at < cache_ttl:
-                return [dict(stream) for stream in cached_streams]
-            _STREAM_CACHE.pop(cache_key, None)
-
-    entries = get_available_provider_entries("series", imdb_id)
-    structures = ensure_series_structure(imdb_id)
-    meta = _canonical_meta(imdb_id)
-    target_video = None
+    """Search compatible providers live; SQLite/catalog membership is never a gate."""
     try:
-        from scraper import _get_cinemeta_episode
+        from scraper import get_series_streams
 
-        target_video = _get_cinemeta_episode(meta, season_number, episode_number)
-    except Exception:
-        target_video = None
-    target_title = (
-        str(target_video.get("title") or "").strip()
-        if isinstance(target_video, dict) else None
-    )
-    display_title = str(meta.get("name") or (entries[0].get("provider_title") if entries else imdb_id))
-    display_label = f"{display_title} S{season_number:02d}E{episode_number:02d}"
-
-    streams: list[dict[str, Any]] = []
-    for entry in entries:
-        provider_id = str(entry.get("provider") or "").strip().lower()
-        provider_class = PROVIDERS.get(provider_id)
-        if not provider_class:
-            continue
-        episode_data = _find_provider_episode(
-            provider_id,
-            structures,
-            season_number,
-            episode_number,
-            target_title,
+        return get_series_streams(
+            imdb_id,
+            int(season_number),
+            int(episode_number),
         )
-        episode_url = str((episode_data or {}).get("url") or "").strip()
-        if not episode_url:
-            continue
-        try:
-            provider = provider_class()
-            streams.extend(
-                provider.get_episode_streams(
-                    episode_url,
-                    display_label,
-                    binge_group=imdb_id,
-                )
-            )
-        except Exception as exc:
-            logger.warning(
-                "Episode playback lookup failed for %s (%s): %s",
-                imdb_id,
-                provider_id,
-                type(exc).__name__,
-            )
-    # Resolved media URLs may expire, so cache them only in process memory and
-    # for a short period. Never write signed playback URLs to SQLite.
-    with _STREAM_CACHE_LOCK:
-        _STREAM_CACHE[cache_key] = (
-            time.monotonic(),
-            [dict(stream) for stream in streams],
+    except Exception as exc:
+        logger.warning(
+            "Live series stream lookup failed for %s S%02dE%02d: %s",
+            imdb_id,
+            int(season_number),
+            int(episode_number),
+            type(exc).__name__,
         )
-    return streams
+        return []
