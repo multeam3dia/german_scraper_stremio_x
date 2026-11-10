@@ -29,25 +29,21 @@ GERMAN_TITLE_CACHE = {}
 _SCRAPE_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider")
 _S_TO_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serienstream")
 _S_TO_LOCK = RLock()
-_S_TO_INFLIGHT = set()
-_S_TO_RESULT_CACHE = {}
-_S_TO_CACHE_TTL = 45
+_S_TO_INFLIGHT = {}
 
 
-def _fetch_s_to_cached(key, title, season, episode_num, binge_group):
-    """Run a Serienstream lookup and retain its result if it outlives the HTTP request."""
-    streams = fetch_series_site_streams(
+def _fetch_s_to_live(title, season, episode_num, binge_group):
+    """Run a fresh Serienstream lookup; completed results are never cached."""
+    return fetch_series_site_streams(
         "Serienstream", title, season, episode_num, binge_group
     )
-    with _S_TO_LOCK:
-        _S_TO_RESULT_CACHE[key] = (time.monotonic(), streams)
-    return streams
 
 
 def _clear_s_to_inflight(key, future):
     # A callback also runs when a queued future is cancelled before it starts.
     with _S_TO_LOCK:
-        _S_TO_INFLIGHT.discard(key)
+        if _S_TO_INFLIGHT.get(key) is future:
+            _S_TO_INFLIGHT.pop(key, None)
 
 
 
@@ -1009,8 +1005,14 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     en_title = meta.get("name")
     de_title = get_german_title("series", pure_imdb_id)
-    titles_to_search = {en_title}
-    if de_title: titles_to_search.add(de_title)
+    titles_to_search = {
+        str(title).strip()
+        for title in (en_title, de_title)
+        if isinstance(title, str) and title.strip()
+    }
+    if not titles_to_search:
+        logger.warning("Series metadata has no searchable title for %s", pure_imdb_id)
+        return []
 
     all_streams = []
     binge_group = f"{pure_imdb_id}"
@@ -1049,34 +1051,26 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
                 target_episode_title,
             ))
 
-        # Reuse a recently completed S.to result, or leave one background task
-        # running. This lets a later Stremio request receive a result that needed
-        # more than the 12-second response budget (for example, a CAPTCHA).
+        # A concurrent request may share the same running lookup, but a
+        # completed result is never reused: later requests check the provider
+        # again so changed availability and expired links are observed.
         s_to_key = (pure_imdb_id, title, season, episode_num)
         with _S_TO_LOCK:
-            cached = _S_TO_RESULT_CACHE.get(s_to_key)
-            if cached and time.monotonic() - cached[0] < _S_TO_CACHE_TTL:
-                all_streams.extend(cached[1])
-            else:
-                if cached:
-                    _S_TO_RESULT_CACHE.pop(s_to_key, None)
-
-                if s_to_key in _S_TO_INFLIGHT:
-                    logger.info("Serienstream lookup still running for %s S%02dE%02d",
-                                title, season, episode_num)
-                else:
-                    _S_TO_INFLIGHT.add(s_to_key)
-                    try:
-                        s_to_future = _S_TO_EXECUTOR.submit(
-                            _fetch_s_to_cached, s_to_key, title, season, episode_num, binge_group
-                        )
-                        s_to_future.add_done_callback(
-                            lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
-                        )
-                        futures.append(s_to_future)
-                    except Exception as exc:
-                        _S_TO_INFLIGHT.discard(s_to_key)
-                        logger.warning("Could not schedule Serienstream lookup: %s", exc)
+            s_to_future = _S_TO_INFLIGHT.get(s_to_key)
+            if s_to_future is None:
+                try:
+                    s_to_future = _S_TO_EXECUTOR.submit(
+                        _fetch_s_to_live, title, season, episode_num, binge_group
+                    )
+                    _S_TO_INFLIGHT[s_to_key] = s_to_future
+                    s_to_future.add_done_callback(
+                        lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
+                    )
+                except Exception as exc:
+                    s_to_future = None
+                    logger.warning("Could not schedule Serienstream lookup: %s", exc)
+        if s_to_future is not None:
+            futures.append(s_to_future)
 
         # MegaKino is intentionally movie-only: skip its series lookup to
         # avoid adding latency and unrelated search traffic to series requests.
