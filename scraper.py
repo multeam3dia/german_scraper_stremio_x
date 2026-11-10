@@ -1,7 +1,6 @@
 import re
 import html
 import os
-import time
 import niquests
 from threading import RLock
 from typing import List, Dict, Optional, Any, Set
