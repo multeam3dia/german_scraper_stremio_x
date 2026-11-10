@@ -148,6 +148,27 @@ class LazyLoadingTests(unittest.TestCase):
         self.assertEqual(live_search.call_count, 2)
         live_search.assert_any_call("tt2468101", 1, 1)
 
+    def test_series_meta_does_not_touch_sqlite_when_catalog_is_disabled(self):
+        canonical_meta = {
+            "id": "tt2468104",
+            "type": "series",
+            "name": "Example",
+            "videos": [{
+                "title": "Pilot",
+                "season": 1,
+                "episode": 1,
+            }],
+        }
+        with patch.dict(os.environ, {"ENABLE_LOCAL_CATALOG": "false"}), patch(
+            "providers.lazy._canonical_meta", return_value=canonical_meta
+        ), patch(
+            "providers.lazy.get_available_provider_entries",
+            side_effect=AssertionError("disabled catalog must not be queried"),
+        ):
+            response = get_series_meta("tt2468104")
+
+        self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468104:1:1")
+
     def test_series_meta_survives_sqlite_failure(self):
         canonical_meta = {
             "id": "tt2468103",
