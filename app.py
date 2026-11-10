@@ -381,6 +381,9 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
             if isinstance(result, dict)
             else "invalid_response"
         )
+        result_action = (
+            result.get("action") if isinstance(result, dict) else None
+        )
         result_reason = (
             result.get("reason") if isinstance(result, dict) else None
         )
@@ -389,12 +392,13 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
         )
         log_message = (
             "SIMKL-PLAYER-DIAGNOSTIC result: media=%s action=%s "
-            "status=%s reason=%s http_status=%s progress=%s"
+            "status=%s simkl_action=%s reason=%s http_status=%s progress=%s"
         )
         log_args = (
             event.media_key,
             event.action,
             result_status,
+            result_action,
             result_reason,
             http_status,
             event.progress,
