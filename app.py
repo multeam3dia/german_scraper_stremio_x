@@ -447,14 +447,22 @@ def get_player_event(request: Request, type: str, video_id: str, extra: str):
         http_status = (
             result.get("http_status") if isinstance(result, dict) else None
         )
+        provider_results = result.get("providers", {}) if isinstance(result, dict) else {}
+        simkl_status = provider_results.get("simkl", {}).get("status")
+        mdblist_status = provider_results.get("mdblist", {}).get("status")
+        mdblist_http_status = provider_results.get("mdblist", {}).get("http_status")
         log_message = (
             "PLAYBACK-TRACKING-DIAGNOSTIC result: media=%s action=%s "
-            "status=%s simkl_action=%s reason=%s http_status=%s progress=%s"
+            "status=%s simkl=%s mdblist=%s mdblist_http=%s "
+            "tracker_action=%s reason=%s http_status=%s progress=%s"
         )
         log_args = (
             event.media_key,
             event.action,
             result_status,
+            simkl_status,
+            mdblist_status,
+            mdblist_http_status,
             result_action,
             result_reason,
             http_status,
