@@ -278,14 +278,22 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                     if not any(ext in direct_url.lower() for ext in [".mp4", ".m3u8", ".ts"]):
                         direct_url += "#.m3u8" if is_hls else "#.mp4"
 
-                    request_headers = {
-                        "User-Agent": ua,
-                        "Referer": embed_url,
-                        "Origin": origin,
-                        "Sec-Fetch-Mode": "cors",
-                        "Sec-Fetch-Site": "cross-site",
-                        "Accept": "*/*",
-                    }
+                    # StreamFlix's VOE extractor only uses the player User-Agent
+                    # for media requests; its Referer is needed for the embed-page
+                    # lookup, not for the returned HLS playlist. Avoid extra
+                    # Referer/Origin headers here because Android Stremio has
+                    # known HLS proxyHeaders forwarding problems.
+                    if name.casefold() == "voe":
+                        request_headers = {"User-Agent": ua}
+                    else:
+                        request_headers = {
+                            "User-Agent": ua,
+                            "Referer": embed_url,
+                            "Origin": origin,
+                            "Sec-Fetch-Mode": "cors",
+                            "Sec-Fetch-Site": "cross-site",
+                            "Accept": "*/*",
+                        }
                     request_headers.update(playback_headers)
                     proxy_headers = {"request": request_headers}
 
@@ -421,14 +429,22 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                     if not any(ext in direct_url.lower() for ext in (".mp4", ".m3u8", ".ts")):
                         direct_url += "#.m3u8" if is_hls else "#.mp4"
 
-                    request_headers = {
-                        "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
-                        "Referer": embed_url,
-                        "Origin": origin,
-                        "Accept": "*/*",
-                    }
-                    # Provider extractors may require a different playback UA,
-                    # final embed Referer, or cookies than the AniWorld redirect.
+                    # VOE's returned HLS URL does not need the embed-page
+                    # Referer for playback (StreamFlix uses only its player UA).
+                    # Keep the Android request free of extra Referer/Origin headers.
+                    if provider_name.casefold() == "voe":
+                        request_headers = {
+                            "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
+                        }
+                    else:
+                        request_headers = {
+                            "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
+                            "Referer": embed_url,
+                            "Origin": origin,
+                            "Accept": "*/*",
+                        }
+                    # Other provider extractors may require a different playback
+                    # UA, final embed Referer, or cookies than the AniWorld redirect.
                     request_headers.update(playback_headers)
 
                     entry = {
