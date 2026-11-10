@@ -579,7 +579,7 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
             )
     if status == 409 and event.action == "stop":
         _record_event(event.media_type, media_key, event.action, progress, now)
-        return {"status": "duplicate_watch"}
+        return {"status": "duplicate_watch", "http_status": status}
     if status == 400 and str(data.get("error") or data.get("code") or "").upper() == "RATE_LIMIT":
         logger.warning(
             "Simkl rate-limited a %s event from %s for %s",
@@ -596,6 +596,7 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
     _record_event(event.media_type, media_key, event.action, progress, now)
     return {
         "status": "sent",
+        "http_status": status,
         "action": str(data.get("action") or event.action),
         "progress": progress,
     }
