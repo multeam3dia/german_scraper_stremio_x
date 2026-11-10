@@ -127,16 +127,20 @@ def get_series_meta(imdb_id: str) -> dict[str, Any]:
 
     # SQLite may enrich the response with provider-side structure when
     # Cinemeta has no episode list. It must never decide whether canonical
-    # episodes are visible, and database errors must not break metadata.
-    try:
-        entries = get_available_provider_entries("series", imdb_id)
-        structures = ensure_series_structure(imdb_id)
-    except Exception as exc:
-        logger.warning(
-            "Optional provider structure lookup failed for %s: %s",
-            imdb_id,
-            type(exc).__name__,
-        )
+    # episodes are visible, and it is not touched when the local catalog is off.
+    catalog_enabled = os.getenv("ENABLE_LOCAL_CATALOG", "true").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+    if catalog_enabled:
+        try:
+            entries = get_available_provider_entries("series", imdb_id)
+            structures = ensure_series_structure(imdb_id)
+        except Exception as exc:
+            logger.warning(
+                "Optional provider structure lookup failed for %s: %s",
+                imdb_id,
+                type(exc).__name__,
+            )
 
     if not meta:
         meta = {
