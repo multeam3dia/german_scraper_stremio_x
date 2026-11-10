@@ -119,12 +119,13 @@ class SimklTrackingTests(unittest.TestCase):
         second_event = self._event(progress=58.0, source="gmca")
         with patch(
             "simkl_tracking.niquests.post",
-            return_value=_FakeResponse(200, {"action": "start"}),
+            return_value=_FakeResponse(201, {"action": "start"}),
         ) as post:
             first = simkl_tracking.scrobble_event(first_event)
             second = simkl_tracking.scrobble_event(second_event)
 
         self.assertEqual(first["status"], "sent")
+        self.assertEqual(first["http_status"], 201)
         self.assertEqual(first["progress"], 50.0)
         self.assertEqual(second, {"status": "ignored", "reason": "duplicate_state"})
         self.assertEqual(post.call_count, 1)
@@ -145,13 +146,19 @@ class SimklTrackingTests(unittest.TestCase):
         )
         with patch(
             "simkl_tracking.niquests.post",
-            return_value=_FakeResponse(200, {"action": "pause"}),
+            side_effect=[
+                _FakeResponse(201, {"action": "pause"}),
+                _FakeResponse(201, {"action": "scrobble"}),
+            ],
         ) as post:
             paused = simkl_tracking.scrobble_event(paused_event)
             stopped = simkl_tracking.scrobble_event(stopped_event)
 
         self.assertEqual(paused["status"], "sent")
         self.assertEqual(stopped["status"], "sent")
+        self.assertEqual(paused["action"], "pause")
+        self.assertEqual(stopped["action"], "scrobble")
+        self.assertEqual(stopped["http_status"], 201)
         self.assertEqual(post.call_count, 2)
         self.assertTrue(post.call_args_list[0].args[0].endswith("/scrobble/pause"))
         self.assertTrue(post.call_args_list[1].args[0].endswith("/scrobble/stop"))
@@ -160,6 +167,19 @@ class SimklTrackingTests(unittest.TestCase):
             "number": 2,
         })
         self.assertEqual(post.call_args_list[1].kwargs["json"]["progress"], 85.0)
+
+    def test_stop_below_watched_threshold_returns_pause_action(self):
+        event = self._event(action="stop", progress=15.9)
+        with patch(
+            "simkl_tracking.niquests.post",
+            return_value=_FakeResponse(201, {"action": "pause", "progress": 15.9}),
+        ):
+            result = simkl_tracking.scrobble_event(event)
+
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(result["http_status"], 201)
+        self.assertEqual(result["action"], "pause")
+        self.assertEqual(result["progress"], 15.9)
 
     def test_pause_or_stop_without_progress_is_not_scrobbled(self):
         result = simkl_tracking.scrobble_event(
