@@ -81,6 +81,31 @@ class AvailabilityReconciliationTests(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(remove, 1)
 
+    def test_playback_only_provider_does_not_keep_catalog_title_active(self):
+        imdb_id = "tt1234567"
+        catalog_db.record_discovery(
+            "series", imdb_id, "aniworld", "Example Show"
+        )
+        # Simulate a legacy/non-catalog provider record for the same title.
+        catalog_db.record_discovery(
+            "series", imdb_id, "megakino", "Example Show"
+        )
+
+        self._completed_scan("aniworld")
+        result = self._completed_scan("aniworld")
+
+        self.assertEqual(result["titles_deactivated"], 1)
+        self.assertEqual(catalog_db.get_catalog_titles("series"), [])
+        with catalog_db._connect() as db:
+            playback_entry = db.execute(
+                """
+                SELECT availability_status FROM provider_entries
+                WHERE provider='megakino' AND media_type='series' AND imdb_id=?
+                """,
+                (imdb_id,),
+            ).fetchone()
+        self.assertEqual(playback_entry["availability_status"], "available")
+
     def test_partial_scan_never_marks_a_provider_missing(self):
         imdb_id = "tt1234567"
         catalog_db.record_discovery(

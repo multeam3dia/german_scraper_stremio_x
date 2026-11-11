@@ -17,9 +17,9 @@ class CatalogRouteTests(unittest.TestCase):
         os.environ["CATALOG_DB_PATH"] = os.path.join(self.tmp.name, "catalog.sqlite3")
         catalog_db.init_db()
         catalog_db.record_discovery(
-            "movie",
+            "series",
             "tt1234567",
-            "filmpalast",
+            "serienstream",
             "Provider title",
             year=2020,
             metadata={
@@ -29,7 +29,7 @@ class CatalogRouteTests(unittest.TestCase):
             genres=["Action"],
         )
         catalog_db.update_title_metadata(
-            "movie",
+            "series",
             "tt1234567",
             {
                 "tmdb": {
@@ -51,7 +51,7 @@ class CatalogRouteTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_catalog_route_maps_sqlite_record_to_stremio_meta(self):
-        response = app.get_catalog("movie", "german_scraper_movies", genre="Action")
+        response = app.get_catalog("series", "german_scraper_shows", genre="Action")
         self.assertEqual(len(response["metas"]), 1)
         meta = response["metas"][0]
         self.assertEqual(meta["id"], "tt1234567")
@@ -63,7 +63,7 @@ class CatalogRouteTests(unittest.TestCase):
 
     def test_path_encoded_extra_arguments_are_parsed(self):
         response = app.get_catalog_with_extra(
-            "movie", "german_scraper_movies", "genre=Action&skip=0&search=Localized"
+            "series", "german_scraper_shows", "genre=Action&skip=0&search=Localized"
         )
         self.assertEqual([meta["id"] for meta in response["metas"]], ["tt1234567"])
 
@@ -86,7 +86,8 @@ class CatalogRouteTests(unittest.TestCase):
             asyncio.run(app.initialize_catalog_database())
             manifest = app._manifest_response()
 
-        self.assertEqual(len(manifest["catalogs"]), 2)
+        self.assertEqual(len(manifest["catalogs"]), 1)
+        self.assertEqual(manifest["catalogs"][0]["type"], "series")
         self.assertIn("stream", manifest["resources"])
 
     def test_meta_fallback_preserves_canonical_episode_list(self):
@@ -108,7 +109,7 @@ class CatalogRouteTests(unittest.TestCase):
 
         self.assertEqual(response["meta"]["videos"], canonical_meta["videos"])
 
-    def test_manifest_advertises_search_pagination_and_available_genres(self):
+    def test_manifest_advertises_only_configured_catalog_sources(self):
         manifest = app._manifest_response()
         self.assertIn("meta", manifest["resources"])
         self.assertNotIn("player", manifest["resources"])
@@ -120,15 +121,15 @@ class CatalogRouteTests(unittest.TestCase):
                 for resource in player_manifest["resources"]
             ],
         )
-        movie_catalog = next(
-            item for item in manifest["catalogs"]
-            if item["id"] == "german_scraper_movies"
-        )
-        extra_names = [item["name"] for item in movie_catalog["extra"]]
+        self.assertEqual(len(manifest["catalogs"]), 1)
+        show_catalog = manifest["catalogs"][0]
+        self.assertEqual(show_catalog["id"], "german_scraper_shows")
+        self.assertEqual(show_catalog["type"], "series")
+        extra_names = [item["name"] for item in show_catalog["extra"]]
         self.assertIn("search", extra_names)
         self.assertIn("skip", extra_names)
         self.assertIn("genre", extra_names)
-        self.assertEqual(movie_catalog["genres"], ["Action"])
+        self.assertEqual(show_catalog["genres"], ["Action"])
 
 
 if __name__ == "__main__":

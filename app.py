@@ -14,7 +14,7 @@ from mdblist_tracking import (
     init_db as init_mdblist_tracking_db,
     scrobble_event as mdblist_scrobble_event,
 )
-from catalog_db import get_catalog_titles, init_db, list_genres
+from catalog_db import get_catalog_media_types, get_catalog_titles, init_db, list_genres
 from playback_events import PlaybackEventError, playback_event_from_payload, stremio_player_event
 from simkl_tracking import (
     SimklError,
@@ -32,12 +32,11 @@ MANIFEST = {
     "id": ADDON_ID,
     "version": VERSION,
     "name": "German Scraper",
-    "description": "German streams and verified availability catalogs from AniWorld, Serienstream, Filmpalast, and MegaKino.",
+    "description": "German streams from AniWorld, SerienStream, Filmpalast, and MegaKino; verified series availability catalog from AniWorld and SerienStream.",
     "logo": "https://www.stremio.com/static/images/stremio-logo.png",
     "resources": ["stream", "catalog", "meta"],
     "types": ["movie", "series"],
     "catalogs": [
-        {"type": "movie", "id": "german_scraper_movies", "name": "German Scraper X - Movies"},
         {"type": "series", "id": "german_scraper_shows", "name": "German Scraper X - Shows"},
     ],
     "idPrefixes": ["tt"],
@@ -231,14 +230,15 @@ def _manifest_response(enable_player_events: bool = False) -> dict:
             "types": ["movie", "series"],
             "idPrefixes": ["tt"],
         })
+    catalog_definitions = {
+        "movie": ("german_scraper_movies", "German Scraper X - Movies"),
+        "series": ("german_scraper_shows", "German Scraper X - Shows"),
+    }
     manifest["catalogs"] = (
         [
-            _catalog_manifest_entry(
-                "movie", "german_scraper_movies", "German Scraper X - Movies"
-            ),
-            _catalog_manifest_entry(
-                "series", "german_scraper_shows", "German Scraper X - Shows"
-            ),
+            _catalog_manifest_entry(media_type, catalog_id, name)
+            for media_type, (catalog_id, name) in catalog_definitions.items()
+            if media_type in get_catalog_media_types()
         ]
         if _local_catalog_enabled()
         else []

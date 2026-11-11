@@ -16,6 +16,55 @@ from typing import Any, Iterator, Optional
 IMDB_ID_RE = __import__("re").compile(r"^tt\d{7,10}$")
 MEDIA_TYPES = {"movie", "series"}
 
+# Only these providers are allowed to establish public catalog availability.
+# Movie catalog sources will be added when Filmo is integrated.
+CATALOG_PROVIDERS_BY_MEDIA_TYPE = {
+    "movie": frozenset(),
+    "series": frozenset({"aniworld", "serienstream"}),
+}
+
+
+def get_catalog_providers(media_type: str) -> tuple[str, ...]:
+    """Return the explicitly enabled catalog providers for one media type."""
+    if media_type not in MEDIA_TYPES:
+        raise ValueError("Unsupported media type")
+    return tuple(sorted(CATALOG_PROVIDERS_BY_MEDIA_TYPE.get(media_type, ())))
+
+
+def get_catalog_media_types() -> tuple[str, ...]:
+    """Return media types that currently have at least one catalog source."""
+    return tuple(
+        media_type
+        for media_type, providers in CATALOG_PROVIDERS_BY_MEDIA_TYPE.items()
+        if providers
+    )
+
+
+def _catalog_provider_condition(
+    media_type: Optional[str], provider_alias: str = "pe"
+) -> tuple[str, list[Any]]:
+    """Build a parameterized SQL predicate for configured catalog providers."""
+    if media_type is not None:
+        providers = get_catalog_providers(media_type)
+        if not providers:
+            return "0", []
+        placeholders = ",".join("?" for _ in providers)
+        return f"{provider_alias}.provider IN ({placeholders})", list(providers)
+
+    clauses: list[str] = []
+    params: list[Any] = []
+    for allowed_type, providers in CATALOG_PROVIDERS_BY_MEDIA_TYPE.items():
+        if not providers:
+            continue
+        ordered_providers = sorted(providers)
+        placeholders = ",".join("?" for _ in ordered_providers)
+        clauses.append(
+            f"({provider_alias}.media_type = ? "
+            f"AND {provider_alias}.provider IN ({placeholders}))"
+        )
+        params.extend([allowed_type, *ordered_providers])
+    return (f"({' OR '.join(clauses)})", params) if clauses else ("0", [])
+
 
 def _utc_now() -> str:
     # Microsecond precision lets a completed scan distinguish entries seen
@@ -266,6 +315,7 @@ def record_discovery(
     title = str(title or "").strip()
     if not provider or not title:
         raise ValueError("provider and title are required")
+    is_catalog_source = provider in get_catalog_providers(media_type)
 
     now = _utc_now()
     with _connect() as db:
@@ -290,17 +340,23 @@ def record_discovery(
             INSERT INTO titles(
                 media_type, imdb_id, title, year, metadata_json,
                 first_seen_at, last_seen_at, last_verified_at, catalog_active
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(media_type, imdb_id) DO UPDATE SET
                 title=excluded.title,
                 year=COALESCE(excluded.year, titles.year),
                 metadata_json=CASE WHEN excluded.metadata_json='{}'
                     THEN titles.metadata_json ELSE excluded.metadata_json END,
                 last_seen_at=excluded.last_seen_at,
-                last_verified_at=excluded.last_verified_at,
-                catalog_active=1
+                last_verified_at=CASE WHEN excluded.catalog_active=1
+                    THEN excluded.last_verified_at ELSE titles.last_verified_at END,
+                catalog_active=CASE WHEN excluded.catalog_active=1
+                    THEN 1 ELSE titles.catalog_active END
             """,
-            (media_type, imdb_id, title, year, metadata_json, now, now, now),
+            (
+                media_type, imdb_id, title, year, metadata_json,
+                now, now, now if is_catalog_source else None,
+                int(is_catalog_source),
+            ),
         )
         db.execute(
             """
@@ -351,14 +407,15 @@ def record_discovery(
                 (media_type, imdb_id, int(genre_row["id"])),
             )
 
-        db.execute(
-            """
-            INSERT OR IGNORE INTO sync_outbox(
-                media_type, imdb_id, action, status, created_at, updated_at
-            ) VALUES (?, ?, 'add', 'pending', ?, ?)
-            """,
-            (media_type, imdb_id, now, now),
-        )
+        if is_catalog_source:
+            db.execute(
+                """
+                INSERT OR IGNORE INTO sync_outbox(
+                    media_type, imdb_id, action, status, created_at, updated_at
+                ) VALUES (?, ?, 'add', 'pending', ?, ?)
+                """,
+                (media_type, imdb_id, now, now),
+            )
 
 
 
@@ -535,6 +592,10 @@ def reconcile_provider_availability(
     provider = str(provider or "").strip().lower()
     if not provider:
         raise ValueError("provider is required")
+    if provider not in get_catalog_providers(media_type):
+        raise ValueError(
+            f"Provider {provider!r} is not configured as a catalog source for {media_type}"
+        )
     try:
         threshold = max(2, int(miss_threshold))
     except (TypeError, ValueError):
@@ -577,8 +638,9 @@ def reconcile_provider_availability(
         )
         checked = int(missed.rowcount or 0)
 
+        provider_condition, provider_params = _catalog_provider_condition(media_type)
         deactivated_rows = db.execute(
-            """
+            f"""
             SELECT t.imdb_id
             FROM titles t
             WHERE t.media_type = ?
@@ -588,9 +650,10 @@ def reconcile_provider_availability(
                   WHERE pe.media_type = t.media_type
                     AND pe.imdb_id = t.imdb_id
                     AND pe.availability_status = 'available'
+                    AND {provider_condition}
               )
             """,
-            (media_type,),
+            (media_type, *provider_params),
         ).fetchall()
         for title_row in deactivated_rows:
             imdb_id = str(title_row["imdb_id"])
@@ -626,14 +689,30 @@ def reconcile_provider_availability(
 
 
 def get_catalog_stats() -> dict[str, int]:
-    """Small operational summary, useful for diagnostics and future admin UI."""
+    """Small operational summary of the currently eligible public catalog."""
+    provider_condition, provider_params = _catalog_provider_condition(None)
     with _connect() as db:
         titles = db.execute(
-            "SELECT COUNT(*) FROM titles WHERE catalog_active=1"
+            f"""
+            SELECT COUNT(*) FROM titles t
+            WHERE t.catalog_active=1
+              AND EXISTS (
+                  SELECT 1 FROM provider_entries pe
+                  WHERE pe.media_type=t.media_type
+                    AND pe.imdb_id=t.imdb_id
+                    AND pe.availability_status='available'
+                    AND {provider_condition}
+              )
+            """,
+            provider_params,
         ).fetchone()[0]
         providers = db.execute(
-            "SELECT COUNT(DISTINCT provider) FROM provider_entries "
-            "WHERE availability_status='available'"
+            f"""
+            SELECT COUNT(DISTINCT pe.provider) FROM provider_entries pe
+            WHERE pe.availability_status='available'
+              AND {provider_condition}
+            """,
+            provider_params,
         ).fetchone()[0]
         pending = db.execute(
             "SELECT COUNT(*) FROM sync_outbox WHERE status IN ('pending', 'retry')"
@@ -641,9 +720,12 @@ def get_catalog_stats() -> dict[str, int]:
         unresolved = db.execute(
             "SELECT COUNT(*) FROM unresolved_provider_titles WHERE resolved_imdb_id IS NULL"
         ).fetchone()[0]
-    return {"active_titles": int(titles), "active_providers": int(providers),
-            "pending_mdb_sync": int(pending), "unresolved_titles": int(unresolved)}
-
+    return {
+        "active_titles": int(titles),
+        "active_providers": int(providers),
+        "pending_mdb_sync": int(pending),
+        "unresolved_titles": int(unresolved),
+    }
 def get_title_genres(media_type: str, imdb_id: str) -> list[str]:
     """Return canonical genre names assigned to a title."""
     if media_type not in MEDIA_TYPES:
@@ -682,17 +764,22 @@ def get_catalog_titles(
     except (TypeError, ValueError):
         page_size = 100
 
+    provider_condition, provider_params = _catalog_provider_condition(media_type)
+    if provider_condition == "0":
+        return []
+
     clauses = [
         "t.media_type = ?",
         "t.catalog_active = 1",
-        """EXISTS (
+        f"""EXISTS (
             SELECT 1 FROM provider_entries pe
             WHERE pe.media_type = t.media_type
               AND pe.imdb_id = t.imdb_id
               AND pe.availability_status = 'available'
+              AND {provider_condition}
         )""",
     ]
-    params: list[Any] = [media_type]
+    params: list[Any] = [media_type, *provider_params]
     query = str(search or "").strip()
     if query:
         clauses.append(
@@ -769,9 +856,12 @@ def get_metadata_candidates(*, limit: int = 500, force: bool = False) -> list[di
         max_items = max(1, min(5000, int(limit)))
     except (TypeError, ValueError):
         max_items = 500
+    provider_condition, provider_params = _catalog_provider_condition(None)
+    if provider_condition == "0":
+        return []
     with _connect() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
             FROM titles t
             WHERE t.catalog_active = 1
@@ -780,9 +870,11 @@ def get_metadata_candidates(*, limit: int = 500, force: bool = False) -> list[di
                   WHERE pe.media_type = t.media_type
                     AND pe.imdb_id = t.imdb_id
                     AND pe.availability_status = 'available'
+                    AND {provider_condition}
               )
             ORDER BY t.last_verified_at DESC, t.title COLLATE NOCASE
-            """
+            """,
+            provider_params,
         ).fetchall()
 
     candidates: list[dict[str, Any]] = []
@@ -877,18 +969,28 @@ def get_genre_catalog(media_type: str, genre_slug: str) -> list[dict[str, Any]]:
     """Return active titles for one genre, ready for Stremio catalog mapping."""
     if media_type not in MEDIA_TYPES:
         raise ValueError("Unsupported media type")
+    provider_condition, provider_params = _catalog_provider_condition(media_type)
+    if provider_condition == "0":
+        return []
     with _connect() as db:
         rows = db.execute(
-            """
+            f"""
             SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
             FROM titles t
             JOIN title_genres tg
               ON tg.media_type = t.media_type AND tg.imdb_id = t.imdb_id
             JOIN genres g ON g.id = tg.genre_id
             WHERE t.media_type = ? AND t.catalog_active = 1 AND g.slug = ?
+              AND EXISTS (
+                  SELECT 1 FROM provider_entries pe
+                  WHERE pe.media_type = t.media_type
+                    AND pe.imdb_id = t.imdb_id
+                    AND pe.availability_status = 'available'
+                    AND {provider_condition}
+              )
             ORDER BY t.title COLLATE NOCASE
             """,
-            (media_type, genre_slug),
+            (media_type, genre_slug, *provider_params),
         ).fetchall()
     return [
         {
@@ -903,13 +1005,17 @@ def get_genre_catalog(media_type: str, genre_slug: str) -> list[dict[str, Any]]:
 
 
 def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
-    """List genres currently assigned to active titles."""
+    """List genres assigned to active titles from configured catalog providers."""
     if media_type is not None and media_type not in MEDIA_TYPES:
         raise ValueError("Unsupported media type")
+    provider_condition, provider_params = _catalog_provider_condition(media_type)
+    if provider_condition == "0":
+        return []
+
     with _connect() as db:
         if media_type:
             rows = db.execute(
-                """
+                f"""
                 SELECT DISTINCT g.slug, g.name
                 FROM genres g
                 JOIN title_genres tg ON tg.genre_id = g.id
@@ -921,14 +1027,15 @@ def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
                       WHERE pe.media_type = t.media_type
                         AND pe.imdb_id = t.imdb_id
                         AND pe.availability_status = 'available'
+                        AND {provider_condition}
                   )
                 ORDER BY g.name COLLATE NOCASE
                 """,
-                (media_type,),
+                (media_type, *provider_params),
             ).fetchall()
         else:
             rows = db.execute(
-                """
+                f"""
                 SELECT DISTINCT g.slug, g.name
                 FROM genres g
                 JOIN title_genres tg ON tg.genre_id = g.id
@@ -940,9 +1047,11 @@ def list_genres(media_type: Optional[str] = None) -> list[dict[str, str]]:
                       WHERE pe.media_type = t.media_type
                         AND pe.imdb_id = t.imdb_id
                         AND pe.availability_status = 'available'
+                        AND {provider_condition}
                   )
                 ORDER BY g.name COLLATE NOCASE
-                """
+                """,
+                provider_params,
             ).fetchall()
     return [{"slug": row["slug"], "name": row["name"]} for row in rows]
 
