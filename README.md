@@ -194,23 +194,23 @@ stopped manually.
 
 ## SQLite catalogs and optional MDBList export
 
-The optional two Stremio catalogs are served directly from the persistent SQLite provider
-index. Set `ENABLE_LOCAL_CATALOG=false` to omit these catalogs from the Stremio
-manifest and skip SQLite catalog initialization. This does not disable metadata
-or live stream lookup:
+The optional Stremio series catalog is served directly from the persistent
+SQLite provider index. Set `ENABLE_LOCAL_CATALOG=false` to omit the catalog
+from the Stremio manifest and skip SQLite catalog initialization. This does
+not disable metadata or live stream lookup:
 
-- **German Scraper X - Movies** (movie)
 - **German Scraper X - Shows** (series)
 
-Only titles with a verified IMDb ID and at least one provider marked as
-available are returned. Catalog requests support title search, canonical genre
-filtering, and Stremio pagination. Genre options in the manifest are generated
-from the canonical genres currently stored in SQLite.
+Only titles with a verified IMDb ID and at least one enabled catalog provider
+marked as available are returned. At present, AniWorld and SerienStream are
+the only enabled catalog providers, both for series. Catalog requests support
+title search, canonical genre filtering, and Stremio pagination. Genre options
+in the manifest are generated from the canonical genres currently stored in
+SQLite.
 
-The systematic provider adapters currently cover series (AniWorld and
-Serienstream). The Movies catalog endpoint is in place, but it will remain
-empty until a movie provider has a validated full-catalog discovery adapter.
-The existing playback-time movie stream lookup is unchanged.
+No movie catalog is advertised yet. Filmo is a planned future film-catalog
+source; until it is integrated and validated, MegaKino and Filmpalast remain
+playback-only sources. Existing movie stream lookup is unchanged.
 
 MDBList is no longer the source of truth for Stremio catalog contents. The
 existing optional exporter can still add a title to a configured MDBList static
