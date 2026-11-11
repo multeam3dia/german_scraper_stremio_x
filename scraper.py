@@ -313,6 +313,21 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                         stream_entry["behaviorHints"]["bingeGroup"] = binge_group
 
                     streams.append(stream_entry)
+
+                    # Temporary Android diagnostic: compare Stremio's local
+                    # proxyHeaders path with a direct HLS request to the hoster.
+                    # This entry intentionally has no proxyHeaders at all.
+                    if name.casefold() == "voe" and is_hls:
+                        direct_test_entry = {
+                            "name": f"{name} Direct",
+                            "title": f"{meta_title} | {audio.value} | {name} Direct (no proxyHeaders)",
+                            "url": direct_url,
+                            "type": "hls",
+                            "behaviorHints": {"notWebReady": True},
+                        }
+                        if binge_group:
+                            direct_test_entry["behaviorHints"]["bingeGroup"] = binge_group
+                        streams.append(direct_test_entry)
                 except Exception:
                     pass
     except Exception as e:
@@ -461,6 +476,20 @@ def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Opt
                     if binge_group:
                         entry["behaviorHints"]["bingeGroup"] = binge_group
                     streams.append(entry)
+
+                    # Temporary Android diagnostic: this variant bypasses
+                    # Stremio's local proxyHeaders path for VOE HLS playback.
+                    if provider_name.casefold() == "voe" and is_hls:
+                        direct_test_entry = {
+                            "name": f"{provider_name} Direct",
+                            "title": f"{display_title} | {language} | {provider_name} Direct (no proxyHeaders)",
+                            "url": direct_url,
+                            "type": "hls",
+                            "behaviorHints": {"notWebReady": True},
+                        }
+                        if binge_group:
+                            direct_test_entry["behaviorHints"]["bingeGroup"] = binge_group
+                        streams.append(direct_test_entry)
                 except Exception as exc:
                     # Provider exceptions may contain temporary tokens in their URLs.
                     logger.debug(
