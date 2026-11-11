@@ -304,7 +304,9 @@ def record_discovery(
     """Record a positively discovered title/provider pair.
 
     Call this only after a provider detail page has been resolved and the IMDb
-    identity is sufficiently certain. A discovery automatically queues an MDBList add.
+    identity is sufficiently certain. Only configured catalog providers activate a
+    public catalog entry and queue an MDBList add; other providers remain available
+    for provider-specific playback/availability tracking.
     """
     if media_type not in MEDIA_TYPES:
         raise ValueError("media_type must be 'movie' or 'series'")
@@ -726,6 +728,8 @@ def get_catalog_stats() -> dict[str, int]:
         "pending_mdb_sync": int(pending),
         "unresolved_titles": int(unresolved),
     }
+
+
 def get_title_genres(media_type: str, imdb_id: str) -> list[str]:
     """Return canonical genre names assigned to a title."""
     if media_type not in MEDIA_TYPES:

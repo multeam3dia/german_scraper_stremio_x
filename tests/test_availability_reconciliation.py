@@ -106,6 +106,14 @@ class AvailabilityReconciliationTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(playback_entry["availability_status"], "available")
 
+    def test_non_catalog_provider_cannot_reconcile_catalog_availability(self):
+        run_id = catalog_db.start_crawl_run("megakino", "series")
+        catalog_db.finish_crawl_run(run_id, status="completed")
+        with self.assertRaises(ValueError):
+            catalog_db.reconcile_provider_availability(
+                "megakino", "series", run_id
+            )
+
     def test_partial_scan_never_marks_a_provider_missing(self):
         imdb_id = "tt1234567"
         catalog_db.record_discovery(
