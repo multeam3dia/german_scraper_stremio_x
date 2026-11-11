@@ -73,6 +73,27 @@ class CatalogDatabaseTests(unittest.TestCase):
         self.assertEqual(catalog_db.get_catalog_titles("movie"), [])
         self.assertEqual(catalog_db.get_metadata_candidates(force=True), [])
 
+    def test_playback_only_provider_cannot_overwrite_catalog_metadata(self):
+        imdb_id = "tt5678901"
+        catalog_db.record_discovery(
+            "series", imdb_id, "serienstream", "Canonical Show",
+            metadata={"poster_url": "https://catalog.example/poster.jpg"},
+            genres=["Drama"],
+        )
+        catalog_db.record_discovery(
+            "series", imdb_id, "megakino", "Playback Alias",
+            metadata={"poster_url": "https://playback.example/wrong.jpg"},
+            genres=["Comedy"],
+        )
+
+        item = catalog_db.get_catalog_titles("series")[0]
+        self.assertEqual(item["title"], "Canonical Show")
+        self.assertEqual(
+            item["metadata"]["poster_url"],
+            "https://catalog.example/poster.jpg",
+        )
+        self.assertEqual(item["genres"], ["Drama"])
+
     def test_catalog_excludes_titles_without_available_catalog_provider(self):
         catalog_db.record_discovery(
             "series", "tt1234567", "aniworld", "Only Source"

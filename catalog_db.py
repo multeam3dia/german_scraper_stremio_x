@@ -321,21 +321,22 @@ def record_discovery(
 
     now = _utc_now()
     with _connect() as db:
-        existing = db.execute(
-            "SELECT metadata_json FROM titles WHERE media_type=? AND imdb_id=?",
-            (media_type, imdb_id),
-        ).fetchone()
         merged_metadata = {}
-        if existing:
-            try:
-                stored = json.loads(existing["metadata_json"] or "{}")
-                if isinstance(stored, dict):
-                    merged_metadata.update(stored)
-            except (TypeError, json.JSONDecodeError):
-                pass
-        for key, value in (metadata or {}).items():
-            if value is not None:
-                merged_metadata[key] = value
+        if is_catalog_source:
+            existing = db.execute(
+                "SELECT metadata_json FROM titles WHERE media_type=? AND imdb_id=?",
+                (media_type, imdb_id),
+            ).fetchone()
+            if existing:
+                try:
+                    stored = json.loads(existing["metadata_json"] or "{}")
+                    if isinstance(stored, dict):
+                        merged_metadata.update(stored)
+                except (TypeError, json.JSONDecodeError):
+                    pass
+            for key, value in (metadata or {}).items():
+                if value is not None:
+                    merged_metadata[key] = value
         metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
         db.execute(
             """
@@ -344,10 +345,13 @@ def record_discovery(
                 first_seen_at, last_seen_at, last_verified_at, catalog_active
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(media_type, imdb_id) DO UPDATE SET
-                title=excluded.title,
-                year=COALESCE(excluded.year, titles.year),
-                metadata_json=CASE WHEN excluded.metadata_json='{}'
-                    THEN titles.metadata_json ELSE excluded.metadata_json END,
+                title=CASE WHEN excluded.catalog_active=1
+                    THEN excluded.title ELSE titles.title END,
+                year=CASE WHEN excluded.catalog_active=1
+                    THEN COALESCE(excluded.year, titles.year) ELSE titles.year END,
+                metadata_json=CASE
+                    WHEN excluded.catalog_active=1 AND excluded.metadata_json!='{}'
+                    THEN excluded.metadata_json ELSE titles.metadata_json END,
                 last_seen_at=excluded.last_seen_at,
                 last_verified_at=CASE WHEN excluded.catalog_active=1
                     THEN excluded.last_verified_at ELSE titles.last_verified_at END,
@@ -379,35 +383,35 @@ def record_discovery(
             (media_type, imdb_id, provider, provider_title or title,
              provider_url, now, now, now),
         )
-        # When genre data is supplied, replace the previous assignments.
-        # None means "metadata not refreshed"; an empty list means "no genres".
-        if genres is not None:
-            db.execute(
-                "DELETE FROM title_genres WHERE media_type = ? AND imdb_id = ?",
-                (media_type, imdb_id),
-            )
-        # Genres are normalized independently from provider-specific labels.
-        for genre in genres or []:
-            name = str(genre or "").strip()
-            if not name:
-                continue
-            slug = __import__("re").sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
-            if not slug:
-                continue
-            db.execute(
-                "INSERT OR IGNORE INTO genres(slug, name) VALUES (?, ?)",
-                (slug, name),
-            )
-            genre_row = db.execute(
-                "SELECT id FROM genres WHERE slug = ?", (slug,)
-            ).fetchone()
-            db.execute(
-                """
-                INSERT OR IGNORE INTO title_genres(media_type, imdb_id, genre_id)
-                VALUES (?, ?, ?)
-                """,
-                (media_type, imdb_id, int(genre_row["id"])),
-            )
+        # Provider-specific metadata and genres from playback-only sources must
+        # never overwrite the canonical public catalog metadata.
+        if is_catalog_source:
+            if genres is not None:
+                db.execute(
+                    "DELETE FROM title_genres WHERE media_type = ? AND imdb_id = ?",
+                    (media_type, imdb_id),
+                )
+            for genre in genres or []:
+                name = str(genre or "").strip()
+                if not name:
+                    continue
+                slug = __import__("re").sub(r"[^a-z0-9]+", "-", name.casefold()).strip("-")
+                if not slug:
+                    continue
+                db.execute(
+                    "INSERT OR IGNORE INTO genres(slug, name) VALUES (?, ?)",
+                    (slug, name),
+                )
+                genre_row = db.execute(
+                    "SELECT id FROM genres WHERE slug = ?", (slug,)
+                ).fetchone()
+                db.execute(
+                    """
+                    INSERT OR IGNORE INTO title_genres(media_type, imdb_id, genre_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (media_type, imdb_id, int(genre_row["id"])),
+                )
 
         if is_catalog_source:
             db.execute(
