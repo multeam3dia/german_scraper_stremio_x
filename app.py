@@ -332,19 +332,34 @@ def get_stream(type: str, id: str):
         logger.error(f"Error handling stream request for {id}: {e}")
 
     unique_streams = []
-    seen_urls = set()
+    seen_stream_keys = set()
     for s in streams:
-        if s.get("url") and s["url"] not in seen_urls:
-            # Signed media URLs contain temporary access tokens; never write them to logs.
-            stream_host = urlparse(s["url"]).netloc or "unknown-host"
-            logger.info(
-                "Adding stream for %s: %s (host=%s)",
-                id,
-                s.get("name"),
-                stream_host,
-            )
-            unique_streams.append(s)
-            seen_urls.add(s["url"])
+        stream_url = s.get("url")
+        if not stream_url:
+            continue
+
+        # The same media URL may intentionally be offered with and without
+        # proxyHeaders (for example, VOE and VOE Direct). Keep both variants,
+        # while still removing duplicates that use the same request headers.
+        behavior_hints = s.get("behaviorHints") or {}
+        proxy_request = (behavior_hints.get("proxyHeaders") or {}).get("request") or {}
+        request_headers_key = tuple(sorted(
+            (str(key).lower(), str(value)) for key, value in proxy_request.items()
+        ))
+        dedup_key = (stream_url, request_headers_key)
+        if dedup_key in seen_stream_keys:
+            continue
+
+        # Signed media URLs contain temporary access tokens; never write them to logs.
+        stream_host = urlparse(stream_url).netloc or "unknown-host"
+        logger.info(
+            "Adding stream for %s: %s (host=%s)",
+            id,
+            s.get("name"),
+            stream_host,
+        )
+        unique_streams.append(s)
+        seen_stream_keys.add(dedup_key)
 
     if unique_streams:
         # Export only after at least one source has yielded a usable stream.
