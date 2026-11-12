@@ -41,11 +41,12 @@ class AniworldSeries:
         syncplay()
     """
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, session=None):
         if not self.is_valid_aniworld_series_url(url):
             raise ValueError(f"Invalid AniWorld series URL: {url}")
 
         self.url = url
+        self.__session = session or GLOBAL_SESSION
 
         # Extracted from self.html
         self.__title = None
@@ -91,7 +92,7 @@ class AniworldSeries:
     def _html(self):
         if self.__html is None:
             logger.debug(f"fetching ({self.url})...")
-            resp = GLOBAL_SESSION.get(self.url)
+            resp = self.__session.get(self.url)
             self.__html = resp.text
         return self.__html
 
