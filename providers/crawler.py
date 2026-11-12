@@ -203,17 +203,22 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
         error="; ".join(summary) or (" | ".join(errors) if errors else None),
     )
 
-    reconciliation = (
-        reconcile_provider_availability(provider.provider_id, media_type, run_id)
-        if complete
-        else {
+    if complete and not index_only:
+        reconciliation = reconcile_provider_availability(
+            provider.provider_id, media_type, run_id
+        )
+    else:
+        reconciliation = {
             "skipped": True,
-            "reason": "crawl_not_complete_or_guarded",
+            "reason": (
+                "index_only_preflight"
+                if index_only and complete
+                else "crawl_not_complete_or_guarded"
+            ),
             "provider_entries_checked": 0,
             "provider_entries_marked_missing": 0,
             "titles_deactivated": 0,
         }
-    )
 
     return {
         "provider": provider.provider_id,
