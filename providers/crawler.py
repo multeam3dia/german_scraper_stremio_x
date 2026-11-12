@@ -1,6 +1,7 @@
 """Run conservative, incremental provider catalog crawls."""
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -31,14 +32,38 @@ from .crawl_state import (
 _VALID_IMDB_ID = re.compile(r"tt\d{7,10}")
 
 
-def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[str, Any]:
+def _detail_limit_from_environment() -> int:
+    raw_limit = os.getenv("CATALOG_CRAWL_MAX_DETAILS_PER_RUN", "200")
+    try:
+        limit = int(raw_limit)
+    except ValueError as exc:
+        raise ValueError(
+            "CATALOG_CRAWL_MAX_DETAILS_PER_RUN must be a positive integer"
+        ) from exc
+    if limit < 1:
+        raise ValueError("CATALOG_CRAWL_MAX_DETAILS_PER_RUN must be at least 1")
+    return limit
+
+
+def crawl_provider(
+    provider: BaseProvider,
+    *,
+    index_only: bool = False,
+    max_details: int | None = None,
+) -> dict[str, Any]:
     """Crawl a provider's complete index and resolve only new/due detail pages.
 
     Existing provider URLs are refreshed from the index without reopening their
     detail pages. Unresolved IMDb records are retried with a capped backoff.
-    Availability reconciliation runs only after the full index was consumed.
+    Detail-page requests are capped per provider run. Availability reconciliation
+    runs only after the full index and all eligible detail work were completed.
     """
     init_db()
+    detail_limit = (
+        _detail_limit_from_environment() if max_details is None else max_details
+    )
+    if detail_limit < 1:
+        raise ValueError("max_details must be at least 1")
 
     supported_types = tuple(getattr(provider, "supported_media_types", ()) or ())
     media_type = supported_types[0] if supported_types else "series"
@@ -47,6 +72,9 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
     found = 0
     skipped_known = 0
     deferred_index_only = 0
+    deferred_detail_limit = 0
+    detail_pages_attempted = 0
+    detail_limit_reached = False
     skipped_backoff = 0
     retried_unresolved = 0
     unresolved = 0
@@ -87,6 +115,15 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
                     deferred_index_only += 1
                     continue
 
+                # Keep walking the cheap index after reaching the detail budget:
+                # known URLs can still be touched, but no more detail requests
+                # are made during this provider run.
+                if detail_pages_attempted >= detail_limit:
+                    detail_limit_reached = True
+                    deferred_detail_limit += 1
+                    continue
+
+                detail_pages_attempted += 1
                 try:
                     detail = provider.get_title(url, session=session)
                 except CrawlBlockedError:
@@ -184,6 +221,7 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
         index_exhausted
         and bool(getattr(provider, "catalog_scan_complete", False))
         and not blocked
+        and not detail_limit_reached
     )
     status = "completed" if complete else "partial"
     summary = []
@@ -193,7 +231,12 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
         summary.append(f"{unresolved} unresolved IMDb identities")
     if blocked:
         summary.append("crawl stopped by provider safety guard")
-    if not complete and not blocked:
+    if detail_limit_reached:
+        summary.append(
+            f"detail-page budget reached ({detail_pages_attempted}/{detail_limit}); "
+            f"{deferred_detail_limit} detail pages deferred"
+        )
+    if not complete and not blocked and not detail_limit_reached:
         summary.append("index scan did not complete")
     finish_crawl_run(
         run_id,
@@ -213,7 +256,11 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
             "reason": (
                 "index_only_preflight"
                 if index_only and complete
-                else "crawl_not_complete_or_guarded"
+                else (
+                    "detail_page_budget_reached"
+                    if detail_limit_reached
+                    else "crawl_not_complete_or_guarded"
+                )
             ),
             "provider_entries_checked": 0,
             "provider_entries_marked_missing": 0,
@@ -228,6 +275,11 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
         "known_urls_skipped": skipped_known,
         "new_urls_deferred_index_only": deferred_index_only,
         "index_only": index_only,
+        "max_details_per_run": detail_limit,
+        "detail_pages_attempted": detail_pages_attempted,
+        "detail_pages_deferred_by_limit": deferred_detail_limit,
+        "detail_limit_reached": detail_limit_reached,
+        "index_exhausted": index_exhausted,
         "unresolved_retry_skipped": skipped_backoff,
         "unresolved_retried": retried_unresolved,
         "unresolved_imdb": unresolved,
@@ -240,20 +292,33 @@ def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[
 
 
 def crawl_named_provider(
-    provider_id: str, *, index_only: bool = False
+    provider_id: str,
+    *,
+    index_only: bool = False,
+    max_details: int | None = None,
 ) -> dict[str, Any]:
     provider_class = PROVIDERS.get(provider_id.strip().lower())
     if provider_class is None:
         raise ValueError(f"Unknown provider: {provider_id}")
-    return crawl_provider(provider_class(), index_only=index_only)
+    return crawl_provider(
+        provider_class(), index_only=index_only, max_details=max_details
+    )
 
 
-def crawl_all_catalog_providers(*, index_only: bool = False) -> list[dict[str, Any]]:
-    """Run catalog providers sequentially and stop the batch on an incomplete run."""
+def crawl_all_catalog_providers(
+    *, index_only: bool = False, max_details: int | None = None
+) -> list[dict[str, Any]]:
+    """Run providers sequentially; a per-provider detail cap is not a fatal stop."""
     results = []
     for provider_id in ("aniworld", "serienstream"):
-        result = crawl_named_provider(provider_id, index_only=index_only)
+        result = crawl_named_provider(
+            provider_id, index_only=index_only, max_details=max_details
+        )
         results.append(result)
         if result.get("status") != "completed":
+            # A budget stop is intentional and safe: continue with the next
+            # provider, which receives its own independent detail-page budget.
+            if result.get("detail_limit_reached") and not result.get("blocked"):
+                continue
             break
     return results
