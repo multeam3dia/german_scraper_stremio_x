@@ -98,7 +98,14 @@ class LazyLoadingTests(unittest.TestCase):
 
     def test_initial_crawl_records_title_without_loading_seasons(self):
         provider = _CatalogOnlyProvider()
-        result = crawl_provider(provider)
+        # This fake provider must be explicitly enabled as a catalog source
+        # for the duration of this test because completed crawls reconcile
+        # catalog availability against the configured provider allowlist.
+        with patch.dict(
+            catalog_db.CATALOG_PROVIDERS_BY_MEDIA_TYPE,
+            {"series": frozenset({"aniworld", "serienstream", "testprovider"})},
+        ):
+            result = crawl_provider(provider)
 
         self.assertFalse(provider.seasons_requested)
         self.assertEqual(result["titles_recorded"], 1)
