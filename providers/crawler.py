@@ -229,3 +229,14 @@ def crawl_named_provider(provider_id: str) -> dict[str, Any]:
     if provider_class is None:
         raise ValueError(f"Unknown provider: {provider_id}")
     return crawl_provider(provider_class())
+
+
+def crawl_all_catalog_providers() -> list[dict[str, Any]]:
+    """Run catalog providers sequentially and stop the batch on an incomplete run."""
+    results = []
+    for provider_id in ("aniworld", "serienstream"):
+        result = crawl_named_provider(provider_id)
+        results.append(result)
+        if result.get("status") != "completed":
+            break
+    return results
