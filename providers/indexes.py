@@ -29,8 +29,12 @@ class _AniWorldIndexParser(HTMLParser):
                     "title_attr": attrs.get("title") or attrs.get("aria-label") or "",
                     "alt": "",
                     "poster_url": "",
+                    "heading": [],
+                    "in_heading": False,
                     "text": [],
                 }
+        elif self.current is not None and tag == "h3":
+            self.current["in_heading"] = True
         elif self.current is not None and tag == "img":
             self.current["alt"] = self.current["alt"] or (attrs.get("alt") or "").strip()
             poster = (
@@ -47,14 +51,25 @@ class _AniWorldIndexParser(HTMLParser):
         if self.current is not None:
             value = data.strip()
             if value:
-                self.current["text"].append(value)
+                if self.current["in_heading"]:
+                    self.current["heading"].append(value)
+                else:
+                    self.current["text"].append(value)
 
     def handle_endtag(self, tag):
+        if tag == "h3" and self.current is not None:
+            self.current["in_heading"] = False
+            return
         if tag != "a" or self.current is None:
             return
         item = self.current
         self.current = None
-        title = item["alt"] or item["title_attr"] or " ".join(item["text"])
+        title = (
+            " ".join(item["heading"])
+            or item["alt"]
+            or item["title_attr"]
+            or " ".join(item["text"])
+        )
         title = html.unescape(" ".join(str(title).split())).strip()
         if title:
             self.items.append({
@@ -85,11 +100,11 @@ def fetch_aniworld_index(session=None):
         seen.add(item["url"])
         results.append(item)
 
-    # The public A-Z index contains well over 100 entries. A tiny response is
-    # much more likely to be a challenge/error page or a parser regression.
-    if len(results) < 100:
+    # The current public A-Z index contains well over 1,000 entries. A much
+    # smaller response is not safe evidence for a complete availability scan.
+    if len(results) < 1000:
         raise RuntimeError(
-            f"AniWorld A-Z index looks incomplete ({len(results)} series links)"
+            f"AniWorld A-Z index looks incomplete ({len(results)} series links; expected at least 1,000)"
         )
     logger.info("AniWorld A-Z index discovered %s unique entries", len(results))
     return results
