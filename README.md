@@ -72,9 +72,16 @@ python -m identity_resolver --provider serienstream --limit 500 --apply
 ```
 
 Omit `--provider` to process both providers. The resolver records the TMDB
-candidate and confidence details in title metadata. It does not silently
-promote ambiguous candidates. Re-run the provider crawl later to refresh the
-full season/episode structure for titles that have just been identified.
+candidate and confidence details in title metadata. Search results are compared
+locally rather than filtered by year at the API, so remakes and nearby premiere
+dates remain visible to the resolver. Automatic matching requires a strong
+title match and a compatible release year. A one-year date difference, a
+missing TMDB release year, or multiple similarly scored homonyms remains
+ambiguous for manual review; candidates more than one year away are rejected.
+When the provider year is unavailable, only an exact normalized title can be
+considered, and competing exact-title results remain ambiguous. Re-run the
+provider crawl later to refresh the full season/episode structure for titles
+that have just been identified.
 
 ## TMDB metadata enrichment
 

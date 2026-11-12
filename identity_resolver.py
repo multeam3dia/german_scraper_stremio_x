@@ -31,6 +31,7 @@ TMDB_API_BASE = "https://api.themoviedb.org/3"
 IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
+MIN_TITLE_SCORE_WITH_YEAR = 0.94
 
 
 class TMDBConfigurationError(RuntimeError):
@@ -42,52 +43,20 @@ class TMDBAPIError(RuntimeError):
 
 
 def _normalize(value: Any) -> str:
-    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = unicodedata.normalize("NFKD", str(value or "").casefold())
     value = "".join(char for char in value if not unicodedata.combining(char))
-    value = value.casefold().replace("&", " and ")
+    value = value.replace("&", " and ")
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
-def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Call TMDB using either a v4 read token or a v3 API key."""
-    token = os.getenv("TMDB_READ_ACCESS_TOKEN", "").strip()
-    api_key = os.getenv("TMDB_API_KEY", "").strip()
-    if not token and not api_key:
-        raise TMDBConfigurationError(
-            "Set TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY to enable identity matching"
-        )
-
-    query = dict(params or {})
-    headers = {"Accept": "application/json", "User-Agent": "GermanScraperStremioX/1.0"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    else:
-        query["api_key"] = api_key
-    url = f"{TMDB_API_BASE}{path}"
-    if query:
-        url = f"{url}?{urlencode(query)}"
-
-    request = Request(url, headers=headers)
-    try:
-        with urlopen(request, timeout=15) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        raise TMDBAPIError(f"TMDB returned HTTP {exc.code}") from None
-    except (URLError, TimeoutError, OSError):
-        raise TMDBAPIError("Could not reach TMDB") from None
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise TMDBAPIError("TMDB returned invalid JSON") from None
-    if not isinstance(payload, dict):
-        raise TMDBAPIError("TMDB returned an unexpected response")
-    return payload
+def _coerce_year(value: Any) -> int | None:
+    match = re.search(r"\b(?:19|20)\d{2}\b", str(value or ""))
+    return int(match.group(0)) if match else None
 
 
 def _year_from_result(item: dict[str, Any], media_type: str) -> int | None:
     date_key = "first_air_date" if media_type == "series" else "release_date"
-    value = item.get(date_key)
-    if isinstance(value, str) and re.match(r"^\d{4}", value):
-        return int(value[:4])
-    return None
+    return _coerce_year(item.get(date_key))
 
 
 def _title_variants(item: dict[str, Any], media_type: str) -> list[str]:
@@ -95,29 +64,35 @@ def _title_variants(item: dict[str, Any], media_type: str) -> list[str]:
     return [str(item[key]) for key in keys if item.get(key)]
 
 
-def _candidate_score(
-    provider_title: str, provider_year: int | None,
-    item: dict[str, Any], media_type: str,
+def _title_similarity(
+    provider_title: str, item: dict[str, Any], media_type: str
 ) -> float:
     source = _normalize(provider_title)
     variants = [_normalize(value) for value in _title_variants(item, media_type)]
     variants = [value for value in variants if value]
     if not source or not variants:
         return 0.0
-    title_score = max(
+    return round(max(
         1.0 if source == value else difflib.SequenceMatcher(None, source, value).ratio()
         for value in variants
-    )
-    if provider_year is None:
+    ), 4)
+
+
+def _candidate_score(
+    provider_title: str, provider_year: int | None,
+    item: dict[str, Any], media_type: str,
+) -> float:
+    title_score = _title_similarity(provider_title, item, media_type)
+    if title_score <= 0:
+        return 0.0
+    provider_year = _coerce_year(provider_year)
+    result_year = _year_from_result(item, media_type)
+    if provider_year is None or result_year is None:
         year_score = 0.5
+    elif result_year == provider_year:
+        year_score = 1.0
     else:
-        result_year = _year_from_result(item, media_type)
-        if result_year is None:
-            year_score = 0.5
-        elif result_year == provider_year:
-            year_score = 1.0
-        else:
-            year_score = max(0.0, 1.0 - abs(result_year - provider_year) / 5.0)
+        year_score = max(0.0, 1.0 - abs(result_year - provider_year) / 5.0)
     return round((title_score * 0.88) + (year_score * 0.12), 4)
 
 
@@ -126,19 +101,24 @@ def find_tmdb_match(
     *,
     search_fn: Callable[..., dict[str, Any]] = _tmdb_get,
 ) -> dict[str, Any]:
-    """Return a scored candidate; does not write to the catalog."""
+    """Return a conservative TMDB candidate; does not write to the catalog."""
     media_type = record.get("media_type")
     if media_type not in {"movie", "series"}:
         return {"status": "invalid", "reason": "Unsupported media type"}
 
+    provider_title = str(record.get("provider_title") or "").strip()
+    if not provider_title:
+        return {"status": "no_match", "reason": "Provider title is empty"}
+    provider_year = _coerce_year(record.get("year"))
+
     endpoint_type = "tv" if media_type == "series" else "movie"
+    # Search by title only. Filtering at the API level can hide remakes or
+    # nearby premiere years before the resolver has a chance to compare them.
     params: dict[str, Any] = {
-        "query": record.get("provider_title", ""),
+        "query": provider_title,
         "include_adult": "false",
         "language": "de-DE",
     }
-    if record.get("year"):
-        params["first_air_date_year" if media_type == "series" else "year"] = record["year"]
 
     try:
         response = search_fn(f"/search/{endpoint_type}", params)
@@ -151,16 +131,70 @@ def find_tmdb_match(
     if not isinstance(results, list) or not results:
         return {"status": "no_match", "reason": "TMDB returned no candidates"}
 
-    scored = [
-        ( _candidate_score(record["provider_title"], record.get("year"), item, media_type), item)
-        for item in results if isinstance(item, dict)
-    ]
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    if not scored:
-        return {"status": "no_match", "reason": "TMDB returned no usable candidates"}
+    exact_year: list[tuple[float, dict[str, Any], float, int | None]] = []
+    near_year: list[tuple[float, dict[str, Any], float, int | None]] = []
+    missing_year: list[tuple[float, dict[str, Any], float, int | None]] = []
+    exact_title_without_year: list[tuple[float, dict[str, Any], float, int | None]] = []
+    saw_title_candidate = False
+    saw_year_mismatch = False
 
-    best_score, best = scored[0]
-    runner_up = scored[1][0] if len(scored) > 1 else 0.0
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        title_score = _title_similarity(provider_title, item, media_type)
+        if title_score < MIN_TITLE_SCORE_WITH_YEAR:
+            continue
+        saw_title_candidate = True
+        candidate_year = _year_from_result(item, media_type)
+        score = _candidate_score(provider_title, provider_year, item, media_type)
+        row = (score, item, title_score, candidate_year)
+
+        if provider_year is None:
+            # Without a provider year, only an exact normalized title can be
+            # auto-matched. Similar titles need independent date evidence.
+            if title_score == 1.0:
+                exact_title_without_year.append(row)
+        elif candidate_year is None:
+            missing_year.append(row)
+        elif candidate_year == provider_year:
+            exact_year.append(row)
+        elif abs(candidate_year - provider_year) == 1:
+            # A one-year difference can be a regional premiere-date variation,
+            # but is not strong enough evidence for automatic identity assignment.
+            near_year.append(row)
+        else:
+            saw_year_mismatch = True
+
+    # Prefer an exact year. Near-year or yearless results are retained for
+    # manual review, never promoted automatically.
+    if provider_year is None:
+        candidates = exact_title_without_year
+        review_reason = None
+    elif exact_year:
+        candidates = exact_year
+        review_reason = None
+    elif near_year:
+        candidates = near_year
+        review_reason = "Candidate year differs by one year; manual review required"
+    elif missing_year:
+        candidates = missing_year
+        review_reason = "TMDB candidate has no release year; manual review required"
+    else:
+        candidates = []
+        review_reason = None
+
+    if not candidates:
+        if provider_year is None and saw_title_candidate:
+            reason = "Provider year is missing and no exact title candidate was found"
+        elif saw_year_mismatch:
+            reason = "No title candidate has a compatible release year"
+        else:
+            reason = "TMDB returned no sufficiently strong title candidate"
+        return {"status": "no_match", "reason": reason}
+
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    best_score, best, title_score, candidate_year = candidates[0]
+    runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
     margin = round(best_score - runner_up, 4)
     candidate = {
         "tmdb_id": best.get("id"),
@@ -168,15 +202,22 @@ def find_tmdb_match(
         "candidate_original_title": (
             best.get("original_name") if media_type == "series" else best.get("original_title")
         ) or "",
-        "candidate_year": _year_from_result(best, media_type),
+        "candidate_year": candidate_year,
+        "candidate_year_delta": (
+            abs(candidate_year - provider_year)
+            if candidate_year is not None and provider_year is not None else None
+        ),
+        "title_score": title_score,
         "score": best_score,
         "margin": margin,
     }
+    if review_reason:
+        return {"status": "ambiguous", "reason": review_reason, **candidate}
     if best_score < MIN_CONFIDENCE:
         return {"status": "ambiguous", "reason": "Best candidate is below confidence threshold", **candidate}
     if margin < MIN_MARGIN:
         return {"status": "ambiguous", "reason": "Multiple candidates have similar scores", **candidate}
-    if not isinstance(best.get("id"), int):
+    if type(best.get("id")) is not int or best["id"] <= 0:
         return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID", **candidate}
 
     try:
@@ -230,6 +271,9 @@ def resolve_unresolved_titles(
                     "score": result["score"],
                     "margin": result["margin"],
                     "candidate_title": result["candidate_title"],
+                    "candidate_year": result.get("candidate_year"),
+                    "candidate_year_delta": result.get("candidate_year_delta"),
+                    "title_score": result.get("title_score"),
                 }
                 record_discovery(
                     record["media_type"],
