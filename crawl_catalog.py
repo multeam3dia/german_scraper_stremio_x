@@ -58,7 +58,11 @@ def main() -> int:
     print(json.dumps(results, ensure_ascii=False, indent=2))
     successful = all(
         item.get("status") == "completed"
-        or (item.get("detail_limit_reached") and not item.get("blocked"))
+        or (
+            item.get("detail_limit_reached")
+            and item.get("index_complete")
+            and not item.get("blocked")
+        )
         for item in results
     )
     return 0 if results and successful else 1
