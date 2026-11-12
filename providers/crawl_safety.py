@@ -107,6 +107,7 @@ class GuardedSession:
             )
 
         for attempt in range(3):
+            self._guard.heartbeat()
             self._wait()
             self.request_count += 1
             try:
@@ -175,6 +176,7 @@ class CrawlGuard:
         )
         self.owner = uuid.uuid4().hex
         self.session: GuardedSession | None = None
+        self._last_heartbeat = 0.0
 
     def __enter__(self) -> GuardedSession:
         now = _now()
@@ -232,6 +234,33 @@ class CrawlGuard:
         raw.verify = CA_CERT_BUNDLE
         self.session = GuardedSession(raw, self.provider, self)
         return self.session
+
+    def heartbeat(self) -> None:
+        """Extend the lease periodically during a long initial catalog crawl."""
+        current = time.monotonic()
+        if current - self._last_heartbeat < 60:
+            return
+        now = _now()
+        with _connect() as db:
+            _ensure_state_table(db)
+            cursor = db.execute(
+                """
+                UPDATE provider_crawl_guard
+                SET lock_expires_at=?, updated_at=?
+                WHERE provider IN (?, '__global__') AND lock_owner=?
+                """,
+                (
+                    _iso(now + timedelta(hours=12)),
+                    _iso(now),
+                    self.provider,
+                    self.owner,
+                ),
+            )
+            if cursor.rowcount != 2:
+                raise ProviderAlreadyRunningError(
+                    f"The {self.provider} crawl lost its exclusive lease"
+                )
+        self._last_heartbeat = current
 
     def set_cooldown(self, until: datetime, reason: str) -> None:
         with _connect() as db:
