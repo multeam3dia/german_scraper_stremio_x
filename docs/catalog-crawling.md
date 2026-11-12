@@ -15,6 +15,13 @@ Run one provider only:
     python -m crawl_catalog aniworld
     python -m crawl_catalog serienstream
 
+First validate both indexes without opening detail pages:
+
+    python -m crawl_catalog all --index-only
+
+The index-only mode still performs the complete index scan and safe availability
+reconciliation, but defers all new and unresolved detail pages to a later full run.
+
 The global SQLite lease prevents two catalog crawls from running at the same time,
 even if separate scheduled jobs start concurrently.
 
