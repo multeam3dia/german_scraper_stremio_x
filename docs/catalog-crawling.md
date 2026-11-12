@@ -19,8 +19,9 @@ First validate both indexes without opening detail pages:
 
     python -m crawl_catalog all --index-only
 
-The index-only mode still performs the complete index scan and safe availability
-reconciliation, but defers all new and unresolved detail pages to a later full run.
+The index-only mode performs and validates the complete index scans, but does not
+change availability status or remove catalog entries. It defers all new and
+unresolved detail pages to a later full run.
 
 The global SQLite lease prevents two catalog crawls from running at the same time,
 even if separate scheduled jobs start concurrently.
