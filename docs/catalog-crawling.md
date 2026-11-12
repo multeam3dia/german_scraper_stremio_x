@@ -65,3 +65,26 @@ The initial run can take several hours because every previously unknown series
 needs one detail-page request and the default delay is deliberately cautious.
 Subsequent runs should be much shorter because known URLs are handled from the
 index without detail-page requests.
+
+## Detail-page batch limit
+
+Each provider is limited to **200 detail-page attempts per run** by default.
+The limit applies independently to AniWorld and SerienStream, so `all` can
+process up to 200 detail pages from each provider in one invocation.
+
+Configure the per-provider limit with this environment variable:
+
+    CATALOG_CRAWL_MAX_DETAILS_PER_RUN=200
+
+Or override it for one invocation:
+
+    python -m crawl_catalog all --max-details 100
+
+When the limit is reached, the crawler continues reading the index so it can
+still recognize known URLs, but it does not open further detail pages. The
+provider run is reported as `partial` with `detail_limit_reached=true`, and
+availability reconciliation is skipped. The next run reads the index again
+and skips provider URLs already recorded in SQLite. A budget-limited AniWorld
+run does not prevent SerienStream from receiving its own batch in the same
+`all` invocation. A safety block or an incomplete index still stops the
+batch as before.
