@@ -217,12 +217,11 @@ def crawl_provider(
         )
         raise
 
-    complete = (
+    index_complete = (
         index_exhausted
         and bool(getattr(provider, "catalog_scan_complete", False))
-        and not blocked
-        and not detail_limit_reached
     )
+    complete = index_complete and not blocked and not detail_limit_reached
     status = "completed" if complete else "partial"
     summary = []
     if failed:
@@ -280,6 +279,7 @@ def crawl_provider(
         "detail_pages_deferred_by_limit": deferred_detail_limit,
         "detail_limit_reached": detail_limit_reached,
         "index_exhausted": index_exhausted,
+        "index_complete": index_complete,
         "unresolved_retry_skipped": skipped_backoff,
         "unresolved_retried": retried_unresolved,
         "unresolved_imdb": unresolved,
@@ -318,7 +318,11 @@ def crawl_all_catalog_providers(
         if result.get("status") != "completed":
             # A budget stop is intentional and safe: continue with the next
             # provider, which receives its own independent detail-page budget.
-            if result.get("detail_limit_reached") and not result.get("blocked"):
+            if (
+                result.get("detail_limit_reached")
+                and result.get("index_complete")
+                and not result.get("blocked")
+            ):
                 continue
             break
     return results
