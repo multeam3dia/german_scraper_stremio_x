@@ -49,6 +49,40 @@ def _normalize(value: Any) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", value))
 
 
+def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Call TMDB using either a v4 read token or a v3 API key."""
+    token = os.getenv("TMDB_READ_ACCESS_TOKEN", "").strip()
+    api_key = os.getenv("TMDB_API_KEY", "").strip()
+    if not token and not api_key:
+        raise TMDBConfigurationError(
+            "Set TMDB_READ_ACCESS_TOKEN or TMDB_API_KEY to enable identity matching"
+        )
+
+    query = dict(params or {})
+    headers = {"Accept": "application/json", "User-Agent": "GermanScraperStremioX/1.0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    else:
+        query["api_key"] = api_key
+    url = f"{TMDB_API_BASE}{path}"
+    if query:
+        url = f"{url}?{urlencode(query)}"
+
+    request = Request(url, headers=headers)
+    try:
+        with urlopen(request, timeout=15) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise TMDBAPIError(f"TMDB returned HTTP {exc.code}") from None
+    except (URLError, TimeoutError, OSError):
+        raise TMDBAPIError("Could not reach TMDB") from None
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise TMDBAPIError("TMDB returned invalid JSON") from None
+    if not isinstance(payload, dict):
+        raise TMDBAPIError("TMDB returned an unexpected response")
+    return payload
+
+
 def _coerce_year(value: Any) -> int | None:
     match = re.search(r"\b(?:19|20)\d{2}\b", str(value or ""))
     return int(match.group(0)) if match else None
