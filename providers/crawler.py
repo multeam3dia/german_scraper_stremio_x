@@ -31,7 +31,7 @@ from .crawl_state import (
 _VALID_IMDB_ID = re.compile(r"tt\d{7,10}")
 
 
-def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
+def crawl_provider(provider: BaseProvider, *, index_only: bool = False) -> dict[str, Any]:
     """Crawl a provider's complete index and resolve only new/due detail pages.
 
     Existing provider URLs are refreshed from the index without reopening their
@@ -46,6 +46,7 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
 
     found = 0
     skipped_known = 0
+    deferred_index_only = 0
     skipped_backoff = 0
     retried_unresolved = 0
     unresolved = 0
@@ -74,10 +75,17 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
                 unresolved_record = pending_unresolved.get(url)
                 if unresolved_record:
                     touch_provider_url(provider.provider_id, url)
+                    if index_only:
+                        deferred_index_only += 1
+                        continue
                     if not unresolved_retry_due(unresolved_record):
                         skipped_backoff += 1
                         continue
                     retried_unresolved += 1
+
+                if index_only:
+                    deferred_index_only += 1
+                    continue
 
                 try:
                     detail = provider.get_title(url, session=session)
@@ -213,6 +221,8 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
         "status": status,
         "titles_recorded": found,
         "known_urls_skipped": skipped_known,
+        "new_urls_deferred_index_only": deferred_index_only,
+        "index_only": index_only,
         "unresolved_retry_skipped": skipped_backoff,
         "unresolved_retried": retried_unresolved,
         "unresolved_imdb": unresolved,
@@ -224,18 +234,20 @@ def crawl_provider(provider: BaseProvider) -> dict[str, Any]:
     }
 
 
-def crawl_named_provider(provider_id: str) -> dict[str, Any]:
+def crawl_named_provider(
+    provider_id: str, *, index_only: bool = False
+) -> dict[str, Any]:
     provider_class = PROVIDERS.get(provider_id.strip().lower())
     if provider_class is None:
         raise ValueError(f"Unknown provider: {provider_id}")
-    return crawl_provider(provider_class())
+    return crawl_provider(provider_class(), index_only=index_only)
 
 
-def crawl_all_catalog_providers() -> list[dict[str, Any]]:
+def crawl_all_catalog_providers(*, index_only: bool = False) -> list[dict[str, Any]]:
     """Run catalog providers sequentially and stop the batch on an incomplete run."""
     results = []
     for provider_id in ("aniworld", "serienstream"):
-        result = crawl_named_provider(provider_id)
+        result = crawl_named_provider(provider_id, index_only=index_only)
         results.append(result)
         if result.get("status") != "completed":
             break
