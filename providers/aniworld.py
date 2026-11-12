@@ -5,7 +5,7 @@ import re
 from typing import Iterator
 
 from aniworld.models.aniworld_to import AniworldSeries
-from aniworld.search import GENRE_FALLBACK, fetch_genres, fetch_genre_animes
+from .indexes import fetch_aniworld_index
 
 from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
@@ -20,48 +20,28 @@ class AniWorldProvider(BaseProvider):
     catalog_scan_complete = True
     supported_media_types = ("series",)
 
-    def iter_catalog(self) -> Iterator[ProviderTitle]:
-        """Enumerate all visible AniWorld genre pages, deduplicated by canonical URL."""
-        seen: set[str] = set()
-        genres = fetch_genres() or []
-        fallback_genres = [
-            {"name": name, "slug": slug} for name, slug in GENRE_FALLBACK
-        ]
-        # The fallback list is useful for discovery, but it is not proof that
-        # the homepage's current genre index was read completely. Do not use
-        # such a pass to mark old provider entries as missing.
-        self.catalog_scan_complete = bool(genres) and genres != fallback_genres
-        if not genres:
-            raise RuntimeError("AniWorld genre index is empty")
-        for genre in genres:
-            slug = str(genre.get("slug") or "").strip()
-            if not slug:
+    def iter_catalog(self, session=None) -> Iterator[ProviderTitle]:
+        """Enumerate the complete A-Z index without traversing genre pages."""
+        self.catalog_scan_complete = False
+        items = fetch_aniworld_index(session=session)
+        if not items:
+            raise RuntimeError("AniWorld A-Z index is empty")
+        self.catalog_scan_complete = True
+        for item in items:
+            url = str(item.get("url") or "").strip()
+            title = str(item.get("title") or "").strip()
+            if not url or not title:
                 continue
-            page = 1
-            while True:
-                result = fetch_genre_animes(slug, page=page)
-                if result is None:
-                    # A failed page is not interpreted as end-of-catalog.
-                    raise RuntimeError(f"AniWorld genre scan failed: {slug}, page {page}")
-                for item in result.get("results") or []:
-                    url = str(item.get("url") or "").strip()
-                    if not url or url in seen:
-                        continue
-                    seen.add(url)
-                    yield ProviderTitle(
-                        provider=self.provider_id,
-                        media_type="series",
-                        title=str(item.get("title") or "").strip(),
-                        url=url,
-                        poster_url=item.get("poster_url"),
-                        provider_genres=[str(genre.get("name"))] if genre.get("name") else [],
-                    )
-                if not result.get("has_more"):
-                    break
-                page += 1
+            yield ProviderTitle(
+                provider=self.provider_id,
+                media_type="series",
+                title=title,
+                url=url,
+                poster_url=item.get("poster_url"),
+            )
 
-    def get_title(self, url: str) -> ProviderTitle:
-        series = AniworldSeries(url)
+    def get_title(self, url: str, session=None) -> ProviderTitle:
+        series = AniworldSeries(url, session=session)
         imdb_id = str(series.imdb or "").strip() or None
         return ProviderTitle(
             provider=self.provider_id,
