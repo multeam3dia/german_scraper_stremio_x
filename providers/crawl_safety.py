@@ -112,9 +112,12 @@ class GuardedSession:
             self.request_count += 1
             try:
                 response = method(url, *args, **kwargs)
-            except Exception:
+            except Exception as exc:
                 if attempt >= 2:
-                    raise
+                    self._block(
+                        f"Repeated network errors ({type(exc).__name__})",
+                        timedelta(minutes=15),
+                    )
                 time.sleep(random.uniform(self._guard.delay_min, self._guard.delay_max))
                 continue
 
@@ -142,9 +145,14 @@ class GuardedSession:
             if any(marker in body for marker in challenge_markers):
                 self._block("CAPTCHA or anti-bot challenge detected", timedelta(hours=12))
 
-            if 500 <= status <= 599 and attempt < 2:
-                time.sleep(min(120, 20 * (2 ** attempt)))
-                continue
+            if 500 <= status <= 599:
+                if attempt < 2:
+                    time.sleep(min(120, 20 * (2 ** attempt)))
+                    continue
+                self._block(
+                    f"HTTP {status} persisted after retries",
+                    timedelta(minutes=30),
+                )
             return response
 
         raise RuntimeError(f"{self._provider} request failed after retries: {url}")
@@ -225,15 +233,19 @@ class CrawlGuard:
                     (lock_provider, self.owner, lease_until, _iso(now)),
                 )
 
-        raw = Session(
-            resolver=["doh+cloudflare://"],
-            disable_http3=True,
-            multiplexed=False,
-            headers=dict(GLOBAL_SESSION.headers),
-        )
-        raw.verify = CA_CERT_BUNDLE
-        self.session = GuardedSession(raw, self.provider, self)
-        return self.session
+        try:
+            raw = Session(
+                resolver=["doh+cloudflare://"],
+                disable_http3=True,
+                multiplexed=False,
+                headers=dict(GLOBAL_SESSION.headers),
+            )
+            raw.verify = CA_CERT_BUNDLE
+            self.session = GuardedSession(raw, self.provider, self)
+            return self.session
+        except Exception:
+            self._release_lock()
+            raise
 
     def heartbeat(self) -> None:
         """Extend the lease periodically during a long initial catalog crawl."""
@@ -274,9 +286,7 @@ class CrawlGuard:
                 (_iso(until), reason[:500], _iso(_now()), self.provider, self.owner),
             )
 
-    def __exit__(self, exc_type, exc, traceback):
-        if self.session is not None:
-            self.session.close()
+    def _release_lock(self) -> None:
         with _connect() as db:
             _ensure_state_table(db)
             db.execute(
@@ -287,4 +297,11 @@ class CrawlGuard:
                 """,
                 (_iso(_now()), self.provider, self.owner),
             )
+
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            if self.session is not None:
+                self.session.close()
+        finally:
+            self._release_lock()
         return False
