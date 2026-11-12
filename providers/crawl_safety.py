@@ -133,8 +133,8 @@ class GuardedSession:
                 "verify you are human",
                 "checking your browser",
                 "captcha-container",
-                "g-recaptcha",
-                "hcaptcha",
+                "captcha verification",
+                "please solve the captcha",
                 "unusual traffic",
                 "robot check",
             )
@@ -181,6 +181,18 @@ class CrawlGuard:
         with _connect() as db:
             db.execute("BEGIN IMMEDIATE")
             _ensure_state_table(db)
+            global_row = db.execute(
+                "SELECT * FROM provider_crawl_guard WHERE provider='__global__'"
+            ).fetchone()
+            if (
+                global_row
+                and global_row["lock_expires_at"]
+                and global_row["lock_expires_at"] > _iso(now)
+            ):
+                raise ProviderAlreadyRunningError(
+                    "Another catalog crawl is already running; providers are serialized"
+                )
+
             row = db.execute(
                 "SELECT * FROM provider_crawl_guard WHERE provider=?",
                 (self.provider,),
@@ -194,24 +206,22 @@ class CrawlGuard:
                 raise ProviderAlreadyRunningError(
                     f"A {self.provider} crawl is already running"
                 )
-            db.execute(
-                """
-                INSERT INTO provider_crawl_guard(
-                    provider, blocked_until, block_reason, lock_owner,
-                    lock_expires_at, updated_at
-                ) VALUES (?, NULL, NULL, ?, ?, ?)
-                ON CONFLICT(provider) DO UPDATE SET
-                    lock_owner=excluded.lock_owner,
-                    lock_expires_at=excluded.lock_expires_at,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    self.provider,
-                    self.owner,
-                    _iso(now + timedelta(hours=12)),
-                    _iso(now),
-                ),
-            )
+
+            lease_until = _iso(now + timedelta(hours=12))
+            for lock_provider in (self.provider, "__global__"):
+                db.execute(
+                    """
+                    INSERT INTO provider_crawl_guard(
+                        provider, blocked_until, block_reason, lock_owner,
+                        lock_expires_at, updated_at
+                    ) VALUES (?, NULL, NULL, ?, ?, ?)
+                    ON CONFLICT(provider) DO UPDATE SET
+                        lock_owner=excluded.lock_owner,
+                        lock_expires_at=excluded.lock_expires_at,
+                        updated_at=excluded.updated_at
+                    """,
+                    (lock_provider, self.owner, lease_until, _iso(now)),
+                )
 
         raw = Session(
             resolver=["doh+cloudflare://"],
@@ -244,7 +254,7 @@ class CrawlGuard:
                 """
                 UPDATE provider_crawl_guard
                 SET lock_owner=NULL, lock_expires_at=NULL, updated_at=?
-                WHERE provider=? AND lock_owner=?
+                WHERE provider IN (?, '__global__') AND lock_owner=?
                 """,
                 (_iso(_now()), self.provider, self.owner),
             )
