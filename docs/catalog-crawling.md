@@ -24,8 +24,10 @@ even if separate scheduled jobs start concurrently.
 - Random delay between requests: 5–12 seconds by default.
 - Configure the delay with CATALOG_CRAWL_DELAY_MIN and
   CATALOG_CRAWL_DELAY_MAX (seconds).
-- Network errors are retried at most twice after the initial attempt.
-- HTTP 5xx responses use a short exponential backoff.
+- Network errors are retried at most twice after the initial attempt; repeated
+  failures then pause the provider for 15 minutes.
+- HTTP 5xx responses use a short exponential backoff; persistent 5xx responses
+  pause the provider for 30 minutes.
 - HTTP 403 stops the provider crawl and starts a six-hour cooldown.
 - HTTP 429 stops the provider crawl and honours Retry-After, with at least
   five minutes of cooldown.
