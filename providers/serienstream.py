@@ -18,7 +18,7 @@ def _year(value: object) -> int | None:
 class SerienstreamProvider(BaseProvider):
     provider_id = "serienstream"
     # The provider's /serien index is a single page containing the full A-Z list.
-    # The crawler still marks the run partial if any title cannot be resolved.
+    # Index coverage is tracked separately from IMDb identity resolution.
     catalog_scan_complete = True
     supported_media_types = ("series",)
 
