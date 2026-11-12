@@ -20,9 +20,12 @@ class _AniWorldIndexParser(HTMLParser):
         if tag == "a":
             href = (attrs.get("href") or "").strip()
             parsed = urlparse(urljoin("https://aniworld.to/", href))
-            if re.fullmatch(r"/anime/stream/[A-Za-z0-9-]+/?", parsed.path):
+            if (
+                parsed.hostname in {"aniworld.to", "www.aniworld.to"}
+                and re.fullmatch(r"/anime/stream/[A-Za-z0-9-]+/?", parsed.path)
+            ):
                 self.current = {
-                    "url": urljoin("https://aniworld.to/", href),
+                    "url": f"https://aniworld.to{parsed.path}",
                     "title_attr": attrs.get("title") or attrs.get("aria-label") or "",
                     "alt": "",
                     "poster_url": "",
