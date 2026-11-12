@@ -14,10 +14,10 @@ PROVIDERS = {
     "serienstream": SerienstreamProvider,
 }
 
-from .crawler import crawl_named_provider, crawl_provider
+from .crawler import crawl_all_catalog_providers, crawl_named_provider, crawl_provider
 
 __all__ = [
     "BaseProvider", "ProviderTitle", "ProviderSeason", "ProviderEpisode",
     "ProviderVariant", "AniWorldProvider", "SerienstreamProvider", "PROVIDERS",
-    "crawl_provider", "crawl_named_provider",
+    "crawl_provider", "crawl_named_provider", "crawl_all_catalog_providers",
 ]
