@@ -81,11 +81,11 @@ class BaseProvider(ABC):
     supported_media_types: tuple[str, ...]
 
     @abstractmethod
-    def iter_catalog(self) -> Iterator[ProviderTitle]:
+    def iter_catalog(self, session=None) -> Iterator[ProviderTitle]:
         """Yield provider title references; implementations document scan coverage."""
 
     @abstractmethod
-    def get_title(self, url: str) -> ProviderTitle:
+    def get_title(self, url: str, session=None) -> ProviderTitle:
         """Fetch and normalize one provider detail page."""
 
     @abstractmethod
