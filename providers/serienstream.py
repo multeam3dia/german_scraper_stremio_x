@@ -5,7 +5,7 @@ import re
 from typing import Iterator
 
 from aniworld.models.s_to import SerienstreamSeries
-from aniworld.search import fetch_all_series_index
+from .indexes import fetch_serienstream_index
 
 from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
@@ -22,11 +22,13 @@ class SerienstreamProvider(BaseProvider):
     catalog_scan_complete = True
     supported_media_types = ("series",)
 
-    def iter_catalog(self) -> Iterator[ProviderTitle]:
+    def iter_catalog(self, session=None) -> Iterator[ProviderTitle]:
         """Discover series from s.to's alphabetical all-series index."""
-        items = fetch_all_series_index()
-        if items is None:
-            raise RuntimeError("Serienstream all-series index discovery failed")
+        self.catalog_scan_complete = False
+        items = fetch_serienstream_index(session=session)
+        if not items:
+            raise RuntimeError("SerienStream all-series index is empty")
+        self.catalog_scan_complete = True
 
         for item in items:
             url = str(item.get("url") or "").strip()
@@ -41,8 +43,8 @@ class SerienstreamProvider(BaseProvider):
                 poster_url=item.get("poster_url"),
             )
 
-    def get_title(self, url: str) -> ProviderTitle:
-        series = SerienstreamSeries(url)
+    def get_title(self, url: str, session=None) -> ProviderTitle:
+        series = SerienstreamSeries(url, session=session)
         imdb_id = str(series.imdb or "").strip() or None
         return ProviderTitle(
             provider=self.provider_id,
