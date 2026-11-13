@@ -208,6 +208,17 @@ def crawl_provider(
         blocked = True
         if len(errors) < 20:
             errors.append(str(exc))
+    except KeyboardInterrupt:
+        # Keep the run history consistent when an operator stops a long drain.
+        # Every title processed before the interrupt has already been committed.
+        finish_crawl_run(
+            run_id,
+            status="partial",
+            pages_scanned=1 if index_exhausted else 0,
+            titles_found=found,
+            error="crawl interrupted by operator",
+        )
+        raise
     except Exception as exc:
         finish_crawl_run(
             run_id,
