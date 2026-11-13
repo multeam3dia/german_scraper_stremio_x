@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import re
+import time
 from urllib.parse import urlparse
 
 import niquests
@@ -129,36 +130,68 @@ def _extract_best_source_url(data):
 
 def _try_byse_api(embed_url, file_code, headers):
     """Try the modern Byse-style REST API with AES-256-GCM decryption."""
+    started = time.monotonic()
+    stage = "prepare"
     try:
         parsed = urlparse(embed_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
         api_url = f"{base_url}/api/videos/{file_code}"
+        logger.debug("Filemoon Byse: API request started (host=%s)", parsed.netloc)
 
-        logger.debug("Trying Byse API: %s", api_url)
-
+        stage = "request"
         resp = GLOBAL_SESSION.get(api_url, headers=headers)
+        elapsed = time.monotonic() - started
+        content_type = resp.headers.get("Content-Type", "unknown")
+        body_size = len(resp.content or b"")
+        logger.debug(
+            "Filemoon Byse: API response status=%s content_type=%s bytes=%d elapsed=%.2fs",
+            resp.status_code, content_type, body_size, elapsed,
+        )
         if resp.status_code != 200:
-            logger.debug("Byse API returned %s", resp.status_code)
+            logger.warning(
+                "Filemoon Byse: API returned HTTP %s after %.2fs; trying legacy HTML fallback",
+                resp.status_code, elapsed,
+            )
             return None
 
+        stage = "json"
         data = resp.json()
+        if not isinstance(data, dict):
+            logger.warning("Filemoon Byse: API JSON has unexpected root type %s", type(data).__name__)
+            return None
         playback = data.get("playback")
-        if not playback:
-            logger.debug("No playback data in API response")
+        if not isinstance(playback, dict) or not playback:
+            logger.warning("Filemoon Byse: HTTP 200 response contains no playback object")
             return None
 
+        stage = "decrypt"
         decrypted = _decrypt_playback_data(playback)
         if decrypted is None:
-            logger.warning("Failed to decrypt Byse playback data")
+            logger.warning("Filemoon Byse: playback payload could not be decrypted")
             return None
 
+        stage = "source"
         best_url = _extract_best_source_url(decrypted)
         if best_url:
-            logger.info("Filemoon/Byse: extracted stream URL via API")
+            logger.info("Filemoon/Byse: API stream extracted successfully (elapsed=%.2fs)", time.monotonic() - started)
             return best_url
+        logger.warning("Filemoon Byse: decrypted playback data contains no usable source")
 
+    except niquests.RequestException as err:
+        logger.warning(
+            "Filemoon Byse: request failed (%s) during %s after %.2fs",
+            type(err).__name__, stage, time.monotonic() - started,
+        )
+    except (ValueError, TypeError, KeyError) as err:
+        logger.warning(
+            "Filemoon Byse: invalid response/data (%s) during %s after %.2fs",
+            type(err).__name__, stage, time.monotonic() - started,
+        )
     except Exception as err:
-        logger.debug("Byse API approach failed: %s", err)
+        logger.warning(
+            "Filemoon Byse: unexpected error (%s) during %s after %.2fs",
+            type(err).__name__, stage, time.monotonic() - started,
+        )
 
     return None
 
@@ -267,20 +300,39 @@ def get_direct_link_from_filemoon(embeded_filemoon_link, headers=None):
                 return api_url
 
         # Strategy 2: Try legacy HTML scraping (packed JS)
-        resp = GLOBAL_SESSION.get(embeded_filemoon_link, headers=headers)
-        resp.raise_for_status()
+        legacy_started = time.monotonic()
+        try:
+            resp = GLOBAL_SESSION.get(embeded_filemoon_link, headers=headers)
+            logger.debug(
+                "Filemoon legacy: embed response status=%s content_type=%s bytes=%d elapsed=%.2fs",
+                resp.status_code,
+                resp.headers.get("Content-Type", "unknown"),
+                len(resp.content or b""),
+                time.monotonic() - legacy_started,
+            )
+            resp.raise_for_status()
+        except niquests.RequestException as err:
+            logger.warning(
+                "Filemoon legacy: embed request failed (%s) after %.2fs",
+                type(err).__name__, time.monotonic() - legacy_started,
+            )
+            raise ValueError("Failed to fetch Filemoon page.") from err
+
         # niquests can hand back None text for an empty/undecodable body; keep it
         # a string so the regex extractors don't raise a confusing TypeError.
         html = resp.text or ""
-
         url = _try_extract_from_html(html)
         if url:
             return url
 
+        logger.warning(
+            "Filemoon legacy: no video source found in embed HTML (bytes=%d)",
+            len(resp.content or b""),
+        )
         raise ValueError("No Filemoon video source found in page.")
-
-    except niquests.RequestException as err:
-        raise ValueError(f"Failed to fetch Filemoon page: {err}") from err
+    except Exception:
+        # Preserve provider-level error handling in the caller.
+        raise
 
 
 def get_preview_image_link_from_filemoon(embeded_filemoon_link, headers=None):

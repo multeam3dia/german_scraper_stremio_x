@@ -1,0 +1,32 @@
+services:
+  german-scraper:
+    container_name: german-scraper-stremio
+    env_file:
+      - .env
+    build:
+      context: https://github.com/multeam3dia/german_scraper_stremio_x.git#feature/aniworld-integration
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    init: true
+    expose:
+      - "10000"
+    environment:
+      PORT: "10000"
+      PYTHONUNBUFFERED: "1"
+    shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:10000/manifest.json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - pangolin_frontend
+
+networks:
+  pangolin_frontend:
+    external: true

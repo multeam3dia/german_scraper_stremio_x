@@ -1,0 +1,138 @@
+"""Run one or both catalog provider crawls from the command line.
+
+Examples:
+    python -m crawl_catalog all
+    python -m crawl_catalog all --drain
+    python -m crawl_catalog aniworld --drain --pause-minutes 4 9
+    python -m crawl_catalog serienstream
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+from providers.crawl_batches import run_drain
+from providers.crawler import crawl_all_catalog_providers, crawl_named_provider
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run a conservative catalog crawl")
+    parser.add_argument(
+        "provider",
+        nargs="?",
+        default="all",
+        choices=("all", "aniworld", "serienstream"),
+        help="Provider to crawl (default: all, sequentially)",
+    )
+    parser.add_argument(
+        "--max-details",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Maximum detail pages per provider batch "
+            "(default: CATALOG_CRAWL_MAX_DETAILS_PER_RUN or 200)"
+        ),
+    )
+    parser.add_argument(
+        "--index-only",
+        action="store_true",
+        help="Read and validate provider indexes without fetching new detail pages",
+    )
+    parser.add_argument(
+        "--drain",
+        action="store_true",
+        help=(
+            "Repeat bounded detail-page batches until providers complete; "
+            "stop immediately on a safety-guard block"
+        ),
+    )
+    parser.add_argument(
+        "--pause-minutes",
+        nargs=2,
+        type=float,
+        metavar=("MIN", "MAX"),
+        default=None,
+        help="Random pause range between drain batches in minutes (default: 3 8)",
+    )
+    parser.add_argument(
+        "--max-batches",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Optional clean stop after N batches; the next run resumes from SQLite",
+    )
+    args = parser.parse_args()
+
+    if args.max_details is not None and args.max_details < 1:
+        parser.error("--max-details must be at least 1")
+
+    if args.drain:
+        if args.index_only:
+            parser.error("--drain cannot be combined with --index-only")
+        if args.max_batches is not None and args.max_batches < 1:
+            parser.error("--max-batches must be at least 1")
+        if args.pause_minutes is None:
+            pause_min, pause_max = 3.0, 8.0
+        else:
+            pause_min, pause_max = args.pause_minutes
+        if pause_min < 0 or pause_max < pause_min:
+            parser.error("--pause-minutes must satisfy 0 <= MIN <= MAX")
+
+        provider_ids = (
+            ("aniworld", "serienstream")
+            if args.provider == "all"
+            else (args.provider,)
+        )
+        try:
+            summary = run_drain(
+                provider_ids,
+                crawl_named_provider,
+                max_details=args.max_details,
+                pause_min_minutes=pause_min,
+                pause_max_minutes=pause_max,
+                max_batches=args.max_batches,
+            )
+        except KeyboardInterrupt:
+            print(
+                json.dumps({
+                    "event": "drain_interrupted",
+                    "message": "Interrupted by operator; processed progress remains in SQLite.",
+                }),
+                flush=True,
+            )
+            return 130
+        return int(summary["exit_code"])
+
+    if args.pause_minutes is not None or args.max_batches is not None:
+        parser.error("--pause-minutes and --max-batches require --drain")
+
+    results = (
+        crawl_all_catalog_providers(
+            index_only=args.index_only, max_details=args.max_details
+        )
+        if args.provider == "all"
+        else [
+            crawl_named_provider(
+                args.provider,
+                index_only=args.index_only,
+                max_details=args.max_details,
+            )
+        ]
+    )
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+    successful = all(
+        item.get("status") == "completed"
+        or (
+            item.get("detail_limit_reached")
+            and item.get("index_complete")
+            and not item.get("blocked")
+        )
+        for item in results
+    )
+    return 0 if results and successful else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

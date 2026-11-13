@@ -1,20 +1,76 @@
 import re
+import html
+import os
 import niquests
+from threading import RLock
 from typing import List, Dict, Optional, Any, Set
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, wait
 from urllib.parse import urlparse
-from aniworld.search import query_s_to, query_filmpalast, query_megakino, query_kinox
+from aniworld.search import query as query_aniworld, query_s_to, query_filmpalast, query_megakino, query_kinox
+from aniworld.models.aniworld_to.series import AniworldSeries
 from aniworld.models.s_to.episode import SerienstreamEpisode
 from aniworld.models.filmpalast_to.episode import FilmPalastEpisode
 from aniworld.models.megakino.series import MegaKinoEpisode
 from aniworld.models.kinox.series import KinoxEpisode
-from aniworld.config import logger, Audio, DEFAULT_USER_AGENT, PROVIDER_HEADERS_W
+from aniworld.models.s_to.auth import ensure_serienstream_login
+from aniworld.config import logger, Audio, Subtitles, DEFAULT_USER_AGENT, PROVIDER_HEADERS_W
 
 CINEMETA_URL = "https://v3-cinemeta.strem.io/meta/{type}/{id}.json"
 TMDB_PROXY = "https://db.wingsdatabase.com/3/find/{id}?external_source=imdb_id&language=de-DE"
 
+# Kinox currently has a broken search/base-URL configuration. Keep it off unless explicitly enabled.
+KINOX_ENABLED = os.getenv("KINOX_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 METADATA_CACHE = {}
 GERMAN_TITLE_CACHE = {}
+
+# Shared, bounded pools: slow CAPTCHA work must not hold the HTTP request open.
+_SCRAPE_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="provider")
+_S_TO_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="serienstream")
+_S_TO_LOCK = RLock()
+_S_TO_INFLIGHT = {}
+
+
+def _fetch_s_to_live(title, season, episode_num, binge_group):
+    """Run a fresh Serienstream lookup; completed results are never cached."""
+    return fetch_series_site_streams(
+        "Serienstream", title, season, episode_num, binge_group
+    )
+
+
+def _clear_s_to_inflight(key, future):
+    # A callback also runs when a queued future is cancelled before it starts.
+    with _S_TO_LOCK:
+        if _S_TO_INFLIGHT.get(key) is future:
+            _S_TO_INFLIGHT.pop(key, None)
+
+
+
+
+def _collect_scrape_results(futures, timeout: int = 12) -> List[Dict]:
+    """Collect completed provider results without waiting for slow background tasks."""
+    if not futures:
+        return []
+
+    done, pending = wait(futures, timeout=timeout)
+    streams = []
+    for future in done:
+        try:
+            streams.extend(future.result())
+        except Exception as exc:
+            logger.warning("Provider task failed: %s", exc)
+
+    if pending:
+        logger.warning(
+            "Scraping timed out: %d provider task(s) still running; returning available streams",
+            len(pending),
+        )
+        for future in pending:
+            future.cancel()
+
+    return streams
+
+
 
 def get_metadata(media_type: str, imdb_id: str) -> Optional[Dict]:
     """Fetch metadata from Cinemeta with caching."""
@@ -33,6 +89,27 @@ def get_metadata(media_type: str, imdb_id: str) -> Optional[Dict]:
     except Exception as e:
         logger.error(f"Failed to fetch metadata for {imdb_id}: {e}")
         return None
+
+
+def is_animation(meta: Dict) -> bool:
+    """Return whether metadata identifies the title as animation.
+
+    AniWorld is queried only for animation titles. Country/original language is
+    deliberately not used as a requirement, so Korean manhwa adaptations,
+    Chinese donghua and other non-Japanese animation remain eligible.
+    """
+    genres = meta.get("genres") or []
+    if not isinstance(genres, (list, tuple, set)):
+        return False
+
+    normalized_genres = set()
+    for genre in genres:
+        if isinstance(genre, dict):
+            genre = genre.get("name") or genre.get("title") or ""
+        if genre:
+            normalized_genres.add(str(genre).strip().casefold())
+
+    return bool(normalized_genres.intersection({"animation", "anime", "donghua"}))
 
 def get_german_title(media_type: str, imdb_id: str) -> Optional[str]:
     """Fetch German title from TMDB via proxy."""
@@ -56,70 +133,93 @@ def get_german_title(media_type: str, imdb_id: str) -> Optional[str]:
     return None
 
 def clean_for_match(t: str) -> str:
-    """Lowercase and alphanumeric only for title comparison."""
+    """Normalize titles, including HTML-formatted provider search results."""
     if not t: return ""
+    # AniWorld wraps matched search terms in tags such as <em>Naruto</em>.
+    # Decode entities and remove markup before comparing titles.
+    t = html.unescape(str(t))
+    t = re.sub(r"<[^>]*>", " ", t)
     t = re.sub(r'[\(\[].*?[\)\]]', '', t)
     return re.sub(r'\W+', '', t.lower())
 
-def find_best_matches(results: List[Dict], title: str, year: Optional[int] = None, season: Optional[int] = None) -> List[str]:
-    """Find and prioritize the best matching URLs from search results with strict filtering."""
+
+def _is_naruto_diagnostic(title: Optional[str]) -> bool:
+    """Enable verbose AniWorld diagnostics only for Naruto-related lookups."""
+    return "naruto" in clean_for_match(title or "")
+
+def find_best_matches(
+    results: List[Dict],
+    title: str,
+    year: Optional[int] = None,
+    season: Optional[int] = None,
+    allow_season_suffix: bool = True,
+    allow_possessive_prefix: bool = False,
+    allow_subtitle_suffix: bool = False,
+) -> List[str]:
+    """Match whole normalized titles; never use substring matching (Monk != Bad Monkey)."""
     if not results:
         return []
 
     title_clean = clean_for_match(title)
+    if not title_clean:
+        return []
+
     candidates = []
 
-    # Sequel indicators to prevent false positives
-    sequel_indicators = [
-        "2", "3", "4", "5", "part", "teil", "sequel",
-        "vollverhext", "madchengegenjungs", "tohuwabohu", "einfachanders",
-        "next", "generation", "reboot", "remake"
-    ]
+    def result_title(result: Dict) -> str:
+        return str(result.get("title") or result.get("name") or result.get("series") or "")
 
-    def is_strict_match(res_title: str) -> bool:
+    def is_match(res_title: str) -> bool:
         res_clean = clean_for_match(res_title)
-        if title_clean == res_clean: return True
-        for ind in sequel_indicators:
-            if ind in res_clean and ind not in title_clean:
-                return False
+        if allow_season_suffix and season:
+            # Permit only the requested season suffix, never a different season.
+            for suffix in (f"staffel{season}", f"season{season}"):
+                if res_clean.endswith(suffix):
+                    res_clean = res_clean[:-len(suffix)]
+                    break
+        if res_clean == title_clean:
+            return True
 
-        # For series, if a season is requested, ensure the title doesn't mention a DIFFERENT season
-        if season:
-            other_seasons = [f"staffel{s}" for s in range(1, 30) if s != season] + \
-                            [f"season{s}" for s in range(1, 30) if s != season]
-            for os in other_seasons:
-                if os in res_clean:
-                    return False
+        # SerienStream may append a descriptive subtitle to the exact series
+        # title (e.g. "Slow Horses - Ein Fall für Jackson Lamb"). Only accept
+        # an explicit separator after the complete requested title.
+        if allow_subtitle_suffix:
+            decoded_title = html.unescape(str(res_title or ""))
+            # Search APIs may return highlighted titles such as
+            # "<em>Slow Horses</em> - Ein Fall für Jackson Lamb".
+            decoded_title = re.sub(r"<[^>]*>", " ", decoded_title)
+            decoded_title = re.sub(r"\s+", " ", decoded_title).strip()
+            subtitle_match = re.match(
+                rf"^{re.escape(str(title).strip())}\s+[-–—:]\s+.+$",
+                decoded_title,
+                re.IGNORECASE,
+            )
+            if subtitle_match:
+                return True
 
-        return title_clean in res_clean or res_clean in title_clean
-
-    if season:
-        season_markers = [f"staffel {season}", f"season {season}", f"staffel-{season}", f"season-{season}"]
-        for res in results:
-            res_title = res.get("title", "").lower()
-            if any(marker in res_title for marker in season_markers):
-                res_url = res.get("url") or res.get("link")
-                if res_url: candidates.append(res_url)
+        # SerienStream sometimes prefixes a show with its author's possessive
+        # name (e.g. "Carl Hiaasen’s Bad Monkey"). Accept only that explicit
+        # possessive-title form, and only when the remaining title is exact.
+        if allow_possessive_prefix:
+            decoded_title = html.unescape(str(res_title or "")).strip()
+            possessive_match = re.match(r"^.+?['’]s\s+(.+)$", decoded_title, re.IGNORECASE)
+            if possessive_match:
+                suffix_clean = clean_for_match(possessive_match.group(1))
+                if allow_season_suffix and season:
+                    for suffix in (f"staffel{season}", f"season{season}"):
+                        if suffix_clean.endswith(suffix):
+                            suffix_clean = suffix_clean[:-len(suffix)]
+                            break
+                return suffix_clean == title_clean
+        return False
 
     for res in results:
+        if not isinstance(res, dict):
+            continue
         res_url = res.get("url") or res.get("link")
-        if not res_url or res_url in candidates: continue
-        if clean_for_match(res.get("title", "")) == title_clean:
-            candidates.append(res_url)
-
-    if year:
-        year_str = str(year)
-        for res in results:
-            res_url = res.get("url") or res.get("link")
-            if not res_url or res_url in candidates: continue
-            res_title = res.get("title", "")
-            if year_str in res_title and is_strict_match(res_title):
-                candidates.append(res_url)
-
-    for res in results:
-        res_url = res.get("url") or res.get("link")
-        if not res_url or res_url in candidates: continue
-        if is_strict_match(res.get("title", "")):
+        if not res_url or res_url in candidates:
+            continue
+        if is_match(result_title(res)):
             candidates.append(res_url)
 
     return candidates
@@ -156,24 +256,49 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                     parsed_embed = urlparse(embed_url)
                     origin = f"{parsed_embed.scheme}://{parsed_embed.netloc}"
 
+                    # Vidmoly needs the same playback headers on SerienStream
+                    # that are already applied in the AniWorld extraction path.
+                    playback_headers = {}
+                    if name == "Vidmoly":
+                        from aniworld.extractors.provider.vidmoly import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+                    elif name == "Filemoon":
+                        # Filemoon direct URLs are extracted through the shared
+                        # Byse/legacy extractor; retain its provider UA and use
+                        # the actual embed origin as playback Referer/Origin.
+                        playback_headers = {
+                            "User-Agent": ua,
+                            "Referer": embed_url,
+                            "Origin": origin,
+                            "Accept": "*/*",
+                        }
+
                     # SMART EXTENSION: Fix player recognition for HLS vs MP4
                     is_hls = ".m3u8" in direct_url.lower() or "urlset" in direct_url.lower()
                     if not any(ext in direct_url.lower() for ext in [".mp4", ".m3u8", ".ts"]):
                         direct_url += "#.m3u8" if is_hls else "#.mp4"
 
-                    proxy_headers = {
-                        "request": {
+                    # StreamFlix's VOE extractor only uses the player User-Agent
+                    # for media requests; its Referer is needed for the embed-page
+                    # lookup, not for the returned HLS playlist. Avoid extra
+                    # Referer/Origin headers here because Android Stremio has
+                    # known HLS proxyHeaders forwarding problems.
+                    if name.casefold() == "voe":
+                        request_headers = {"User-Agent": ua}
+                    else:
+                        request_headers = {
                             "User-Agent": ua,
                             "Referer": embed_url,
                             "Origin": origin,
                             "Sec-Fetch-Mode": "cors",
                             "Sec-Fetch-Site": "cross-site",
-                            "Accept": "*/*"
+                            "Accept": "*/*",
                         }
-                    }
+                    request_headers.update(playback_headers)
+                    proxy_headers = {"request": request_headers}
 
                     stream_entry = {
-                        "name": f"[{provider_site_name}] {name}",
+                        "name": name,
                         "title": f"{meta_title} | {audio.value} | {name}",
                         "url": direct_url,
                         "behaviorHints": {
@@ -181,16 +306,599 @@ def extract_streams(episode_obj: Any, provider_site_name: str, meta_title: str, 
                             "proxyHeaders": proxy_headers
                         }
                     }
+                    if is_hls:
+                        stream_entry["type"] = "hls"
 
                     if binge_group:
                         stream_entry["behaviorHints"]["bingeGroup"] = binge_group
 
                     streams.append(stream_entry)
+
+                    # Temporary Android diagnostic: compare Stremio's local
+                    # proxyHeaders path with a direct HLS request to the hoster.
+                    # This entry intentionally has no proxyHeaders at all.
+                    if name.casefold() == "voe" and is_hls:
+                        direct_test_entry = {
+                            "name": f"{name} Direct",
+                            "title": f"{meta_title} | {audio.value} | {name} Direct (no proxyHeaders)",
+                            "url": direct_url,
+                            "type": "hls",
+                            "behaviorHints": {"notWebReady": True},
+                        }
+                        if binge_group:
+                            direct_test_entry["behaviorHints"]["bingeGroup"] = binge_group
+                        streams.append(direct_test_entry)
                 except Exception:
                     pass
     except Exception as e:
         logger.error(f"Error extracting streams from {provider_site_name}: {e}")
     return streams
+
+
+def _aniworld_candidates(title: str) -> List[AniworldSeries]:
+    """Search AniWorld and construct a small, title-ranked candidate list."""
+    if not title:
+        return []
+    diagnostic = _is_naruto_diagnostic(title)
+    try:
+        results = query_aniworld(title) or []
+        if isinstance(results, dict):
+            results = [results]
+        wanted = clean_for_match(title)
+        candidates = []
+        seen = set()
+        if diagnostic:
+            result_summary = [
+                {
+                    "title": item.get("title") or item.get("name") or "",
+                    "link": item.get("link") or item.get("url") or "",
+                }
+                for item in results if isinstance(item, dict)
+            ]
+            logger.debug(
+                "[AniWorld Naruto] search query=%r normalized=%r results=%d: %s",
+                title, wanted, len(results), result_summary[:20],
+            )
+        for index, item in enumerate(results):
+            if not isinstance(item, dict):
+                if diagnostic:
+                    logger.debug("[AniWorld Naruto] result #%d ignored: not a dict (%r)", index + 1, item)
+                continue
+            name = item.get("title") or item.get("name") or ""
+            link = item.get("link") or item.get("url")
+            if not link:
+                if diagnostic:
+                    logger.debug("[AniWorld Naruto] result #%d %r rejected: missing link", index + 1, name)
+                continue
+            url = link if link.startswith("http") else f"https://aniworld.to{link if link.startswith('/') else '/'+link}"
+            valid_url = AniworldSeries.is_valid_aniworld_series_url(url)
+            if not valid_url or url in seen:
+                if diagnostic:
+                    logger.debug(
+                        "[AniWorld Naruto] result #%d %r rejected: valid_series_url=%s duplicate=%s url=%r",
+                        index + 1, name, valid_url, url in seen, url,
+                    )
+                continue
+            seen.add(url)
+            found = clean_for_match(name)
+            exact_match = bool(wanted and found == wanted)
+            if diagnostic:
+                logger.debug(
+                    "[AniWorld Naruto] result #%d title=%r normalized=%r exact_match=%s url=%r",
+                    index + 1, name, found, exact_match, url,
+                )
+            # Never accept fuzzy/unrelated search results: AniWorld's search can
+            # return completely different shows (e.g. One Piece for "Monk").
+            # Bracketed year/extra text is already removed by clean_for_match.
+            if not exact_match:
+                continue
+            candidates.append((0, AniworldSeries(url)))
+        selected = [series for _, series in candidates[:5]]
+        if diagnostic:
+            logger.debug(
+                "[AniWorld Naruto] accepted %d candidate(s) for %r: %s",
+                len(selected), title, [series.url for series in selected],
+            )
+        return selected
+    except Exception as exc:
+        if diagnostic:
+            logger.debug("[AniWorld Naruto] search/candidate processing failed for %r: %s", title, exc)
+        logger.debug(f"AniWorld search failed for '{title}': {exc}")
+        return []
+
+
+def _extract_aniworld_streams(episode: Any, display_title: str, binge_group: Optional[str] = None) -> List[Dict]:
+    """Resolve German Dub and German Sub variants from an AniWorld episode."""
+    streams = []
+    try:
+        data = episode.provider_data
+        provider_map = data._data if hasattr(data, "_data") else data
+        for (audio, subtitles), providers in provider_map.items():
+            if audio == Audio.GERMAN and subtitles == Subtitles.NONE:
+                language = "German Dub"
+            elif audio == Audio.JAPANESE and subtitles == Subtitles.GERMAN:
+                language = "German Sub"
+            else:
+                continue
+
+            for provider_name in providers:
+                try:
+                    episode.selected_language = language
+                    episode.selected_provider = provider_name
+                    direct_url = episode.stream_url
+                    if not direct_url:
+                        continue
+                    embed_url = episode.provider_url
+                    parsed = urlparse(embed_url)
+                    origin = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "https://aniworld.to"
+                    headers = PROVIDER_HEADERS_W.get(provider_name, {})
+                    playback_headers = {}
+                    if provider_name == "Doodstream":
+                        from aniworld.extractors.provider.doodstream import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+                    elif provider_name == "Vidmoly":
+                        from aniworld.extractors.provider.vidmoly import get_playback_headers
+                        playback_headers = get_playback_headers(embed_url)
+
+                    is_hls = ".m3u8" in direct_url.lower() or "urlset" in direct_url.lower()
+                    if not any(ext in direct_url.lower() for ext in (".mp4", ".m3u8", ".ts")):
+                        direct_url += "#.m3u8" if is_hls else "#.mp4"
+
+                    # VOE's returned HLS URL does not need the embed-page
+                    # Referer for playback (StreamFlix uses only its player UA).
+                    # Keep the Android request free of extra Referer/Origin headers.
+                    if provider_name.casefold() == "voe":
+                        request_headers = {
+                            "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
+                        }
+                    else:
+                        request_headers = {
+                            "User-Agent": headers.get("User-Agent", DEFAULT_USER_AGENT),
+                            "Referer": embed_url,
+                            "Origin": origin,
+                            "Accept": "*/*",
+                        }
+                    # Other provider extractors may require a different playback
+                    # UA, final embed Referer, or cookies than the AniWorld redirect.
+                    request_headers.update(playback_headers)
+
+                    entry = {
+                        "name": provider_name,
+                        "title": f"{display_title} | {language} | {provider_name}",
+                        "url": direct_url,
+                        "behaviorHints": {
+                            "notWebReady": True,
+                            "proxyHeaders": {"request": request_headers},
+                        },
+                    }
+                    if is_hls:
+                        entry["type"] = "hls"
+                    if binge_group:
+                        entry["behaviorHints"]["bingeGroup"] = binge_group
+                    streams.append(entry)
+
+                    # Temporary Android diagnostic: this variant bypasses
+                    # Stremio's local proxyHeaders path for VOE HLS playback.
+                    if provider_name.casefold() == "voe" and is_hls:
+                        direct_test_entry = {
+                            "name": f"{provider_name} Direct",
+                            "title": f"{display_title} | {language} | {provider_name} Direct (no proxyHeaders)",
+                            "url": direct_url,
+                            "type": "hls",
+                            "behaviorHints": {"notWebReady": True},
+                        }
+                        if binge_group:
+                            direct_test_entry["behaviorHints"]["bingeGroup"] = binge_group
+                        streams.append(direct_test_entry)
+                except Exception as exc:
+                    # Provider exceptions may contain temporary tokens in their URLs.
+                    logger.debug(
+                        "AniWorld provider %s failed (%s)",
+                        provider_name,
+                        type(exc).__name__,
+                    )
+    except Exception as exc:
+        logger.debug(f"AniWorld episode stream extraction failed: {exc}")
+    return streams
+
+
+def _get_cinemeta_episode(meta: Dict, season_number: int, episode_number: int) -> Optional[Dict]:
+    """Return the requested episode record from Cinemeta's series metadata."""
+    videos = meta.get("videos") or []
+    for video in videos:
+        if not isinstance(video, dict):
+            continue
+        try:
+            video_season = int(video.get("season"))
+            video_episode = int(video.get("episode"))
+        except (TypeError, ValueError):
+            continue
+        if video_season == season_number and video_episode == episode_number:
+            return video
+    return None
+
+
+def _find_aniworld_episode_by_title(
+    series: AniworldSeries,
+    target_episode_title: str,
+    requested_season: int,
+    requested_episode: int,
+):
+    """Find an AniWorld episode by its title, independent of season numbering."""
+    wanted = clean_for_match(target_episode_title)
+    # Generic placeholders are not reliable enough to identify an episode.
+    if (
+        not wanted
+        or wanted in {"episode", "folge", "episodetba", "tba", "untitled"}
+        or re.fullmatch(r"(episode|folge)\d+", wanted)
+    ):
+        return None
+
+    seasons = series.seasons
+    # Fast path: if the title at the requested numeric position also matches,
+    # the provider numbering is confirmed for this episode. Avoid loading all
+    # other season pages for the common case.
+    for season in seasons:
+        if season.are_movies or season.season_number != requested_season:
+            continue
+        for episode in season.episodes:
+            if episode.episode_number != requested_episode:
+                continue
+            episode_titles = {
+                clean_for_match(getattr(episode, "title_en", "") or ""),
+                clean_for_match(getattr(episode, "title_de", "") or ""),
+            }
+            if wanted in episode_titles:
+                return season, episode
+        break
+
+    # Otherwise scan every season, because AniWorld's numbering may differ
+    # from Cinemeta's numbering or may split/merge seasons differently.
+    matches = []
+    for season in seasons:
+        if season.are_movies:
+            continue
+        for episode in season.episodes:
+            episode_titles = {
+                clean_for_match(getattr(episode, "title_en", "") or ""),
+                clean_for_match(getattr(episode, "title_de", "") or ""),
+            }
+            episode_titles.discard("")
+            if wanted in episode_titles:
+                matches.append((season, episode))
+
+    # Repeated episode titles can occur in anthologies or across seasons. Only
+    # use the requested numeric location as a tie-breaker when it is itself a
+    # member of the title-matched set; otherwise fail closed.
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        same_position = [
+            pair for pair in matches
+            if pair[0].season_number == requested_season
+            and pair[1].episode_number == requested_episode
+        ]
+        if len(same_position) == 1:
+            return same_position[0]
+    return None
+
+
+def fetch_aniworld_series_streams(
+    title: str,
+    season_number: int,
+    episode_number: int,
+    binge_group: str,
+    expected_imdb_id: str,
+    target_episode_title: str,
+) -> List[Dict]:
+    """Resolve an AniWorld episode by series IMDb ID and Cinemeta episode title."""
+    diagnostic = _is_naruto_diagnostic(title)
+    if diagnostic:
+        logger.debug(
+            "[AniWorld Naruto] resolve request title=%r imdb=%s S%02dE%02d episode_title=%r",
+            title, expected_imdb_id, season_number, episode_number, target_episode_title,
+        )
+
+    candidates = _aniworld_candidates(title)
+    if diagnostic and not candidates:
+        logger.debug("[AniWorld Naruto] no exact-title candidates found for %r", title)
+
+    for series in candidates:
+        try:
+            actual_title = getattr(series, "title", "") or ""
+            actual_imdb_id = getattr(series, "imdb", None)
+            if actual_imdb_id and actual_imdb_id != expected_imdb_id:
+                logger.warning(
+                    "Skipping AniWorld candidate %r: IMDb ID %s does not match requested %s",
+                    actual_title, actual_imdb_id, expected_imdb_id,
+                )
+                continue
+
+            # When AniWorld exposes an IMDb ID, it is the strongest identity
+            # check. If it does not, retain the previous exact-title guard.
+            if not actual_imdb_id and clean_for_match(actual_title) != clean_for_match(title):
+                logger.debug(
+                    "Skipping AniWorld candidate %r for requested title %r: no matching IMDb ID",
+                    actual_title, title,
+                )
+                continue
+
+            if target_episode_title:
+                matched = _find_aniworld_episode_by_title(
+                    series, target_episode_title, season_number, episode_number
+                )
+                if not matched:
+                    logger.info(
+                        "No unambiguous AniWorld episode title match for %r (%s), requested %s S%02dE%02d",
+                        actual_title, target_episode_title, expected_imdb_id, season_number, episode_number,
+                    )
+                    continue
+            else:
+                # Cinemeta sometimes omits the videos array entirely. In that
+                # case retain the original numeric mapping, but only after the
+                # series identity has passed the IMDb/exact-title check above.
+                matched = None
+                for candidate_season in series.seasons:
+                    if candidate_season.are_movies or candidate_season.season_number != season_number:
+                        continue
+                    for candidate_episode in candidate_season.episodes:
+                        if candidate_episode.episode_number == episode_number:
+                            matched = (candidate_season, candidate_episode)
+                            break
+                    break
+                if not matched:
+                    logger.info(
+                        "No numeric AniWorld fallback for %r, requested S%02dE%02d",
+                        actual_title, season_number, episode_number,
+                    )
+                    continue
+                logger.warning(
+                    "Cinemeta has no episode title for %r S%02dE%02d; using numeric AniWorld fallback after series identity check",
+                    title, season_number, episode_number,
+                )
+
+            matched_season, episode = matched
+            if diagnostic:
+                logger.debug(
+                    "[AniWorld Naruto] mapped episode %r to AniWorld S%02dE%02d (%r / %r)",
+                    target_episode_title or f"S{season_number:02d}E{episode_number:02d} (numeric fallback)",
+                    matched_season.season_number,
+                    episode.episode_number,
+                    episode.title_de,
+                    episode.title_en,
+                )
+
+            streams = _extract_aniworld_streams(
+                episode,
+                f"{actual_title} S{season_number:02d}E{episode_number:02d}",
+                binge_group,
+            )
+            if diagnostic:
+                logger.debug(
+                    "[AniWorld Naruto] stream extraction returned %d stream(s) for requested S%02dE%02d",
+                    len(streams), season_number, episode_number,
+                )
+            if streams:
+                return streams
+        except Exception as exc:
+            logger.debug("AniWorld series processing failed for %s: %s", getattr(series, "url", title), exc)
+    return []
+
+def fetch_aniworld_movie_streams(title: str) -> List[Dict]:
+    """Search AniWorld film collections, including films listed under a franchise series."""
+    wanted = clean_for_match(title)
+    if not wanted:
+        logger.info("AniWorld movie lookup skipped: empty normalized title for %r", title)
+        return []
+
+    logger.info(
+        "AniWorld movie matching started: requested=%r normalized=%r",
+        title,
+        wanted,
+    )
+
+    # Most AniWorld films are nested under their franchise page rather than
+    # indexed as a standalone series. For example, Cinemeta calls this film
+    # "Haikyu!! The Dumpster Battle", while AniWorld lists it as film 10 under
+    # the series "Haikyu!!". Try the full title first, then short leading
+    # franchise prefixes; accept only a candidate whose normalized series name
+    # is a meaningful prefix of the requested film title.
+    candidates = _aniworld_candidates(title)
+    seen_urls = {series.url for series in candidates}
+    words = str(title).strip().split()
+    for word_count in range(1, min(4, len(words)) + 1):
+        prefix = " ".join(words[:word_count])
+        prefix_clean = clean_for_match(prefix)
+        if len(prefix_clean) < 5:
+            continue
+        try:
+            results = query_aniworld(prefix) or []
+            if isinstance(results, dict):
+                results = [results]
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                candidate_title = item.get("title") or item.get("name") or ""
+                candidate_clean = clean_for_match(candidate_title)
+                link = item.get("link") or item.get("url")
+                if (
+                    not link
+                    or len(candidate_clean) < 5
+                    or not wanted.startswith(candidate_clean)
+                ):
+                    continue
+                url = link if link.startswith("http") else f"https://aniworld.to{link if link.startswith('/') else '/' + link}"
+                if url in seen_urls or not AniworldSeries.is_valid_aniworld_series_url(url):
+                    continue
+                seen_urls.add(url)
+                candidates.append(AniworldSeries(url))
+        except Exception as exc:
+            logger.debug("AniWorld movie franchise search failed for %r: %s", prefix, type(exc).__name__)
+
+    for series in candidates:
+        try:
+            for season in series.seasons:
+                if not season.are_movies:
+                    continue
+                for episode in season.episodes:
+                    raw_names = [episode.title_de or "", episode.title_en or ""]
+                    
+                    def normalize_movie_name(value: str) -> str:
+                        # Keep token boundaries for fuzzy matching; strip AniWorld
+                        # movie labels and numbering before normalizing punctuation.
+                        value = html.unescape(str(value or ""))
+                        value = re.sub(r"<[^>]*>", " ", value)
+                        value = re.sub(r"\bmovie\s*\d+\b", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\[(?:movie|film|special)\]", " ", value, flags=re.IGNORECASE)
+                        value = re.sub(r"\b(?:movie|film)\b", " ", value, flags=re.IGNORECASE)
+                        return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+                    normalized_names = [normalize_movie_name(name) for name in raw_names if name]
+                    normalized_wanted = normalize_movie_name(title)
+                    wanted_compact = clean_for_match(normalized_wanted)
+
+                    # For localized titles, the descriptive subtitle can differ
+                    # completely. A matching movie number is safe only inside
+                    # the already identified franchise collection.
+                    requested_movie_number = re.search(r"\bmovie\s*(\d+)\b", str(title), re.IGNORECASE)
+                    candidate_movie_numbers = [
+                        re.search(r"\bmovie\s*(\d+)\b", str(name), re.IGNORECASE)
+                        for name in raw_names if name
+                    ]
+                    franchise_name = clean_for_match(getattr(series, "title", ""))
+                    franchise_matches = bool(
+                        franchise_name
+                        and clean_for_match(title).startswith(franchise_name)
+                    )
+                    numbered_franchise_match = bool(
+                        requested_movie_number
+                        and franchise_matches
+                        and any(
+                            number and number.group(1) == requested_movie_number.group(1)
+                            for number in candidate_movie_numbers
+                        )
+                    )
+
+                    # Emit focused diagnostics for the Conan title under test.
+                    if "blackiron" in wanted_compact or any("blackiron" in clean_for_match(n) for n in raw_names):
+                        logger.info(
+                            "AniWorld movie title diagnostic: requested=%r normalized=%r raw_candidates=%r "
+                            "normalized_candidates=%r franchise=%r franchise_matches=%s numbered_match=%s",
+                            title, normalized_wanted, raw_names, normalized_names,
+                            getattr(series, "title", ""), franchise_matches, numbered_franchise_match,
+                        )
+
+                    # Exact/containment matching first, then token overlap.
+                    matches = any(
+                        clean_for_match(name) == wanted_compact
+                        or wanted_compact in clean_for_match(name)
+                        or clean_for_match(name) in wanted_compact
+                        for name in normalized_names if name
+                    )
+                    if not matches and numbered_franchise_match:
+                        matches = True
+                        logger.info(
+                            "AniWorld movie franchise-number match: requested=%r candidate=%r series=%r movie_number=%s",
+                            title, raw_names, getattr(series, "title", ""),
+                            requested_movie_number.group(1),
+                        )
+
+                    if not matches:
+                        stop_words = {"the", "a", "an", "of", "and", "movie", "film", "special"}
+                        wanted_tokens = {
+                            token for token in normalized_wanted.split()
+                            if len(token) > 1 and token not in stop_words
+                        }
+                        for candidate_name in normalized_names:
+                            candidate_tokens = {
+                                token for token in candidate_name.split()
+                                if len(token) > 1 and token not in stop_words
+                            }
+                            if not wanted_tokens or not candidate_tokens:
+                                continue
+                            shared = wanted_tokens & candidate_tokens
+                            shorter_size = min(len(wanted_tokens), len(candidate_tokens))
+                            longer_size = max(len(wanted_tokens), len(candidate_tokens))
+                            if (
+                                len(shared) >= 2
+                                and len(shared) / shorter_size >= 0.6
+                                and len(shared) / longer_size >= 0.5
+                            ):
+                                matches = True
+                                logger.info(
+                                    "AniWorld movie fuzzy title match: requested=%r candidate=%r shared_tokens=%s",
+                                    title, candidate_name, sorted(shared),
+                                )
+                                break
+
+                    if not matches:
+                        stop_words = {"the", "a", "an", "of", "and", "movie", "film", "special"}
+                        wanted_tokens = {
+                            token for token in re.findall(r"[a-z0-9]+", normalized_wanted)
+                            if len(token) > 1 and token not in stop_words
+                        }
+                        for candidate_name in normalized_names:
+                            candidate_tokens = {
+                                token for token in re.findall(r"[a-z0-9]+", candidate_name)
+                                if len(token) > 1 and token not in stop_words
+                            }
+                            if not wanted_tokens or not candidate_tokens:
+                                continue
+                            shared = wanted_tokens & candidate_tokens
+                            shorter_size = min(len(wanted_tokens), len(candidate_tokens))
+                            longer_size = max(len(wanted_tokens), len(candidate_tokens))
+                            if (
+                                len(shared) >= 2
+                                and len(shared) / shorter_size >= 0.6
+                                and len(shared) / longer_size >= 0.5
+                            ):
+                                matches = True
+                                logger.info(
+                                    "AniWorld movie fuzzy title match: requested=%r candidate=%r shared_tokens=%s",
+                                    title,
+                                    candidate_name,
+                                    sorted(shared),
+                                )
+                                break
+
+                    if not matches:
+                        continue
+                    logger.info(
+                        "AniWorld movie title matched: requested=%r AniWorld=%r url=%s",
+                        title,
+                        raw_names,
+                        getattr(episode, "url", ""),
+                    )
+                    logger.info(
+                        "AniWorld movie stream extraction started: requested=%r candidate=%r",
+                        title,
+                        raw_names,
+                    )
+                    streams = _extract_aniworld_streams(episode, episode.title_de or episode.title_en or series.title)
+                    logger.info(
+                        "AniWorld movie stream extraction finished: requested=%r candidate=%r streams=%d providers=%s",
+                        title,
+                        raw_names,
+                        len(streams),
+                        [stream.get("name") or stream.get("title") for stream in streams],
+                    )
+                    if streams:
+                        return streams
+            logger.info(
+                "AniWorld movie collection checked: series=%r movies=%d no_matching_stream_found",
+                getattr(series, "title", title),
+                sum(1 for season in series.seasons if season.are_movies for _ in season.episodes),
+            )
+        except Exception as exc:
+            logger.warning(
+                "AniWorld movie collection processing failed: series=%s error=%s: %s",
+                getattr(series, "url", title),
+                type(exc).__name__,
+                exc,
+            )
+    logger.info("AniWorld movie lookup finished without streams: requested=%r", title)
+    return []
+
 
 def fetch_movie_site_streams(site_name: str, query_fn: Any, episode_cls: Any, title: str, year: Optional[int]) -> List[Dict]:
     """Search and extract streams for a movie from a single site."""
@@ -232,51 +940,96 @@ def get_movie_streams(imdb_id: str) -> List[Dict]:
     providers = [
         ("MegaKino", query_megakino, MegaKinoEpisode),
         ("Filmpalast", query_filmpalast, FilmPalastEpisode),
-        ("Kinox", query_kinox, KinoxEpisode),
     ]
+    if KINOX_ENABLED:
+        providers.append(("Kinox", query_kinox, KinoxEpisode))
+    aniworld_enabled = is_animation(meta)
+    logger.debug(
+        "AniWorld lookup for movie %r: enabled=%s",
+        en_title, aniworld_enabled,
+    )
 
-    with ThreadPoolExecutor(max_workers=len(providers) * len(titles_to_search)) as executor:
-        futures = []
-        for title in titles_to_search:
-            for site, q_fn, cls in providers:
-                futures.append(executor.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
+    futures = []
+    for title in titles_to_search:
+        if aniworld_enabled:
+            futures.append(_SCRAPE_EXECUTOR.submit(fetch_aniworld_movie_streams, title))
+        for site, q_fn, cls in providers:
+            futures.append(_SCRAPE_EXECUTOR.submit(fetch_movie_site_streams, site, q_fn, cls, title, year))
 
-        try:
-            for future in as_completed(futures, timeout=12):
-                all_streams.extend(future.result())
-                if len(all_streams) >= 6: break
-        except TimeoutError:
-            logger.warning("Scraping timed out for some providers")
-
-    return all_streams
+    all_streams.extend(_collect_scrape_results(futures, timeout=12))
+    return all_streams[:6]
 
 def fetch_series_site_streams(site_name: str, title: str, season: int, episode_num: int, binge_group: str) -> List[Dict]:
     """Search and extract streams for a series from a single site."""
     try:
         if site_name == "Serienstream":
+            # If credentials are configured, refresh the account session before
+            # searching. Login failure is non-fatal; the existing CAPTCHA flow remains.
+            ensure_serienstream_login()
             results = query_s_to(title)
-            if not results: return []
-            links = find_best_matches(results, title, season=season)
-            for link in links[:1]:
+            if not results:
+                logger.info(f"Serienstream: no search results for '{title}'")
+                return []
+            links = find_best_matches(
+                results,
+                title,
+                season=season,
+                allow_season_suffix=True,
+                allow_possessive_prefix=True,
+                allow_subtitle_suffix=True,
+            )
+            if not links:
+                returned_titles = [
+                    str(item.get("title") or item.get("name") or item.get("series") or "")
+                    for item in results if isinstance(item, dict)
+                ]
+                logger.info(
+                    f"Serienstream: no exact title match for '{title}'. "
+                    f"Search returned: {returned_titles[:10]}"
+                )
+                return []
+            # Try a few exact-title candidates in case one page or episode URL is stale.
+            for link in links[:3]:
                 series_url = f"https://serienstream.to{link}" if not link.startswith("http") else link
                 ep_url = f"{series_url.rstrip('/')}/staffel-{season}/episode-{episode_num}"
                 try:
                     episode = SerienstreamEpisode(url=ep_url)
-                    return extract_streams(episode, site_name, title, binge_group)
-                except Exception: pass
+                    streams = extract_streams(episode, site_name, title, binge_group)
+                    if streams:
+                        return streams
+                    logger.info(f"Serienstream: no German streams at {ep_url}")
+                except Exception as exc:
+                    logger.warning(f"Serienstream failed for {ep_url}: {exc}")
 
         elif site_name == "MegaKino":
-            results = query_megakino(f"{title} Staffel {season}")
-            if not results: results = query_megakino(title)
-            if not results: return []
-
+            # The season-specific query can return unrelated results. If none
+            # match the requested title, retry with the plain title.
+            results = query_megakino(f"{title} Staffel {season}") or []
             urls = find_best_matches(results, title, season=season)
-            for url in urls[:1]:
+            if not urls:
+                results = query_megakino(title) or []
+                urls = find_best_matches(results, title, season=season)
+            if not urls:
+                returned_titles = [
+                    str(item.get("title") or item.get("name") or "")
+                    for item in results if isinstance(item, dict)
+                ]
+                logger.info(
+                    f"MegaKino: no exact title match for '{title}'. "
+                    f"Search returned: {returned_titles[:10]}"
+                )
+                return []
+
+            for url in urls[:2]:
                 ep_url = f"{url}#mkep={episode_num}"
                 try:
                     episode = MegaKinoEpisode(ep_url)
-                    return extract_streams(episode, site_name, title, binge_group)
-                except Exception: pass
+                    streams = extract_streams(episode, site_name, title, binge_group)
+                    if streams:
+                        return streams
+                    logger.info(f"MegaKino: no German streams at {ep_url}")
+                except Exception as exc:
+                    logger.warning(f"MegaKino failed for {ep_url}: {exc}")
 
         elif site_name == "Kinox":
             results = query_kinox(title)
@@ -300,23 +1053,79 @@ def get_series_streams(imdb_id: str, season: int, episode_num: int) -> List[Dict
 
     en_title = meta.get("name")
     de_title = get_german_title("series", pure_imdb_id)
-    titles_to_search = {en_title}
-    if de_title: titles_to_search.add(de_title)
+    titles_to_search = {
+        str(title).strip()
+        for title in (en_title, de_title)
+        if isinstance(title, str) and title.strip()
+    }
+    if not titles_to_search:
+        logger.warning("Series metadata has no searchable title for %s", pure_imdb_id)
+        return []
 
     all_streams = []
     binge_group = f"{pure_imdb_id}"
-    sites = ["Serienstream", "MegaKino", "Kinox"]
+    aniworld_enabled = is_animation(meta)
+    target_video = _get_cinemeta_episode(meta, season, episode_num) if aniworld_enabled else None
+    target_episode_title = (target_video or {}).get("title") if target_video else None
+    if aniworld_enabled and not target_episode_title:
+        logger.info(
+            "Cinemeta has no video title for %r S%02dE%02d; AniWorld will use guarded numeric fallback",
+            en_title, season, episode_num,
+        )
+    logger.debug(
+        "AniWorld lookup for series %r: enabled=%s episode_title=%r",
+        en_title, aniworld_enabled, target_episode_title,
+    )
+    if _is_naruto_diagnostic(en_title) or _is_naruto_diagnostic(de_title):
+        logger.debug(
+            "[AniWorld Naruto] metadata gate: en_title=%r de_title=%r genres=%r enabled=%s requested=S%02dE%02d",
+            en_title, de_title, meta.get("genres"), aniworld_enabled, season, episode_num,
+        )
+        logger.debug(
+            "[AniWorld Naruto] provider search titles=%r",
+            sorted(title for title in titles_to_search if title),
+        )
 
-    with ThreadPoolExecutor(max_workers=len(sites) * len(titles_to_search)) as executor:
-        futures = []
-        for title in titles_to_search:
-            for site in sites:
-                futures.append(executor.submit(fetch_series_site_streams, site, title, season, episode_num, binge_group))
+    futures = []
+    for title in titles_to_search:
+        if aniworld_enabled:
+            futures.append(_SCRAPE_EXECUTOR.submit(
+                fetch_aniworld_series_streams,
+                title,
+                season,
+                episode_num,
+                binge_group,
+                pure_imdb_id,
+                target_episode_title,
+            ))
 
-        try:
-            for future in as_completed(futures, timeout=12):
-                all_streams.extend(future.result())
-        except TimeoutError:
-            logger.warning("Scraping timed out for some providers")
+        # A concurrent request may share the same running lookup, but a
+        # completed result is never reused: later requests check the provider
+        # again so changed availability and expired links are observed.
+        s_to_key = (pure_imdb_id, title, season, episode_num)
+        with _S_TO_LOCK:
+            s_to_future = _S_TO_INFLIGHT.get(s_to_key)
+            if s_to_future is None:
+                try:
+                    s_to_future = _S_TO_EXECUTOR.submit(
+                        _fetch_s_to_live, title, season, episode_num, binge_group
+                    )
+                    _S_TO_INFLIGHT[s_to_key] = s_to_future
+                    s_to_future.add_done_callback(
+                        lambda future, key=s_to_key: _clear_s_to_inflight(key, future)
+                    )
+                except Exception as exc:
+                    s_to_future = None
+                    logger.warning("Could not schedule Serienstream lookup: %s", exc)
+        if s_to_future is not None:
+            futures.append(s_to_future)
 
+        # MegaKino is intentionally movie-only: skip its series lookup to
+        # avoid adding latency and unrelated search traffic to series requests.
+        if KINOX_ENABLED:
+            futures.append(_SCRAPE_EXECUTOR.submit(
+                fetch_series_site_streams, "Kinox", title, season, episode_num, binge_group
+            ))
+
+    all_streams.extend(_collect_scrape_results(futures, timeout=12))
     return all_streams

@@ -77,9 +77,26 @@ class AniworldSeason:
     @property
     def _html(self):
         if self.__html is None:
-            logger.debug(f"fetching ({self.url})...")
-            resp = GLOBAL_SESSION.get(self.url)
-            self.__html = resp.text
+            logger.debug("AniWorld season page request started: %s", self.url)
+            try:
+                # A stalled AniWorld movie-list request must not leave the
+                # movie lookup running indefinitely.
+                resp = GLOBAL_SESSION.get(self.url, timeout=10)
+                resp.raise_for_status()
+                self.__html = resp.text
+                logger.debug(
+                    "AniWorld season page received: path=%s status=%s html_length=%d",
+                    self.url.split("aniworld.to", 1)[-1],
+                    resp.status_code,
+                    len(self.__html),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "AniWorld season page request failed: path=%s error=%s",
+                    self.url.split("aniworld.to", 1)[-1],
+                    type(exc).__name__,
+                )
+                raise
         return self.__html
 
     @property
@@ -193,6 +210,14 @@ class AniworldSeason:
         episodes = []
 
         marker = 'itemtype="http://schema.org/Episode"'
+        marker_count = html.count(marker)
+        if self.are_movies:
+            logger.info(
+                "AniWorld movie parser: path=%s html_length=%d episode_markers=%d",
+                self.url.split("aniworld.to", 1)[-1],
+                len(html),
+                marker_count,
+            )
         pos = 0
 
         while True:
@@ -306,6 +331,16 @@ class AniworldSeason:
 
             pos = tr_end
 
+        if self.are_movies:
+            logger.info(
+                "AniWorld movie parser result: path=%s parsed_movies=%d titles=%s",
+                self.url.split("aniworld.to", 1)[-1],
+                len(episodes),
+                [
+                    (episode.title_de or episode.title_en or "")[:100]
+                    for episode in episodes[:30]
+                ],
+            )
         return episodes
 
     def __extract_episode_count(self):
