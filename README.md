@@ -33,12 +33,35 @@ records for titles, seasons, episodes, language variants, and hosters.
   Stremio genres are populated later by the TMDB/IMDb metadata enrichment step,
   so tags such as language flags are not mistakenly exposed as genres.
 
-Run a crawl manually inside the application container:
+Run a single bounded crawl manually inside the application container:
 
 ```bash
-python -m providers --provider aniworld
-python -m providers --provider serienstream
+python -m crawl_catalog all
 ```
+
+To keep processing deferred detail pages in resumable batches until both
+provider indexes are complete, use drain mode:
+
+```bash
+python -m crawl_catalog all --drain
+```
+
+Drain mode processes one provider at a time, with up to 200 detail pages per
+batch by default. It waits a random **3–8 minutes between batches**. Adjust the
+pause range or limit one invocation to a fixed number of batches when needed:
+
+```bash
+python -m crawl_catalog all --drain --pause-minutes 4 9
+python -m crawl_catalog all --drain --max-batches 5
+```
+
+The drain stops immediately if the safety guard detects HTTP 403/429, a CAPTCHA
+or another provider block. A manual interrupt also closes the current run as
+partial. Titles and unresolved provider URLs processed before a stop are
+persisted immediately, so the next invocation skips those URLs and continues.
+The remaining URL set is reconstructed by scanning the provider's current
+index; it is not stored as a separate immutable snapshot queue. A deferred URL
+therefore needs to remain present in that index to be picked up by a later run.
 
 The structure-cache lifetime can be changed with the container environment
 variable `SERIES_STRUCTURE_CACHE_TTL_SECONDS` (default: `86400` seconds).
