@@ -6,6 +6,7 @@ import random
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from math import ceil
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 
@@ -94,7 +95,7 @@ def _retry_after_seconds(response) -> int | None:
             when = parsedate_to_datetime(value)
             if when.tzinfo is None:
                 when = when.replace(tzinfo=timezone.utc)
-            return max(0, int((when - _now()).total_seconds()))
+            return max(0, ceil((when - _now()).total_seconds()))
         except (TypeError, ValueError, OverflowError):
             return None
 
@@ -251,9 +252,7 @@ class CrawlGuard:
             ).fetchone()
             if row and row["blocked_until"] and row["blocked_until"] > _iso(now):
                 blocked_until = datetime.fromisoformat(row["blocked_until"])
-                retry_after = max(
-                    1, int((blocked_until - now).total_seconds() + 0.999)
-                )
+                retry_after = max(1, ceil((blocked_until - now).total_seconds()))
                 raise ProviderCooldownError(
                     f"{self.provider} is in cooldown until {row['blocked_until']}: "
                     f"{row['block_reason'] or 'previous block signal'}",
