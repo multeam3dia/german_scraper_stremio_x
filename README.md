@@ -55,10 +55,16 @@ python -m crawl_catalog all --drain --pause-minutes 4 9
 python -m crawl_catalog all --drain --max-batches 5
 ```
 
-The drain stops immediately if the safety guard detects HTTP 403/429, a CAPTCHA
-or another provider block. A manual interrupt also closes the current run as
-partial. Titles and unresolved provider URLs processed before a stop are
-persisted immediately, so the next invocation skips those URLs and continues.
+Transient HTTP 5xx/network failures and HTTP 429 responses use a persisted
+cooldown. Drain mode waits for that cooldown and automatically retries up to
+two times per provider incident by default; the provider's HTTP 429
+`Retry-After` value is respected (with a minimum five-minute cooldown).
+HTTP 403, CAPTCHA/anti-bot challenges, and exhausted retry budgets stop the
+drain rather than repeatedly contacting the provider. Configure the retry
+budget with `--max-transient-retries N`. A manual interrupt also closes the
+current run as partial. Titles and unresolved provider URLs processed before a
+stop are persisted immediately, so the next invocation skips those URLs and
+continues.
 The remaining URL set is reconstructed by scanning the provider's current
 index; it is not stored as a separate immutable snapshot queue. A deferred URL
 therefore needs to remain present in that index to be picked up by a later run.
