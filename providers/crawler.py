@@ -82,6 +82,8 @@ def crawl_provider(
     errors: list[str] = []
     index_exhausted = False
     blocked = False
+    blocked_retryable = False
+    retry_after_seconds = 0
     requests_made = 0
 
     try:
@@ -200,6 +202,8 @@ def crawl_provider(
 
     except CrawlBlockedError as exc:
         blocked = True
+        blocked_retryable = bool(exc.retryable)
+        retry_after_seconds = max(0, int(exc.retry_after_seconds))
         if len(errors) < 20:
             errors.append(str(exc))
         if "session" in locals() and session is not None:
@@ -297,6 +301,8 @@ def crawl_provider(
         "title_errors": failed,
         "requests_made": requests_made,
         "blocked": blocked,
+        "retryable": blocked_retryable,
+        "retry_after_seconds": retry_after_seconds,
         "availability_reconciliation": reconciliation,
         "errors": errors,
     }
