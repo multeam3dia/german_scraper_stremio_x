@@ -5,12 +5,22 @@ import unittest
 from providers.crawl_batches import run_drain
 
 
-def _result(*, status="partial", detail_limit=True, index_complete=True, blocked=False):
+def _result(
+    *,
+    status="partial",
+    detail_limit=True,
+    index_complete=True,
+    blocked=False,
+    retryable=False,
+    retry_after_seconds=0,
+):
     return {
         "status": status,
         "detail_limit_reached": detail_limit,
         "index_complete": index_complete,
         "blocked": blocked,
+        "retryable": retryable,
+        "retry_after_seconds": retry_after_seconds,
     }
 
 
@@ -65,7 +75,7 @@ class CrawlBatchRunnerTests(unittest.TestCase):
         self.assertEqual(summary["exit_code"], 0)
         self.assertEqual(events[-1]["event"], "drain_finished")
 
-    def test_block_stops_immediately_without_pause_or_next_provider(self):
+    def test_permanent_block_stops_immediately_without_pause_or_next_provider(self):
         calls = []
         pauses = []
         events = []
@@ -92,6 +102,101 @@ class CrawlBatchRunnerTests(unittest.TestCase):
         self.assertEqual(summary["stop_reason"], "blocked:aniworld")
         self.assertEqual(summary["remaining_providers"], ["aniworld", "serienstream"])
         self.assertEqual(summary["exit_code"], 1)
+
+    def test_retryable_block_waits_and_resumes_same_provider(self):
+        responses = [
+            _result(
+                detail_limit=False,
+                index_complete=False,
+                blocked=True,
+                retryable=True,
+                retry_after_seconds=120,
+            ),
+            _result(status="completed", detail_limit=False),
+        ]
+        calls = []
+        pauses = []
+        events = []
+
+        def crawl(provider_id, *, max_details=None):
+            calls.append(provider_id)
+            return responses.pop(0)
+
+        summary = run_drain(
+            ("serienstream",),
+            crawl,
+            max_transient_retries=2,
+            sleep=pauses.append,
+            emit=events.append,
+        )
+
+        self.assertEqual(calls, ["serienstream", "serienstream"])
+        self.assertEqual(pauses, [120])
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["completed_providers"], ["serienstream"])
+        self.assertEqual(summary["exit_code"], 0)
+        self.assertTrue(
+            any(event["event"] == "batch_retry_scheduled" for event in events)
+        )
+
+    def test_retryable_block_stops_after_retry_budget_is_exhausted(self):
+        blocked_result = _result(
+            detail_limit=False,
+            index_complete=False,
+            blocked=True,
+            retryable=True,
+            retry_after_seconds=90,
+        )
+        responses = [blocked_result, blocked_result, blocked_result]
+        calls = []
+        pauses = []
+
+        def crawl(provider_id, *, max_details=None):
+            calls.append(provider_id)
+            return responses.pop(0)
+
+        summary = run_drain(
+            ("serienstream",),
+            crawl,
+            max_transient_retries=2,
+            sleep=pauses.append,
+            emit=lambda event: None,
+        )
+
+        self.assertEqual(calls, ["serienstream", "serienstream", "serienstream"])
+        self.assertEqual(pauses, [90, 90])
+        self.assertEqual(summary["status"], "stopped")
+        self.assertEqual(summary["stop_reason"], "retry_exhausted:serienstream")
+        self.assertEqual(summary["exit_code"], 1)
+
+    def test_batch_cap_prevents_scheduling_an_additional_retry(self):
+        calls = []
+        pauses = []
+
+        def crawl(provider_id, *, max_details=None):
+            calls.append(provider_id)
+            return _result(
+                detail_limit=False,
+                index_complete=False,
+                blocked=True,
+                retryable=True,
+                retry_after_seconds=300,
+            )
+
+        summary = run_drain(
+            ("serienstream",),
+            crawl,
+            max_batches=1,
+            max_transient_retries=2,
+            sleep=pauses.append,
+            emit=lambda event: None,
+        )
+
+        self.assertEqual(calls, ["serienstream"])
+        self.assertEqual(pauses, [])
+        self.assertEqual(summary["status"], "paused")
+        self.assertEqual(summary["stop_reason"], "max_batches_reached")
+        self.assertEqual(summary["exit_code"], 0)
 
     def test_incomplete_index_stops_instead_of_spinning(self):
         calls = []
@@ -144,6 +249,15 @@ class CrawlBatchRunnerTests(unittest.TestCase):
                 lambda provider_id, *, max_details=None: _result(),
                 pause_min_minutes=8,
                 pause_max_minutes=3,
+                emit=lambda event: None,
+            )
+
+    def test_negative_retry_budget_is_rejected(self):
+        with self.assertRaises(ValueError):
+            run_drain(
+                ("aniworld",),
+                lambda provider_id, *, max_details=None: _result(),
+                max_transient_retries=-1,
                 emit=lambda event: None,
             )
 
