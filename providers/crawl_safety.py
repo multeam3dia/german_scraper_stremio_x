@@ -20,6 +20,17 @@ class CrawlBlockedError(RuntimeError):
 
     crawl_blocked = True
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        retry_after_seconds: int = 0,
+    ):
+        super().__init__(message)
+        self.retryable = bool(retryable)
+        self.retry_after_seconds = max(0, int(retry_after_seconds))
+
 
 class ProviderCooldownError(CrawlBlockedError):
     """A previous block signal put this provider into a cooldown period."""
@@ -44,12 +55,21 @@ def _ensure_state_table(db) -> None:
             provider TEXT PRIMARY KEY,
             blocked_until TEXT,
             block_reason TEXT,
+            retryable INTEGER NOT NULL DEFAULT 0,
             lock_owner TEXT,
             lock_expires_at TEXT,
             updated_at TEXT NOT NULL
         )
         """
     )
+    columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(provider_crawl_guard)")
+    }
+    if "retryable" not in columns:
+        db.execute(
+            "ALTER TABLE provider_crawl_guard "
+            "ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 def _retry_after_seconds(response) -> int | None:
@@ -92,11 +112,19 @@ class GuardedSession:
             time.sleep(random.uniform(self._guard.delay_min, self._guard.delay_max))
         self._last_request = time.monotonic()
 
-    def _block(self, reason: str, cooldown: timedelta):
+    def _block(
+        self,
+        reason: str,
+        cooldown: timedelta,
+        *,
+        retryable: bool = False,
+    ):
         until = _now() + cooldown
-        self._guard.set_cooldown(until, reason)
+        self._guard.set_cooldown(until, reason, retryable=retryable)
         raise CrawlBlockedError(
-            f"{self._provider} crawl stopped: {reason}; cooldown until {_iso(until)}"
+            f"{self._provider} crawl stopped: {reason}; cooldown until {_iso(until)}",
+            retryable=retryable,
+            retry_after_seconds=max(1, int(cooldown.total_seconds() + 0.999)),
         )
 
     def _request(self, method, url, *args, **kwargs):
@@ -117,6 +145,7 @@ class GuardedSession:
                     self._block(
                         f"Repeated network errors ({type(exc).__name__})",
                         timedelta(minutes=15),
+                        retryable=True,
                     )
                 time.sleep(random.uniform(self._guard.delay_min, self._guard.delay_max))
                 continue
@@ -129,6 +158,7 @@ class GuardedSession:
                 self._block(
                     "HTTP 429 Too Many Requests",
                     timedelta(seconds=max(300, seconds or 0)),
+                    retryable=True,
                 )
 
             body = str(getattr(response, "text", "") or "")[:12000].lower()
@@ -152,6 +182,7 @@ class GuardedSession:
                 self._block(
                     f"HTTP {status} persisted after retries",
                     timedelta(minutes=30),
+                    retryable=True,
                 )
             return response
 
@@ -208,9 +239,15 @@ class CrawlGuard:
                 (self.provider,),
             ).fetchone()
             if row and row["blocked_until"] and row["blocked_until"] > _iso(now):
+                blocked_until = datetime.fromisoformat(row["blocked_until"])
+                retry_after = max(
+                    1, int((blocked_until - now).total_seconds() + 0.999)
+                )
                 raise ProviderCooldownError(
                     f"{self.provider} is in cooldown until {row['blocked_until']}: "
-                    f"{row['block_reason'] or 'previous block signal'}"
+                    f"{row['block_reason'] or 'previous block signal'}",
+                    retryable=bool(row["retryable"]),
+                    retry_after_seconds=retry_after,
                 )
             if row and row["lock_expires_at"] and row["lock_expires_at"] > _iso(now):
                 raise ProviderAlreadyRunningError(
@@ -274,16 +311,29 @@ class CrawlGuard:
                 )
         self._last_heartbeat = current
 
-    def set_cooldown(self, until: datetime, reason: str) -> None:
+    def set_cooldown(
+        self,
+        until: datetime,
+        reason: str,
+        *,
+        retryable: bool = False,
+    ) -> None:
         with _connect() as db:
             _ensure_state_table(db)
             db.execute(
                 """
                 UPDATE provider_crawl_guard
-                SET blocked_until=?, block_reason=?, updated_at=?
+                SET blocked_until=?, block_reason=?, retryable=?, updated_at=?
                 WHERE provider=? AND lock_owner=?
                 """,
-                (_iso(until), reason[:500], _iso(_now()), self.provider, self.owner),
+                (
+                    _iso(until),
+                    reason[:500],
+                    int(retryable),
+                    _iso(_now()),
+                    self.provider,
+                    self.owner,
+                ),
             )
 
     def _release_lock(self) -> None:
