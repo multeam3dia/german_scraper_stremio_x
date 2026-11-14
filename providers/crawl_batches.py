@@ -25,6 +25,7 @@ def run_drain(
     pause_min_minutes: float = 3.0,
     pause_max_minutes: float = 8.0,
     max_batches: int | None = None,
+    max_transient_retries: int = 2,
     sleep: Callable[[float], None] | None = None,
     uniform: Callable[[float, float], float] | None = None,
     emit: Callable[[dict[str, Any]], None] | None = None,
@@ -32,8 +33,9 @@ def run_drain(
     """Drain providers in bounded batches, pausing between batches.
 
     Providers are processed sequentially. A provider is removed from the work
-    once its index is complete and no detail-page budget was exhausted. A
-    safety-guard block or incomplete index stops the entire drain immediately.
+    once its index is complete and no detail-page budget was exhausted. Transient
+    network/server/rate-limit cooldowns are retried a bounded number of times;
+    permanent safety blocks and incomplete indexes stop the entire drain.
     """
     providers = tuple(
         dict.fromkeys(
@@ -51,6 +53,8 @@ def run_drain(
         raise ValueError("pause range must satisfy 0 <= min <= max")
     if max_batches is not None and max_batches < 1:
         raise ValueError("max_batches must be at least 1")
+    if max_transient_retries < 0:
+        raise ValueError("max_transient_retries must be at least 0")
 
     sleeper = sleep or time.sleep
     choose_pause = uniform or random.uniform
@@ -61,6 +65,7 @@ def run_drain(
     stop_reason: str | None = None
 
     for provider_index, provider_id in enumerate(providers):
+        retries_for_provider = 0
         while True:
             if max_batches is not None and batches >= max_batches:
                 stop_reason = "max_batches_reached"
@@ -95,9 +100,34 @@ def run_drain(
             })
 
             if result.get("blocked"):
-                stop_reason = f"blocked:{provider_id}"
+                if result.get("retryable"):
+                    if max_batches is not None and batches >= max_batches:
+                        stop_reason = "max_batches_reached"
+                        break
+                    if retries_for_provider < max_transient_retries:
+                        retries_for_provider += 1
+                        wait_seconds = max(
+                            1,
+                            int(float(result.get("retry_after_seconds") or 0) + 0.999),
+                        )
+                        errors = result.get("errors") or []
+                        emit_event({
+                            "event": "batch_retry_scheduled",
+                            "after_batch": batches,
+                            "provider": provider_id,
+                            "retry_attempt": retries_for_provider,
+                            "max_retries": max_transient_retries,
+                            "wait_seconds": wait_seconds,
+                            "reason": errors[0] if errors else "transient provider error",
+                        })
+                        sleeper(wait_seconds)
+                        continue
+                    stop_reason = f"retry_exhausted:{provider_id}"
+                else:
+                    stop_reason = f"blocked:{provider_id}"
                 break
 
+            retries_for_provider = 0
             if result.get("status") == "completed" and result.get("index_complete"):
                 completed.append(provider_id)
                 needs_another_batch = False
@@ -160,6 +190,7 @@ def run_drain(
         "remaining_providers": remaining,
         "stop_reason": stop_reason,
         "max_batches": max_batches,
+        "max_transient_retries": max_transient_retries,
         "exit_code": exit_code,
     }
     emit_event({"event": "drain_finished", **summary})
