@@ -45,7 +45,7 @@ def main() -> int:
         action="store_true",
         help=(
             "Repeat bounded detail-page batches until providers complete; "
-            "stop immediately on a safety-guard block"
+            "retry transient cooldowns and stop on permanent safety blocks"
         ),
     )
     parser.add_argument(
