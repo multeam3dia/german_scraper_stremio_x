@@ -63,6 +63,13 @@ def main() -> int:
         metavar="N",
         help="Optional clean stop after N batches; the next run resumes from SQLite",
     )
+    parser.add_argument(
+        "--max-transient-retries",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Automatic retries for transient provider cooldowns in drain mode (default: 2)",
+    )
     args = parser.parse_args()
 
     if args.max_details is not None and args.max_details < 1:
@@ -73,6 +80,8 @@ def main() -> int:
             parser.error("--drain cannot be combined with --index-only")
         if args.max_batches is not None and args.max_batches < 1:
             parser.error("--max-batches must be at least 1")
+        if args.max_transient_retries is not None and args.max_transient_retries < 0:
+            parser.error("--max-transient-retries must be at least 0")
         if args.pause_minutes is None:
             pause_min, pause_max = 3.0, 8.0
         else:
@@ -93,6 +102,10 @@ def main() -> int:
                 pause_min_minutes=pause_min,
                 pause_max_minutes=pause_max,
                 max_batches=args.max_batches,
+                max_transient_retries=(
+                    2 if args.max_transient_retries is None
+                    else args.max_transient_retries
+                ),
             )
         except KeyboardInterrupt:
             print(
@@ -105,8 +118,14 @@ def main() -> int:
             return 130
         return int(summary["exit_code"])
 
-    if args.pause_minutes is not None or args.max_batches is not None:
-        parser.error("--pause-minutes and --max-batches require --drain")
+    if (
+        args.pause_minutes is not None
+        or args.max_batches is not None
+        or args.max_transient_retries is not None
+    ):
+        parser.error(
+            "--pause-minutes, --max-batches and --max-transient-retries require --drain"
+        )
 
     results = (
         crawl_all_catalog_providers(
