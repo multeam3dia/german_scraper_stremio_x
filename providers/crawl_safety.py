@@ -70,6 +70,17 @@ def _ensure_state_table(db) -> None:
             "ALTER TABLE provider_crawl_guard "
             "ADD COLUMN retryable INTEGER NOT NULL DEFAULT 0"
         )
+        # Preserve automatic recovery for transient cooldowns created by the
+        # previous schema, which did not persist the retryable flag.
+        db.execute(
+            """
+            UPDATE provider_crawl_guard
+            SET retryable=1
+            WHERE block_reason LIKE 'HTTP 5%'
+               OR block_reason LIKE 'HTTP 429%'
+               OR block_reason LIKE 'Repeated network errors%'
+            """
+        )
 
 
 def _retry_after_seconds(response) -> int | None:
@@ -153,14 +164,6 @@ class GuardedSession:
             status = int(getattr(response, "status_code", 0) or 0)
             if status == 403:
                 self._block("HTTP 403 Forbidden", timedelta(hours=6))
-            if status == 429:
-                seconds = _retry_after_seconds(response)
-                self._block(
-                    "HTTP 429 Too Many Requests",
-                    timedelta(seconds=max(300, seconds or 0)),
-                    retryable=True,
-                )
-
             body = str(getattr(response, "text", "") or "")[:12000].lower()
             challenge_markers = (
                 "cf-chl-",
@@ -174,6 +177,14 @@ class GuardedSession:
             )
             if any(marker in body for marker in challenge_markers):
                 self._block("CAPTCHA or anti-bot challenge detected", timedelta(hours=12))
+
+            if status == 429:
+                seconds = _retry_after_seconds(response)
+                self._block(
+                    "HTTP 429 Too Many Requests",
+                    timedelta(seconds=max(300, seconds or 0)),
+                    retryable=True,
+                )
 
             if 500 <= status <= 599:
                 if attempt < 2:
