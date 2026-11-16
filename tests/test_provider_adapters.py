@@ -3,46 +3,40 @@
 import unittest
 from unittest.mock import patch
 
-from aniworld.search import GENRE_FALLBACK
 from providers.aniworld import AniWorldProvider
 from providers.base import ProviderTitle
 from providers.serienstream import SerienstreamProvider
 
 
 class AniWorldAdapterTests(unittest.TestCase):
-    def test_catalog_references_use_normalized_provider_genres_field(self):
+    def test_catalog_references_use_normalized_provider_fields(self):
+        provider = AniWorldProvider()
+        index_items = [{
+            "url": "https://aniworld.to/anime/stream/example",
+            "title": "Example",
+            "poster_url": "https://img.example/poster.jpg",
+        }]
         with patch(
-            "providers.aniworld.fetch_genres",
-            return_value=[{"slug": "drama", "name": "Drama"}],
-        ), patch(
-            "providers.aniworld.fetch_genre_animes",
-            return_value={
-                "results": [{
-                    "url": "https://aniworld.to/anime/stream/example",
-                    "title": "Example",
-                    "poster_url": "https://img.example/poster.jpg",
-                }],
-                "has_more": False,
-            },
-        ):
-            item = next(AniWorldProvider().iter_catalog())
+            "providers.aniworld.fetch_aniworld_index",
+            return_value=index_items,
+        ) as fetch_index:
+            item = next(provider.iter_catalog())
 
+        fetch_index.assert_called_once_with(session=None)
         self.assertEqual(item.title, "Example")
-        self.assertEqual(item.provider_genres, ["Drama"])
+        self.assertEqual(item.provider, "aniworld")
+        self.assertEqual(item.provider_genres, [])
+        self.assertEqual(item.poster_url, "https://img.example/poster.jpg")
+        self.assertTrue(provider.catalog_scan_complete)
 
-    def test_fallback_genre_index_is_not_considered_a_complete_scan(self):
-        fallback = [
-            {"name": name, "slug": slug} for name, slug in GENRE_FALLBACK
-        ]
+    def test_empty_az_index_is_not_considered_a_complete_scan(self):
         provider = AniWorldProvider()
         with patch(
-            "providers.aniworld.fetch_genres",
-            return_value=fallback,
-        ), patch(
-            "providers.aniworld.fetch_genre_animes",
-            return_value={"results": [], "has_more": False},
+            "providers.aniworld.fetch_aniworld_index",
+            return_value=[],
         ):
-            list(provider.iter_catalog())
+            with self.assertRaises(RuntimeError):
+                list(provider.iter_catalog())
 
         self.assertFalse(provider.catalog_scan_complete)
 
