@@ -188,5 +188,39 @@ class SimklTrackingTests(unittest.TestCase):
         self.assertEqual(result, {"status": "ignored", "reason": "duration_unknown"})
 
 
+    def test_unauthorized_scrobble_clears_credentials_after_refresh_retry(self):
+        event = self._event(action="start", progress=10.0)
+        with patch(
+            "simkl_tracking._get_access_token",
+            side_effect=["initial-access-token", "refreshed-access-token"],
+        ), patch(
+            "simkl_tracking._api_post",
+            side_effect=[
+                (401, {"error": "invalid_token"}),
+                (401, {"error": "invalid_token"}),
+            ],
+        ) as post:
+            result = simkl_tracking.scrobble_event(event)
+
+        self.assertEqual(result["status"], "not_connected")
+        self.assertEqual(result["http_status"], 401)
+        self.assertEqual(post.call_count, 2)
+        self.assertFalse(simkl_tracking.get_simkl_status()["connected"])
+
+    def test_simkl_requires_client_configuration_and_write_scope(self):
+        os.environ.pop("SIMKL_CLIENT_ID", None)
+        self.assertEqual(simkl_tracking.get_simkl_status()["status"], "not_configured")
+        os.environ["SIMKL_CLIENT_ID"] = "test-simkl-client"
+        simkl_tracking._save_token_response({
+            "access_token": "read-only-access",
+            "refresh_token": "read-only-refresh",
+            "expires_in": 3600,
+            "scope": "media:read",
+        })
+        status = simkl_tracking.get_simkl_status()
+        self.assertFalse(status["connected"])
+        self.assertEqual(status["reason"], "missing_media_write_scope")
+
+
 if __name__ == "__main__":
     unittest.main()
