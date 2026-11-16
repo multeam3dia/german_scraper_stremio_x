@@ -376,20 +376,36 @@ def _require_tokenized_addon(request: Request) -> None:
 
 
 def _dispatch_tracking_event(event):
-    """Send one normalized event independently to every configured tracker."""
-    try:
-        simkl_result = scrobble_event(event)
-    except SimklError:
-        simkl_result = {"status": "error", "reason": "simkl_error"}
-    except Exception as exc:
-        logger.warning("Unexpected Simkl tracking error: %s", exc.__class__.__name__)
-        simkl_result = {"status": "error", "reason": "unexpected_error"}
+    """Send events only to trackers with a currently valid connection."""
+    simkl_status = get_simkl_status()
+    if simkl_status.get("connected"):
+        try:
+            simkl_result = scrobble_event(event)
+        except SimklError:
+            simkl_result = {"status": "error", "reason": "simkl_error"}
+        except Exception as exc:
+            logger.warning("Unexpected Simkl tracking error: %s", exc.__class__.__name__)
+            simkl_result = {"status": "error", "reason": "unexpected_error"}
+    else:
+        simkl_result = {
+            "status": simkl_status.get("status") or "not_connected",
+            "reason": simkl_status.get("reason"),
+        }
 
-    try:
-        mdblist_result = mdblist_scrobble_event(event)
-    except Exception as exc:
-        logger.warning("Unexpected MDBList tracking error: %s", exc.__class__.__name__)
-        mdblist_result = {"status": "error", "reason": "unexpected_error"}
+    # MDBList performs a cached connection check (60 seconds), so this does not
+    # generate an API validation request for every player event.
+    mdblist_status = get_mdblist_status()
+    if mdblist_status.get("connected"):
+        try:
+            mdblist_result = mdblist_scrobble_event(event)
+        except Exception as exc:
+            logger.warning("Unexpected MDBList tracking error: %s", exc.__class__.__name__)
+            mdblist_result = {"status": "error", "reason": "unexpected_error"}
+    else:
+        mdblist_result = {
+            "status": mdblist_status.get("status") or "not_connected",
+            "reason": mdblist_status.get("reason"),
+        }
 
     providers = {"simkl": simkl_result, "mdblist": mdblist_result}
     statuses = [str(result.get("status") or "unknown") for result in providers.values()]
