@@ -237,15 +237,36 @@ def _clear_credentials() -> None:
 
 
 def get_simkl_status() -> dict[str, Any]:
+    """Report whether usable Simkl credentials with scrobble permission exist locally."""
+    configured = bool(os.getenv("SIMKL_CLIENT_ID", "").strip())
     credentials = _load_credentials()
     if not credentials:
-        return {"connected": False}
+        return {
+            "configured": configured,
+            "connected": False,
+            "status": "not_connected" if configured else "not_configured",
+        }
     now = int(time.time())
     if credentials["refresh_expires_at"] <= now:
         _clear_credentials()
-        return {"connected": False}
+        return {
+            "configured": configured,
+            "connected": False,
+            "status": "not_connected",
+            "reason": "refresh_token_expired",
+        }
+    if "media:write" not in credentials["scope"].split():
+        return {
+            "configured": configured,
+            "connected": False,
+            "status": "not_connected",
+            "reason": "missing_media_write_scope",
+            "scope": credentials["scope"],
+        }
     return {
+        "configured": configured,
         "connected": True,
+        "status": "connected",
         "scope": credentials["scope"],
         "access_expires_at": credentials["access_expires_at"],
         "access_expires_in": max(0, credentials["access_expires_at"] - now),
