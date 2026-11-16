@@ -162,12 +162,15 @@ def get_mdblist_status(*, force_refresh: bool = False) -> dict[str, Any]:
         http_status, _data, headers = _api_request("GET", "/user")
     except MDBListTrackingError:
         # A network failure is not proof that the API key became invalid.
-        return {
+        # Cache briefly so an outage does not trigger /user on every event.
+        result = {
             "configured": True,
             "connected": False,
             "status": "error",
             "reason": "api_unreachable",
         }
+        _set_connection_status(result, api_key)
+        return result
 
     result: dict[str, Any] = {
         "configured": True,
