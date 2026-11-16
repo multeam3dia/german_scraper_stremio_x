@@ -239,6 +239,12 @@ def _clear_credentials() -> None:
 def get_simkl_status() -> dict[str, Any]:
     """Report whether usable Simkl credentials with scrobble permission exist locally."""
     configured = bool(os.getenv("SIMKL_CLIENT_ID", "").strip())
+    if not configured:
+        return {
+            "configured": False,
+            "connected": False,
+            "status": "not_configured",
+        }
     credentials = _load_credentials()
     if not credentials:
         return {
