@@ -604,6 +604,11 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
                 json_body=True,
                 params=params,
             )
+    if status in {401, 403}:
+        # The stored authorization is no longer accepted for scrobbling.
+        _clear_credentials()
+        logger.warning("Simkl authorization rejected for %s (HTTP %s)", media_key, status)
+        return {"status": "not_connected", "http_status": status}
     if status == 409 and event.action == "stop":
         _record_event(event.media_type, media_key, event.action, progress, now)
         return {"status": "duplicate_watch", "http_status": status}
