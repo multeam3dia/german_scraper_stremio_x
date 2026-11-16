@@ -26,6 +26,9 @@ APP_VERSION = "1.4.0"
 IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 logger = logging.getLogger(__name__)
 _DB_LOCK = Lock()
+_STATUS_LOCK = Lock()
+_STATUS_CACHE: dict[str, Any] = {"api_key": None, "checked_at": 0, "result": None}
+_STATUS_CACHE_TTL_SECONDS = 60
 
 SUPPORTED_IDS = {"imdb", "tmdb", "trakt", "mdblist", "kitsu", "tvdb"}
 
@@ -128,13 +131,37 @@ def _api_request(
     return int(response.status_code), data, response.headers
 
 
-def get_mdblist_status() -> dict[str, Any]:
-    """Verify the configured API key and report quota headers without user data."""
-    if not _api_key():
-        return {"configured": False, "connected": False, "status": "not_configured"}
+def _set_connection_status(result: dict[str, Any], api_key: Optional[str] = None) -> None:
+    """Update the short-lived connection cache for the currently configured key."""
+    key = _api_key() if api_key is None else api_key
+    with _STATUS_LOCK:
+        _STATUS_CACHE.update(
+            api_key=key,
+            checked_at=int(time.time()),
+            result=dict(result),
+        )
+
+
+def get_mdblist_status(*, force_refresh: bool = False) -> dict[str, Any]:
+    """Verify the API key, caching the result briefly to avoid a request per player event."""
+    api_key = _api_key()
+    if not api_key:
+        result = {"configured": False, "connected": False, "status": "not_configured"}
+        _set_connection_status(result, None)
+        return result
+
+    now = int(time.time())
+    with _STATUS_LOCK:
+        cached = _STATUS_CACHE.get("result")
+        cache_matches = _STATUS_CACHE.get("api_key") == api_key
+        cache_fresh = now - int(_STATUS_CACHE.get("checked_at") or 0) < _STATUS_CACHE_TTL_SECONDS
+        if not force_refresh and cache_matches and cache_fresh and isinstance(cached, dict):
+            return dict(cached)
+
     try:
-        status, _data, headers = _api_request("GET", "/user")
+        http_status, _data, headers = _api_request("GET", "/user")
     except MDBListTrackingError:
+        # A network failure is not proof that the API key became invalid.
         return {
             "configured": True,
             "connected": False,
@@ -144,17 +171,19 @@ def get_mdblist_status() -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "configured": True,
-        "connected": status < 400,
-        "http_status": status,
+        "connected": http_status < 400,
+        "http_status": http_status,
         "rate_limit": _rate_limit_info(headers),
     }
-    result["status"] = "connected" if status < 400 else "error"
-    if status == 401 or status == 403:
-        result["reason"] = "invalid_api_key_or_forbidden"
-    elif status == 429:
-        result["reason"] = "rate_limited"
-    elif status >= 400:
-        result["reason"] = "api_error"
+    if http_status < 400:
+        result["status"] = "connected"
+    elif http_status in {401, 403}:
+        result.update(status="disconnected", reason="invalid_api_key_or_forbidden")
+    elif http_status == 429:
+        result.update(status="error", reason="rate_limited")
+    else:
+        result.update(status="error", reason="api_error")
+    _set_connection_status(result, api_key)
     return result
 
 
@@ -183,10 +212,12 @@ def _playback_items(data: Any) -> list[dict[str, Any]]:
 
 def get_mdblist_playback() -> dict[str, Any]:
     """Retrieve paused scrobble sessions for a Continue Watching view."""
-    if not _api_key():
+    connection = get_mdblist_status()
+    if not connection.get("connected"):
         return {
-            "status": "not_configured",
-            "configured": False,
+            "status": connection.get("status") or "not_connected",
+            "configured": bool(connection.get("configured")),
+            "reason": connection.get("reason"),
             "count": 0,
             "items": [],
         }
@@ -195,9 +226,19 @@ def get_mdblist_playback() -> dict[str, Any]:
     except MDBListTrackingError:
         return {"status": "error", "reason": "api_unreachable", "items": []}
 
+    if status in {401, 403}:
+        _set_connection_status({
+            "configured": True, "connected": False, "status": "disconnected",
+            "reason": "invalid_api_key_or_forbidden", "http_status": status,
+        })
+    elif status < 400:
+        _set_connection_status({
+            "configured": True, "connected": True, "status": "connected",
+            "http_status": status, "rate_limit": _rate_limit_info(headers),
+        })
     if status >= 400:
         return {
-            "status": "rate_limited" if status == 429 else "error",
+            "status": "rate_limited" if status == 429 else ("not_connected" if status in {401, 403} else "error"),
             "http_status": status,
             "rate_limit": _rate_limit_info(headers),
             "items": [],
@@ -305,8 +346,12 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
         return {"status": "ignored", "reason": "invalid_event"}
     if event.action not in {"start", "pause", "stop"}:
         return {"status": "ignored", "reason": "unsupported_action"}
-    if not _api_key():
-        return {"status": "not_configured"}
+    connection = get_mdblist_status()
+    if not connection.get("connected"):
+        return {
+            "status": connection.get("status") or "not_connected",
+            "reason": connection.get("reason"),
+        }
 
     progress = event.progress
     if progress is None:
@@ -358,6 +403,17 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
             "http_status": status,
             "retry_after": _rate_limit_info(headers).get("retry_after"),
         }
+    if status in {401, 403}:
+        _set_connection_status({
+            "configured": True, "connected": False, "status": "disconnected",
+            "reason": "invalid_api_key_or_forbidden", "http_status": status,
+        })
+        return {"status": "not_connected", "http_status": status}
+    if status < 400:
+        _set_connection_status({
+            "configured": True, "connected": True, "status": "connected",
+            "http_status": status, "rate_limit": _rate_limit_info(headers),
+        })
     if status >= 400:
         logger.warning(
             "MDBList scrobble failed for %s (%s): HTTP %s",
@@ -365,7 +421,7 @@ def scrobble_event(event: PlaybackEvent) -> dict[str, Any]:
             event.action,
             status,
         )
-        return {"status": "error", "http_status": status}
+        return {"status": "rate_limited" if status == 429 else "error", "http_status": status}
 
     with _DB_LOCK:
         _record_event(event.media_type, media_key, event.action, progress, now)
