@@ -101,10 +101,22 @@ class LazyLoadingTests(unittest.TestCase):
         # This fake provider must be explicitly enabled as a catalog source
         # for the duration of this test because completed crawls reconcile
         # catalog availability against the configured provider allowlist.
+        class _FakeCrawlGuard:
+            request_count = 0
+
+            def __init__(self, provider_id):
+                self.provider_id = provider_id
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
         with patch.dict(
             catalog_db.CATALOG_PROVIDERS_BY_MEDIA_TYPE,
             {"series": frozenset({"aniworld", "serienstream", "testprovider"})},
-        ):
+        ), patch("providers.crawler.CrawlGuard", _FakeCrawlGuard):
             result = crawl_provider(provider)
 
         self.assertFalse(provider.seasons_requested)
