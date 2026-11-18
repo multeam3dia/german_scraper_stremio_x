@@ -218,5 +218,52 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotIn("year", calls[0][1])
 
 
+    def test_genres_break_tie_between_same_title_and_year_candidates(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 31, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01", "genre_ids": [18]},
+                    {"id": 32, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01", "genre_ids": [10759]},
+                ]}
+            return {"imdb_id": "tt1234567"}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series",
+                "provider_title": "Example",
+                "year": 2020,
+                "metadata": {"provider_genres": ["Action"]},
+            },
+            search_fn=fake_get,
+            genre_map={18: "Drama", 10759: "Action & Adventure"},
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 32)
+        self.assertEqual(result["genre_score"], 1.0)
+        self.assertGreaterEqual(result["margin"], 0.08)
+
+    def test_genre_signal_is_optional_when_provider_has_no_genres(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 33, "name": "Dark", "original_name": "Dark",
+                     "first_air_date": "2017-12-01"}
+                ]}
+            return {"imdb_id": "tt5753856"}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Dark", "year": 2017},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertIsNone(result["genre_score"])
+        self.assertEqual(calls, ["/search/tv", "/tv/33/external_ids"])
+
+
 if __name__ == "__main__":
     unittest.main()
