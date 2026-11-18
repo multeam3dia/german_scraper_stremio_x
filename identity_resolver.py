@@ -300,7 +300,11 @@ def find_tmdb_match(
     candidates.sort(key=lambda pair: pair[0], reverse=True)
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
     runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
-    margin = round(best_score - runner_up, 4)
+    margin = best_score - runner_up
+    runner_up_genre = candidates[1][4] if len(candidates) > 1 else None
+    if best_genre_score is not None and runner_up_genre is not None:
+        margin += (best_genre_score - runner_up_genre) * 0.10
+    margin = round(margin, 4)
     candidate = {
         "tmdb_id": best.get("id"),
         "candidate_title": (best.get("name") if media_type == "series" else best.get("title")) or "",
