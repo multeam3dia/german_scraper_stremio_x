@@ -32,7 +32,7 @@ class _CatalogOnlyProvider(BaseProvider):
             url="https://provider.example/series/example",
         )
 
-    def get_title(self, url):
+    def get_title(self, url, session=None):
         return ProviderTitle(
             provider=self.provider_id,
             media_type="series",
