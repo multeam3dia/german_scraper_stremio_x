@@ -33,6 +33,15 @@ MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 MIN_TITLE_SCORE_WITH_YEAR = 0.94
 
+GENRE_ALIASES = {
+    "abenteuer": "adventure", "komodie": "comedy", "krimi": "crime",
+    "kriminalfilm": "crime", "dokumentation": "documentary", "doku": "documentary",
+    "familie": "family", "geschichte": "history", "musik": "music",
+    "liebe": "romance", "romantik": "romance", "sci fi": "science fiction",
+    "science fiction": "science fiction", "krieg": "war",
+    "action abenteuer": "action adventure", "zeichentrick": "animation",
+}
+
 
 class TMDBConfigurationError(RuntimeError):
     """TMDB credentials are not configured."""
@@ -112,9 +121,40 @@ def _title_similarity(
     ), 4)
 
 
+def _normalize_genre(value: Any) -> str:
+    normalized = _normalize(value)
+    return GENRE_ALIASES.get(normalized, normalized)
+
+
+def _genre_similarity(
+    provider_genres: list[str],
+    item: dict[str, Any],
+    genre_map: dict[int, str],
+) -> float | None:
+    """Compare provider genre labels with TMDB genre IDs when both are available."""
+    provider_set = {
+        _normalize_genre(value) for value in provider_genres if _normalize_genre(value)
+    }
+    candidate_set = set()
+    for raw_id in item.get("genre_ids") or []:
+        try:
+            name = genre_map.get(int(raw_id))
+        except (TypeError, ValueError):
+            name = None
+        if name:
+            normalized = _normalize_genre(name)
+            if normalized:
+                candidate_set.add(normalized)
+    if not provider_set or not candidate_set:
+        return None
+    return round(len(provider_set & candidate_set) / len(provider_set | candidate_set), 4)
+
+
 def _candidate_score(
     provider_title: str, provider_year: int | None,
     item: dict[str, Any], media_type: str,
+    provider_genres: list[str] | None = None,
+    genre_map: dict[int, str] | None = None,
 ) -> float:
     title_score = _title_similarity(provider_title, item, media_type)
     if title_score <= 0:
@@ -127,13 +167,22 @@ def _candidate_score(
         year_score = 1.0
     else:
         year_score = max(0.0, 1.0 - abs(result_year - provider_year) / 5.0)
-    return round((title_score * 0.88) + (year_score * 0.12), 4)
+    score = (title_score * 0.88) + (year_score * 0.12)
+    genre_score = (
+        _genre_similarity(provider_genres or [], item, genre_map or {})
+        if provider_genres and genre_map else None
+    )
+    # Genre is a small tie-breaker, never a replacement for title/year evidence.
+    if genre_score is not None:
+        score += (genre_score - 0.5) * 0.04
+    return round(max(0.0, min(1.0, score)), 4)
 
 
 def find_tmdb_match(
     record: dict[str, Any],
     *,
     search_fn: Callable[..., dict[str, Any]] = _tmdb_get,
+    genre_map: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Return a conservative TMDB candidate; does not write to the catalog."""
     media_type = record.get("media_type")
@@ -144,6 +193,22 @@ def find_tmdb_match(
     if not provider_title:
         return {"status": "no_match", "reason": "Provider title is empty"}
     provider_year = _coerce_year(record.get("year"))
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    provider_genres = metadata.get("provider_genres")
+    if not isinstance(provider_genres, list):
+        provider_genres = []
+    if provider_genres and genre_map is None:
+        genre_endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
+        try:
+            genre_payload = search_fn(genre_endpoint, {"language": "de-DE"})
+            genre_map = {
+                int(item["id"]): str(item["name"])
+                for item in genre_payload.get("genres", [])
+                if isinstance(item, dict) and item.get("id") is not None and item.get("name")
+            }
+        except Exception:
+            # Genre metadata is supplemental; matching can still use title and year.
+            genre_map = {}
 
     endpoint_type = "tv" if media_type == "series" else "movie"
     # Search by title only. Filtering at the API level can hide remakes or
@@ -165,10 +230,10 @@ def find_tmdb_match(
     if not isinstance(results, list) or not results:
         return {"status": "no_match", "reason": "TMDB returned no candidates"}
 
-    exact_year: list[tuple[float, dict[str, Any], float, int | None]] = []
-    near_year: list[tuple[float, dict[str, Any], float, int | None]] = []
-    missing_year: list[tuple[float, dict[str, Any], float, int | None]] = []
-    exact_title_without_year: list[tuple[float, dict[str, Any], float, int | None]] = []
+    exact_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
+    near_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
+    missing_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
+    exact_title_without_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
     saw_title_candidate = False
     saw_year_mismatch = False
 
@@ -180,8 +245,14 @@ def find_tmdb_match(
             continue
         saw_title_candidate = True
         candidate_year = _year_from_result(item, media_type)
-        score = _candidate_score(provider_title, provider_year, item, media_type)
-        row = (score, item, title_score, candidate_year)
+        score = _candidate_score(
+            provider_title, provider_year, item, media_type, provider_genres, genre_map
+        )
+        genre_score = (
+            _genre_similarity(provider_genres, item, genre_map or {})
+            if provider_genres and genre_map else None
+        )
+        row = (score, item, title_score, candidate_year, genre_score)
 
         if provider_year is None:
             # Without a provider year, only an exact normalized title can be
@@ -227,7 +298,7 @@ def find_tmdb_match(
         return {"status": "no_match", "reason": reason}
 
     candidates.sort(key=lambda pair: pair[0], reverse=True)
-    best_score, best, title_score, candidate_year = candidates[0]
+    best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
     runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
     margin = round(best_score - runner_up, 4)
     candidate = {
@@ -244,6 +315,7 @@ def find_tmdb_match(
         "title_score": title_score,
         "score": best_score,
         "margin": margin,
+        "genre_score": best_genre_score,
     }
     if review_reason:
         return {"status": "ambiguous", "reason": review_reason, **candidate}
@@ -285,8 +357,29 @@ def resolve_unresolved_titles(
         "dry_run": not apply,
         "results": [],
     }
+    genre_maps: dict[str, dict[int, str]] = {}
     for record in records:
-        result = find_tmdb_match(record, search_fn=search_fn)
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+        has_provider_genres = (
+            isinstance(metadata.get("provider_genres"), list)
+            and bool(metadata.get("provider_genres"))
+        )
+        genre_map = None
+        if has_provider_genres:
+            media_type = record["media_type"]
+            if media_type not in genre_maps:
+                endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
+                try:
+                    payload = search_fn(endpoint, {"language": "de-DE"})
+                    genre_maps[media_type] = {
+                        int(item["id"]): str(item["name"])
+                        for item in payload.get("genres", [])
+                        if isinstance(item, dict) and item.get("id") is not None and item.get("name")
+                    }
+                except Exception:
+                    genre_maps[media_type] = {}
+            genre_map = genre_maps[media_type]
+        result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
         result_row = {
             "provider": record["provider"],
             "title": record["provider_title"],
@@ -308,6 +401,7 @@ def resolve_unresolved_titles(
                     "candidate_year": result.get("candidate_year"),
                     "candidate_year_delta": result.get("candidate_year_delta"),
                     "title_score": result.get("title_score"),
+                    "genre_score": result.get("genre_score"),
                 }
                 record_discovery(
                     record["media_type"],
