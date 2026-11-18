@@ -39,7 +39,8 @@ GENRE_ALIASES = {
     "familie": "family", "geschichte": "history", "musik": "music",
     "liebe": "romance", "romantik": "romance", "sci fi": "science fiction",
     "science fiction": "science fiction", "krieg": "war",
-    "action abenteuer": "action adventure", "zeichentrick": "animation",
+    "action abenteuer": "action", "action adventure": "action",
+    "sci fi fantasy": "fantasy", "zeichentrick": "animation",
 }
 
 
