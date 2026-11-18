@@ -24,7 +24,7 @@ class _CatalogOnlyProvider(BaseProvider):
     def __init__(self):
         self.seasons_requested = False
 
-    def iter_catalog(self):
+    def iter_catalog(self, session=None):
         yield ProviderTitle(
             provider=self.provider_id,
             media_type="series",
