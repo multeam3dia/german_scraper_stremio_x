@@ -40,6 +40,7 @@ GENRE_ALIASES = {
     "liebe": "romance", "romantik": "romance", "sci fi": "science fiction",
     "science fiction": "science fiction", "krieg": "war",
     "action abenteuer": "action", "action adventure": "action",
+    "action and adventure": "action", "action and abenteuer": "action",
     "sci fi fantasy": "fantasy", "zeichentrick": "animation",
 }
 
