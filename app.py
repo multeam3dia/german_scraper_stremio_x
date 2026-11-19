@@ -10,7 +10,11 @@ from providers.lazy import (
     get_gsx_series_meta, get_gsx_series_streams_for_episode,
     get_gsx_movie_streams,
 )
-from catalog_identity import get_title as get_canonical_title
+from catalog_identity import (
+    get_title as get_canonical_title,
+    get_unmatched_catalog_media_types,
+    get_unmatched_catalog_titles,
+)
 from aniworld.config import logger
 from mdblist import queue_verified_title
 from mdblist_tracking import (
@@ -205,11 +209,40 @@ def _catalog_response(
     catalog_types = {
         ("movie", "german_scraper_movies"): "movie",
         ("series", "german_scraper_shows"): "series",
+        ("movie", "german_scraper_gsx_movies"): "gsx_movie",
+        ("series", "german_scraper_gsx_shows"): "gsx_series",
     }
     expected_type = catalog_types.get((media_type, catalog_id))
     if not expected_type or not _local_catalog_enabled():
         return {"metas": []}
     try:
+        if expected_type in {"gsx_movie", "gsx_series"}:
+            media_type = "movie" if expected_type == "gsx_movie" else "series"
+            records = get_unmatched_catalog_titles(
+                media_type, skip=skip, limit=100, search=search
+            )
+            metas = []
+            for record in records:
+                metadata = record.get("metadata") or {}
+                meta = {
+                    "id": record["title_id"],
+                    "type": record["media_type"],
+                    "name": str(metadata.get("display_title") or record.get("title") or record["title_id"]),
+                    "posterShape": "poster",
+                }
+                poster = metadata.get("poster_url") or metadata.get("poster")
+                background = metadata.get("backdrop_url") or metadata.get("background")
+                description = metadata.get("description") or metadata.get("overview")
+                if poster:
+                    meta["poster"] = poster
+                if background:
+                    meta["background"] = background
+                if description:
+                    meta["description"] = str(description)
+                if record.get("year"):
+                    meta["releaseInfo"] = str(record["year"])
+                metas.append(meta)
+            return {"metas": metas}
         records = get_catalog_titles(
             expected_type,
             skip=skip,
@@ -217,7 +250,7 @@ def _catalog_response(
             search=search,
             genre=genre,
         )
-        return {"metas": [_catalog_meta(record) for record in records]}
+        return {"metas": [_catalog_meta(record) for record in records]
     except Exception as exc:
         logger.error(
             "SQLite catalog request failed for %s: %s: %s",
@@ -248,6 +281,26 @@ def _manifest_response(enable_player_events: bool = False) -> dict:
         if _local_catalog_enabled()
         else []
     )
+    if _local_catalog_enabled():
+        try:
+            canonical_types = set(get_unmatched_catalog_media_types())
+            for media_type, catalog_id, name in (
+                ("movie", "german_scraper_gsx_movies", "German Scraper X - Movies (ohne IMDb)"),
+                ("series", "german_scraper_gsx_shows", "German Scraper X - Shows (ohne IMDb)"),
+            ):
+                if media_type in canonical_types:
+                    manifest["catalogs"].append({
+                        "type": media_type, "id": catalog_id, "name": name,
+                        "extra": [
+                            {"name": "search", "isRequired": False},
+                            {"name": "skip", "isRequired": False},
+                        ],
+                    })
+        except Exception as exc:
+            logger.warning(
+                "Could not load canonical GSX catalog definitions: %s",
+                exc.__class__.__name__,
+            )
     return manifest
 
 
