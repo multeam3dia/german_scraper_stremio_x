@@ -507,9 +507,13 @@ def find_tmdb_match(
                 "matched_queries": item.get("_matched_queries") or [],
                 "metadata_signals": scores_for(item),
                 "rejection": (
-                    "below_title_similarity_threshold"
-                    if not independent_signals
-                    else "insufficient_title_or_independent_metadata_evidence"
+                    "insufficient_title_or_independent_metadata_evidence"
+                    if (
+                        metadata.get("actors")
+                        or metadata.get("directors")
+                        or (provider == "aniworld" and metadata.get("producer"))
+                    )
+                    else "below_title_similarity_threshold"
                 ),
             })
             continue
