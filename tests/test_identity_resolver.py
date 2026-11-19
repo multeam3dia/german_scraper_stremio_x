@@ -1046,17 +1046,10 @@ class IdentityResolverTests(unittest.TestCase):
             if path == "/movie/20523":
                 return {"production_companies": [{"name": "OLM"}]}
             if path == "/movie/20523/external_ids":
-                return {"imdb_id": "tt090?0000"}
+                return {"imdb_id": "tt0900000"}
             return {}
 
-        # Use a valid IMDb identifier for the apply path.
-        def search_with_valid_imdb(path, params):
-            payload = fake_get(path, params)
-            if path == "/movie/20523/external_ids":
-                return {"imdb_id": "tt0900000"}
-            return payload
-
-        summary = resolve_unresolved_titles(apply=True, search_fn=search_with_valid_imdb)
+        summary = resolve_unresolved_titles(apply=True, search_fn=fake_get)
 
         self.assertEqual(summary["matched"], 1)
         self.assertEqual(summary["applied"], 1)
