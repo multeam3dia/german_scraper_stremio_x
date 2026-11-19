@@ -542,5 +542,67 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["title_score"], 1.0)
 
 
+
+    def test_verified_aniworld_aliases_require_matching_tmdb_and_imdb_ids(self):
+        cases = [
+            ("Zakuro", 36836, "tt1738078"),
+            ("Yuri Is My Job!", 201949, "tt20234560"),
+            ("Yu-Gi-Oh! Zero", 36406, "tt4834194"),
+        ]
+        for title, tmdb_id, imdb_id in cases:
+            with self.subTest(title=title):
+                def fake_get(path, params):
+                    if path == "/search/tv":
+                        return {"results": [{
+                            "id": tmdb_id,
+                            "name": "TMDB localized title",
+                            "original_name": "Japanese title",
+                            "first_air_date": "2010-01-01",
+                        }]}
+                    if path == f"/tv/{tmdb_id}/external_ids":
+                        return {"imdb_id": imdb_id}
+                    if path == f"/tv/{tmdb_id}/alternative_titles":
+                        return {"results": []}
+                    return {}
+
+                result = find_tmdb_match(
+                    {
+                        "provider": "aniworld",
+                        "media_type": "series",
+                        "provider_title": title,
+                        "year": 2010,
+                    },
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["tmdb_id"], tmdb_id)
+                self.assertEqual(result["imdb_id"], imdb_id)
+                self.assertIsNotNone(result["diagnostics"]["verified_alias"])
+
+    def test_verified_aniworld_alias_rejects_unexpected_imdb_id(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 36836, "name": "Otome Yokai Zakuro",
+                    "original_name": "おとめ妖怪 ざくろ",
+                }]}
+            if path == "/tv/36836/external_ids":
+                return {"imdb_id": "tt9999999"}
+            if path == "/tv/36836/alternative_titles":
+                return {"results": []}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld",
+                "media_type": "series",
+                "provider_title": "Zakuro",
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["reason"], "Verified alias IMDb ID did not match")
+
+
 if __name__ == "__main__":
     unittest.main()
