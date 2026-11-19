@@ -19,6 +19,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+WIKIDATA_ENTITY_BASE = "https://www.wikidata.org/wiki/Special:EntityData"
+
 from catalog_db import (
     init_db,
     get_unresolved_titles,
@@ -319,11 +321,46 @@ def _candidate_score(
     return round(max(0.0, min(1.0, score)), 4)
 
 
+def _wikidata_imdb_id(
+    wikidata_id: str,
+    *,
+    fetch_fn: Callable[[str], dict[str, Any]] | None = None,
+) -> str | None:
+    """Resolve a Wikidata item to IMDb via its P345 identifier, when available."""
+    identifier = str(wikidata_id or "").strip()
+    if not re.fullmatch(r"Q[1-9]\\d*", identifier):
+        return None
+    try:
+        if fetch_fn is not None:
+            payload = fetch_fn(identifier)
+        else:
+            request = Request(
+                f"{WIKIDATA_ENTITY_BASE}/{identifier}.json",
+                headers={"Accept": "application/json",
+                         "User-Agent": "GermanScraperStremioX/1.0 (identity resolution)"},
+            )
+            with urlopen(request, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        entity = payload.get("entities", {}).get(identifier, {})
+        claims = entity.get("claims", {}).get("P345", [])
+        for claim in claims:
+            value = (
+                claim.get("mainsnak", {}).get("datavalue", {}).get("value")
+                if isinstance(claim, dict) else None
+            )
+            if isinstance(value, str) and IMDB_ID_RE.fullmatch(value):
+                return value
+    except Exception:
+        logger.debug("Wikidata IMDb lookup failed for %s", identifier, exc_info=True)
+    return None
+
+
 def find_tmdb_match(
     record: dict[str, Any],
     *,
     search_fn: Callable[..., dict[str, Any]] = _tmdb_get,
     genre_map: dict[int, str] | None = None,
+    wikidata_lookup_fn: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Return a conservative TMDB candidate; does not write to the catalog."""
     media_type = record.get("media_type")
@@ -658,10 +695,18 @@ def find_tmdb_match(
         return {"status": "error", "reason": f"External ID lookup failed: {type(exc).__name__}",
                 "diagnostics": diagnostics, **candidate}
     imdb_id = str(external.get("imdb_id") or "").strip()
+    imdb_id_source = "tmdb_external_ids"
     if not IMDB_ID_RE.fullmatch(imdb_id):
-        return {"status": "missing_imdb", "reason": "TMDB candidate has no valid IMDb ID",
+        wikidata_id = str(external.get("wikidata_id") or "").strip()
+        if wikidata_id:
+            imdb_id = _wikidata_imdb_id(wikidata_id, fetch_fn=wikidata_lookup_fn) or ""
+            if IMDB_ID_RE.fullmatch(imdb_id):
+                imdb_id_source = "wikidata_p345"
+    if not IMDB_ID_RE.fullmatch(imdb_id):
+        return {"status": "missing_imdb", "reason": "No valid IMDb ID in TMDB or Wikidata",
                 "diagnostics": diagnostics, "external_ids": external, **candidate}
     return {"status": "matched", "imdb_id": imdb_id,
+            "imdb_id_source": imdb_id_source,
             "diagnostics": diagnostics, "external_ids": external, **candidate}
 
 
