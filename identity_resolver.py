@@ -705,6 +705,7 @@ def find_tmdb_match(
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
                 "title_score": title_score,
+                "candidate_year": candidate_year,
                 "structure": structure,
                 "rejection": "provider_tmdb_episode_structure_mismatch",
             })
@@ -719,6 +720,7 @@ def find_tmdb_match(
                 ),
                 "alternative_titles": item.get("_alternative_titles") or [],
                 "title_score": title_score,
+                "candidate_year": candidate_year,
                 "closest_title": matched_title,
                 "matched_queries": item.get("_matched_queries") or [],
                 "metadata_signals": scores_for(item),
@@ -777,15 +779,37 @@ def find_tmdb_match(
                 alternate_record, search_fn=search_fn, genre_map=None,
                 wikidata_lookup_fn=wikidata_lookup_fn,
             )
-            if alternate.get("status") in {"matched", "identified", "ambiguous"}:
+            alternate_diagnostics = (
+                alternate.get("diagnostics")
+                if isinstance(alternate.get("diagnostics"), dict) else {}
+            )
+            alternate_rows = alternate_diagnostics.get("candidates")
+            alternate_rows = alternate_rows if isinstance(alternate_rows, list) else []
+            plausible_rejected_movie = next((
+                row for row in alternate_rows
+                if isinstance(row, dict)
+                and float(row.get("title_score") or 0) >= 0.70
+                and (
+                    provider_year is None
+                    or row.get("candidate_year") == provider_year
+                )
+            ), None)
+            if alternate.get("status") in {"matched", "identified", "ambiguous"} or plausible_rejected_movie:
                 diagnostics["alternate_movie_candidate"] = {
                     "status": alternate.get("status"),
-                    "tmdb_id": alternate.get("tmdb_id"),
-                    "title": alternate.get("candidate_title"),
-                    "year": alternate.get("candidate_year"),
+                    "tmdb_id": alternate.get("tmdb_id") or (
+                        plausible_rejected_movie.get("tmdb_id") if plausible_rejected_movie else None
+                    ),
+                    "title": alternate.get("candidate_title") or (
+                        plausible_rejected_movie.get("title") if plausible_rejected_movie else None
+                    ),
+                    "year": alternate.get("candidate_year") or (
+                        plausible_rejected_movie.get("candidate_year") if plausible_rejected_movie else None
+                    ),
                     "score": alternate.get("score"),
                     "margin": alternate.get("margin"),
-                    "diagnostics": alternate.get("diagnostics"),
+                    "rejection": plausible_rejected_movie.get("rejection") if plausible_rejected_movie else None,
+                    "diagnostics": alternate_diagnostics,
                 }
                 return {
                     "status": "ambiguous",
