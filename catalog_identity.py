@@ -172,7 +172,7 @@ def add_external_id(
             raise IdentityConflictError(
                 f"{namespace}:{external_id} is already linked to another title"
             )
-        db.execute(
+        cursor = db.execute(
             """INSERT INTO external_title_ids(
                    media_type,namespace,external_id,title_id,source,confidence,verified
                )
@@ -184,7 +184,7 @@ def add_external_id(
             (namespace, external_id, title_id, source, confidence,
              int(bool(verified)), title_id),
         )
-        if db.total_changes == 0:
+        if cursor.rowcount != 1:
             raise ValueError("Unknown GSX title ID")
 
 
