@@ -324,7 +324,13 @@ def get_unmatched_catalog_titles(
     media_type = _validate_media_type(media_type)
     skip = max(0, int(skip))
     limit = min(500, max(1, int(limit)))
-    search = str(search or "").strip().casefold()
+    search = str(search or "").strip()
+    params: list[Any] = [media_type]
+    search_sql = ""
+    if search:
+        search_sql = " AND lower(t.title) LIKE ?"
+        params.append(f"%{search.casefold()}%")
+    params.extend([limit, skip])
     init_identity_schema()
     with _connect() as db:
         rows = db.execute(
@@ -337,18 +343,14 @@ def get_unmatched_catalog_titles(
                  AND EXISTS (
                    SELECT 1 FROM canonical_provider_links p
                    WHERE p.title_id=t.title_id AND p.availability_status='available'
-                 )
-               ORDER BY t.title COLLATE NOCASE, t.year DESC
-               LIMIT ? OFFSET ?""",
-            (media_type, limit + skip, 0),
+                 )"""
+            + search_sql
+            + " ORDER BY t.title COLLATE NOCASE, t.year DESC LIMIT ? OFFSET ?",
+            tuple(params),
         ).fetchall()
     results = []
     for row in rows:
         item = dict(row)
         item["metadata"] = json.loads(item.pop("metadata_json") or "{}")
-        if search and search not in str(item.get("title") or "").casefold():
-            continue
         results.append(item)
-        if len(results) >= limit:
-            break
-    return results[skip:] if search else results[skip:skip + limit]
+    return results
