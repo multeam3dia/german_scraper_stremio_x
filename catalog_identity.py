@@ -297,3 +297,58 @@ def get_provider_links(title_id: str) -> list[dict[str, Any]]:
             (title_id,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_unmatched_catalog_media_types() -> list[str]:
+    """List media types with available canonical titles that have no IMDb ID."""
+    init_identity_schema()
+    with _connect() as db:
+        rows = db.execute(
+            """SELECT DISTINCT t.media_type
+               FROM canonical_titles t
+               JOIN canonical_provider_links p ON p.title_id=t.title_id
+                    AND p.availability_status='available'
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM external_title_ids x
+                   WHERE x.title_id=t.title_id AND x.namespace='imdb'
+               )
+               ORDER BY t.media_type"""
+        ).fetchall()
+    return [str(row["media_type"]) for row in rows]
+
+
+def get_unmatched_catalog_titles(
+    media_type: str, *, skip: int = 0, limit: int = 100, search: str = ""
+) -> list[dict[str, Any]]:
+    """Return available canonical titles that cannot be represented by IMDb IDs."""
+    media_type = _validate_media_type(media_type)
+    skip = max(0, int(skip))
+    limit = min(500, max(1, int(limit)))
+    search = str(search or "").strip().casefold()
+    init_identity_schema()
+    with _connect() as db:
+        rows = db.execute(
+            """SELECT t.* FROM canonical_titles t
+               WHERE t.media_type=?
+                 AND NOT EXISTS (
+                   SELECT 1 FROM external_title_ids x
+                   WHERE x.title_id=t.title_id AND x.namespace='imdb'
+                 )
+                 AND EXISTS (
+                   SELECT 1 FROM canonical_provider_links p
+                   WHERE p.title_id=t.title_id AND p.availability_status='available'
+                 )
+               ORDER BY t.title COLLATE NOCASE, t.year DESC
+               LIMIT ? OFFSET ?""",
+            (media_type, limit + skip, 0),
+        ).fetchall()
+    results = []
+    for row in rows:
+        item = dict(row)
+        item["metadata"] = json.loads(item.pop("metadata_json") or "{}")
+        if search and search not in str(item.get("title") or "").casefold():
+            continue
+        results.append(item)
+        if len(results) >= limit:
+            break
+    return results[skip:] if search else results[skip:skip + limit]
