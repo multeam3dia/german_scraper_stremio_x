@@ -811,6 +811,51 @@ def find_tmdb_match(
                     "rejection": plausible_rejected_movie.get("rejection") if plausible_rejected_movie else None,
                     "diagnostics": alternate_diagnostics,
                 }
+
+                # Correct a mistaken AniWorld series classification only when
+                # the alternate movie is independently and strongly verified.
+                # Exact year plus at least two independent metadata signals
+                # prevents title-only/franchise-level guesses from changing type.
+                movie_rows = alternate_diagnostics.get("candidates")
+                movie_rows = movie_rows if isinstance(movie_rows, list) else []
+                best_movie_row = movie_rows[0] if movie_rows and isinstance(movie_rows[0], dict) else {}
+                signal_scores = [
+                    best_movie_row.get(key, {}).get("score")
+                    for key in ("actors", "directors", "studio")
+                    if isinstance(best_movie_row.get(key), dict)
+                ]
+                strong_signal_count = sum(
+                    isinstance(value, (int, float)) and value >= 0.85
+                    for value in signal_scores
+                )
+                safe_movie_correction = (
+                    provider == "aniworld"
+                    and alternate.get("status") in {"matched", "identified"}
+                    and provider_year is not None
+                    and alternate.get("candidate_year") == provider_year
+                    and float(alternate.get("title_score") or 0) >= 0.70
+                    and float(alternate.get("score") or 0) >= MIN_CONFIDENCE
+                    and float(alternate.get("margin") or 0) >= MIN_MARGIN
+                    and strong_signal_count >= 2
+                )
+                if safe_movie_correction:
+                    correction = {
+                        "from": "series",
+                        "to": "movie",
+                        "reason": "exact_year_and_multiple_independent_metadata_signals",
+                        "strong_metadata_signals": strong_signal_count,
+                    }
+                    return {
+                        **alternate,
+                        "media_type_correction": correction,
+                        "diagnostics": {
+                            **alternate_diagnostics,
+                            "provider_media_type": "series",
+                            "media_type_correction": correction,
+                            "rejected_series_candidates": rejected_diagnostics,
+                        },
+                    }
+
                 return {
                     "status": "ambiguous",
                     "reason": (
@@ -1070,6 +1115,14 @@ def resolve_unresolved_titles(
             if enriched_metadata.get("provider_structure") or enriched.get("description"):
                 record = enriched
                 result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+        correction = result.get("media_type_correction")
+        if isinstance(correction, dict) and correction.get("to") in {"movie", "series"}:
+            record = dict(record)
+            record["provider_media_type"] = record.get("media_type")
+            record["media_type"] = correction["to"]
+            corrected_metadata = dict(record.get("metadata") or {})
+            corrected_metadata["media_type_correction"] = correction
+            record["metadata"] = corrected_metadata
         evaluated.append((record, result))
 
     # A TMDB series/movie identity can be shared by several provider pages.
