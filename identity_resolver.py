@@ -480,8 +480,11 @@ def find_tmdb_match(
         if is_verified_alias_candidate:
             title_score = 1.0
         candidate_year = _year_from_result(item, media_type)
-        score = _candidate_score(
-            provider_title, provider_year, item, media_type, provider_genres, genre_map
+        score = (
+            1.0 if is_verified_alias_candidate else
+            _candidate_score(
+                provider_title, provider_year, item, media_type, provider_genres, genre_map
+            )
         )
         genre_score = (
             _genre_similarity(provider_genres, item, genre_map or {})
