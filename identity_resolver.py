@@ -163,24 +163,87 @@ def _person_similarity(provider_people: list[str], candidate_people: list[str]) 
     return round(len(provider_set & candidate_set) / min(len(provider_set), len(candidate_set)), 4)
 
 
-def _candidate_cast_score(
-    item: dict[str, Any], media_type: str, provider_actors: list[str],
+def _candidate_credits(
+    item: dict[str, Any], media_type: str,
     search_fn: Callable[..., dict[str, Any]],
-) -> float | None:
-    """Fetch credits only for shortlisted candidates, never for every search hit."""
+) -> dict[str, Any] | None:
+    """Fetch one credits payload for a shortlisted candidate."""
     tmdb_id = item.get("id")
-    if type(tmdb_id) is not int or tmdb_id <= 0 or not provider_actors:
+    if type(tmdb_id) is not int or tmdb_id <= 0:
         return None
     endpoint_type = "tv" if media_type == "series" else "movie"
     try:
-        credits = search_fn(f"/{endpoint_type}/{tmdb_id}/credits", {})
+        payload = search_fn(f"/{endpoint_type}/{tmdb_id}/credits", {})
     except Exception:
         return None
-    cast = credits.get("cast")
-    if not isinstance(cast, list):
+    return payload if isinstance(payload, dict) else None
+
+
+def _candidate_details(
+    item: dict[str, Any], media_type: str,
+    search_fn: Callable[..., dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Fetch production-company metadata for a shortlisted candidate."""
+    tmdb_id = item.get("id")
+    if type(tmdb_id) is not int or tmdb_id <= 0:
         return None
-    names = [str(person.get("name") or "") for person in cast[:40] if isinstance(person, dict)]
-    return _person_similarity(provider_actors, names)
+    endpoint_type = "tv" if media_type == "series" else "movie"
+    try:
+        payload = search_fn(f"/{endpoint_type}/{tmdb_id}", {})
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _names_from_people(rows: Any, key: str = "name") -> list[str]:
+    if not isinstance(rows, list):
+        return []
+    return [
+        str(row.get(key) or "")
+        for row in rows
+        if isinstance(row, dict) and row.get(key)
+    ]
+
+
+def _metadata_signal_scores(
+    item: dict[str, Any], media_type: str, metadata: dict[str, Any],
+    provider: str, search_fn: Callable[..., dict[str, Any]],
+) -> dict[str, float | None]:
+    """Compare optional provider credits/studio against TMDB, without penalizing gaps."""
+    directors = metadata.get("directors")
+    directors = directors if isinstance(directors, list) else []
+    actors = metadata.get("actors")
+    actors = actors if isinstance(actors, list) else []
+
+    # AniWorld's 'producer' field is a production studio/company. On
+    # SerienStream the same label refers to people, so do not compare it here.
+    studio = metadata.get("producer") if provider == "aniworld" else None
+    studios = [studio] if isinstance(studio, str) and studio.strip() else []
+
+    scores: dict[str, float | None] = {
+        "actor_score": None, "director_score": None, "studio_score": None,
+    }
+    if (actors or directors) and type(item.get("id")) is int:
+        credits = _candidate_credits(item, media_type, search_fn)
+        if credits is not None:
+            scores["actor_score"] = _person_similarity(
+                actors, _names_from_people(credits.get("cast"))
+            ) if actors else None
+            crew = credits.get("crew")
+            director_names = [
+                str(person.get("name") or "")
+                for person in crew
+                if isinstance(person, dict) and person.get("job") == "Director"
+            ] if isinstance(crew, list) else []
+            scores["director_score"] = _person_similarity(
+                directors, director_names
+            ) if directors else None
+
+    if studios:
+        details = _candidate_details(item, media_type, search_fn)
+        companies = _names_from_people(details.get("production_companies")) if details else []
+        scores["studio_score"] = _person_similarity(studios, companies)
+    return scores
 
 
 def _candidate_score(
@@ -230,9 +293,7 @@ def find_tmdb_match(
     provider_genres = metadata.get("provider_genres")
     if not isinstance(provider_genres, list):
         provider_genres = []
-    provider_actors = metadata.get("actors")
-    if not isinstance(provider_actors, list):
-        provider_actors = []
+    provider = str(record.get("provider") or "")
     if provider_genres and genre_map is None:
         genre_endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
         try:
@@ -335,26 +396,31 @@ def find_tmdb_match(
 
     candidates.sort(key=lambda pair: pair[0], reverse=True)
 
-    # Actor data is optional on both providers. Fetch TMDB credits only for a
-    # small shortlist when there is a genuine tie to resolve; absent credits
-    # never count against a candidate and actors can never create a title match.
-    actor_scores: dict[int, float | None] = {}
-    if provider_actors and len(candidates) > 1:
+    # Optional cast/director/studio evidence is only fetched for the top
+    # five exact-title candidates. Missing metadata is neutral. These signals
+    # only affect the runner-up margin; title/year confidence remains mandatory.
+    metadata_scores: dict[int, dict[str, float | None]] = {}
+    if len(candidates) > 1:
         for _, item, _, _, _ in candidates[:5]:
             tmdb_id = item.get("id")
             if type(tmdb_id) is int and tmdb_id > 0:
-                actor_scores[tmdb_id] = _candidate_cast_score(
-                    item, media_type, provider_actors, search_fn
+                metadata_scores[tmdb_id] = _metadata_signal_scores(
+                    item, media_type, metadata, provider, search_fn
                 )
 
-    def actor_score_for(item: dict[str, Any]) -> float | None:
+    def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
         tmdb_id = item.get("id")
-        return actor_scores.get(tmdb_id) if type(tmdb_id) is int else None
+        return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
+
+    def corroboration_score(item: dict[str, Any]) -> float | None:
+        values = [value for value in scores_for(item).values() if value is not None]
+        return round(sum(values) / len(values), 4) if values else None
 
     candidates.sort(
         key=lambda pair: (
             pair[0],
-            actor_score_for(pair[1]) if actor_score_for(pair[1]) is not None else -1.0,
+            corroboration_score(pair[1])
+            if corroboration_score(pair[1]) is not None else -1.0,
         ),
         reverse=True,
     )
@@ -364,12 +430,13 @@ def find_tmdb_match(
     runner_up_genre = candidates[1][4] if len(candidates) > 1 else None
     if best_genre_score is not None and runner_up_genre is not None:
         margin += (best_genre_score - runner_up_genre) * 0.10
-    best_actor_score = actor_score_for(best)
-    runner_actor_score = actor_score_for(candidates[1][1]) if len(candidates) > 1 else None
-    if best_actor_score is not None and runner_actor_score is not None:
-        # At most 0.12 margin contribution: useful corroboration, never a
-        # substitute for the title/year threshold or a valid IMDb identifier.
-        margin += (best_actor_score - runner_actor_score) * 0.12
+    best_metadata_score = corroboration_score(best)
+    runner_metadata_score = (
+        corroboration_score(candidates[1][1]) if len(candidates) > 1 else None
+    )
+    if best_metadata_score is not None and runner_metadata_score is not None:
+        # Combined optional metadata can contribute at most 0.12 to the margin.
+        margin += (best_metadata_score - runner_metadata_score) * 0.12
     margin = round(margin, 4)
     candidate = {
         "tmdb_id": best.get("id"),
@@ -386,7 +453,10 @@ def find_tmdb_match(
         "score": best_score,
         "margin": margin,
         "genre_score": best_genre_score,
-        "actor_score": best_actor_score,
+        "actor_score": scores_for(best).get("actor_score"),
+        "director_score": scores_for(best).get("director_score"),
+        "studio_score": scores_for(best).get("studio_score"),
+        "metadata_score": best_metadata_score,
     }
     if review_reason:
         return {"status": "ambiguous", "reason": review_reason, **candidate}
@@ -474,6 +544,9 @@ def resolve_unresolved_titles(
                     "title_score": result.get("title_score"),
                     "genre_score": result.get("genre_score"),
                     "actor_score": result.get("actor_score"),
+                    "director_score": result.get("director_score"),
+                    "studio_score": result.get("studio_score"),
+                    "metadata_score": result.get("metadata_score"),
                 }
                 record_discovery(
                     record["media_type"],
