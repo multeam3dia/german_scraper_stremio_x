@@ -9,6 +9,8 @@ from catalog_identity import (
     create_title,
     get_title,
     get_title_by_external_id,
+    get_title_by_provider_url,
+    link_provider_title,
     init_identity_schema,
 )
 
@@ -54,6 +56,26 @@ class CatalogIdentityTests(unittest.TestCase):
         self.assertEqual(
             get_title_by_external_id("series", "tmdb", "42")["title_id"], first
         )
+
+    def test_provider_url_links_to_canonical_title(self):
+        title_id = create_title("series", "Linked Anime")
+        link_provider_title(
+            title_id, "aniworld", "https://aniworld.to/anime/stream/linked-anime",
+            provider_title="Linked Anime",
+        )
+        record = get_title_by_provider_url(
+            "aniworld", "https://aniworld.to/anime/stream/linked-anime"
+        )
+        self.assertEqual(record["title_id"], title_id)
+        self.assertEqual(record["title"], "Linked Anime")
+
+    def test_provider_url_cannot_be_reassigned_to_another_title(self):
+        first = create_title("series", "First")
+        second = create_title("series", "Second")
+        url = "https://aniworld.to/anime/stream/shared"
+        link_provider_title(first, "aniworld", url)
+        with self.assertRaises(IdentityConflictError):
+            link_provider_title(second, "aniworld", url)
 
     def test_media_type_must_match_gsx_id(self):
         with self.assertRaises(ValueError):
