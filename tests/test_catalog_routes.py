@@ -111,6 +111,31 @@ class CatalogRouteTests(unittest.TestCase):
         self.assertEqual(response["meta"]["videos"], canonical_meta["videos"])
 
 
+
+    def test_gsx_titles_without_imdb_are_listed_in_separate_catalog(self):
+        title_id = create_title(
+            "series", "Series without IMDb", year=2024,
+            metadata={"description": "Canonical description"},
+        )
+        link_provider_title(
+            title_id, "aniworld",
+            "https://aniworld.to/anime/stream/no-imdb",
+            provider_title="Series without IMDb",
+        )
+        manifest = app._manifest_response()
+        gsx_catalogs = [
+            item for item in manifest["catalogs"]
+            if item["id"] == "german_scraper_gsx_shows"
+        ]
+        self.assertEqual(len(gsx_catalogs), 1)
+        response = app.get_catalog("series", "german_scraper_gsx_shows")
+        self.assertEqual(len(response["metas"]), 1)
+        self.assertEqual(response["metas"][0]["id"], title_id)
+        self.assertEqual(response["metas"][0]["name"], "Series without IMDb")
+        self.assertEqual(
+            response["metas"][0]["description"], "Canonical description"
+        )
+
     def test_manifest_accepts_canonical_gsx_ids(self):
         manifest = app._manifest_response()
         self.assertIn("gsx:series:", manifest["idPrefixes"])
