@@ -501,5 +501,46 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+    def test_english_fallback_runs_when_german_results_are_irrelevant(self):
+        calls = []
+
+        def fake_get(path, params):
+            if path != "/search/tv":
+                return {"imdb_id": "tt1234567"}
+            calls.append(params.get("language"))
+            if params.get("language") == "de-DE":
+                return {"results": [
+                    {"id": 61, "name": "Grey's Anatomy",
+                     "original_name": "Grey's Anatomy"}
+                ]}
+            return {"results": [
+                {"id": 62, "name": "Yuri Is My Job!",
+                 "original_name": "私の百合はお仕事です！"}
+            ]}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Yuri Is My Job!"},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 62)
+        self.assertIn("en-US", calls)
+
+    def test_compact_spacing_difference_is_an_exact_title_match(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 63, "name": "Two Car", "original_name": "Two Car"}
+                ]}
+            return {"imdb_id": "tt1234567"}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "TwoCar"},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["title_score"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
