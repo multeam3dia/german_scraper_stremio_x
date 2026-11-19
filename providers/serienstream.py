@@ -10,6 +10,24 @@ from .indexes import fetch_serienstream_index
 from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
 
+def _structure_summary(series: SerienstreamSeries) -> dict:
+    """Summarize parsed season pages without fetching individual episode pages."""
+    seasons = []
+    for season in series.seasons or []:
+        episodes = list(season.episodes or [])
+        seasons.append({
+            "season_number": int(getattr(season, "season_number", 0) or 0),
+            "episode_count": len(episodes),
+            "is_movie_collection": False,
+        })
+    return {
+        "season_count": len(seasons),
+        "episode_count": sum(item["episode_count"] for item in seasons),
+        "seasons": seasons,
+        "complete": bool(seasons),
+    }
+
+
 def _year(value: object) -> int | None:
     match = re.search(r"\b(19|20)\d{2}\b", str(value or ""))
     return int(match.group(0)) if match else None
@@ -63,6 +81,7 @@ class SerienstreamProvider(BaseProvider):
                 "directors": series.directors,
                 "actors": series.actors,
                 "producer": series.producer,
+                "provider_structure": _structure_summary(series),
             },
         )
 
