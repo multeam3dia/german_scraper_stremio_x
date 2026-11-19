@@ -296,3 +296,120 @@ def get_series_streams_for_episode(
             type(exc).__name__,
         )
         return []
+
+
+def get_gsx_series_meta(title_id: str) -> dict[str, Any]:
+    """Build Stremio series metadata and episode IDs from canonical provider links."""
+    from catalog_identity import get_provider_links, get_title
+
+    canonical = get_title(title_id)
+    if not canonical or canonical.get("media_type") != "series":
+        return {"meta": None}
+
+    metadata = canonical.get("metadata") or {}
+    meta = {
+        "id": title_id,
+        "type": "series",
+        "name": canonical.get("title") or title_id,
+        "posterShape": "poster",
+        "videos": [],
+    }
+    poster = metadata.get("poster_url") or metadata.get("poster")
+    background = metadata.get("backdrop_url") or metadata.get("background")
+    description = metadata.get("description") or metadata.get("overview")
+    if poster:
+        meta["poster"] = poster
+    if background:
+        meta["background"] = background
+    if description:
+        meta["description"] = str(description)
+    if canonical.get("year"):
+        meta["releaseInfo"] = str(canonical["year"])
+
+    videos: dict[tuple[int, int], dict[str, Any]] = {}
+    for entry in get_provider_links(title_id):
+        provider_id = str(entry.get("provider") or "").lower()
+        provider_class = PROVIDERS.get(provider_id)
+        provider_url = str(entry.get("provider_url") or "")
+        if not provider_class or not provider_url:
+            continue
+        try:
+            provider = provider_class()
+            provider_title = ProviderTitle(
+                provider=provider_id,
+                media_type="series",
+                title=str(entry.get("provider_title") or canonical["title"]),
+                url=provider_url,
+            )
+            seasons = provider.get_seasons(provider_title)
+            for season_data in seasons:
+                if season_data.is_movie_collection:
+                    continue
+                for episode_data in season_data.episodes:
+                    if episode_data.is_movie or episode_data.episode_number < 1:
+                        continue
+                    key = (int(season_data.season_number), int(episode_data.episode_number))
+                    video = videos.setdefault(key, {
+                        "id": f"{title_id}:{key[0]}:{key[1]}",
+                        "title": episode_data.title or episode_data.title_original or f"Episode {key[1]}",
+                        "season": key[0],
+                        "episode": key[1],
+                    })
+                    if not video.get("title") or video["title"].startswith("Episode "):
+                        video["title"] = episode_data.title or episode_data.title_original or video["title"]
+        except Exception as exc:
+            logger.warning(
+                "GSX series structure lookup failed for %s (%s): %s",
+                title_id, provider_id, type(exc).__name__,
+            )
+    meta["videos"] = [videos[key] for key in sorted(videos)]
+    return {"meta": meta}
+
+
+def get_gsx_series_streams_for_episode(
+    title_id: str, season_number: int, episode_number: int
+) -> list[dict[str, Any]]:
+    """Resolve one requested GSX episode directly through its linked providers."""
+    from catalog_identity import get_provider_links, get_title
+
+    canonical = get_title(title_id)
+    if not canonical or canonical.get("media_type") != "series":
+        return []
+    streams: list[dict[str, Any]] = []
+    display_title = str(canonical.get("title") or title_id)
+    for entry in get_provider_links(title_id):
+        provider_id = str(entry.get("provider") or "").lower()
+        provider_class = PROVIDERS.get(provider_id)
+        provider_url = str(entry.get("provider_url") or "")
+        if not provider_class or not provider_url:
+            continue
+        try:
+            provider = provider_class()
+            provider_title = ProviderTitle(
+                provider=provider_id,
+                media_type="series",
+                title=str(entry.get("provider_title") or display_title),
+                url=provider_url,
+            )
+            seasons = provider.get_seasons(provider_title)
+            matching = [
+                episode for season in seasons
+                if not season.is_movie_collection
+                and int(season.season_number) == int(season_number)
+                for episode in season.episodes
+                if not episode.is_movie
+                and int(episode.episode_number) == int(episode_number)
+            ]
+            if len(matching) != 1:
+                continue
+            streams.extend(provider.get_episode_streams(
+                matching[0].url, display_title,
+                f"{title_id}:{season_number}:{episode_number}",
+            ))
+        except Exception as exc:
+            logger.warning(
+                "GSX episode lookup failed for %s (%s) S%02dE%02d: %s",
+                title_id, provider_id, int(season_number), int(episode_number),
+                type(exc).__name__,
+            )
+    return streams
