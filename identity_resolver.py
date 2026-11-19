@@ -327,20 +327,13 @@ def find_tmdb_match(
     if not isinstance(results, list) or not results:
         return {"status": "no_match", "reason": "TMDB returned no candidates"}
 
-    exact_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    near_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    missing_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    exact_title_without_year: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    saw_title_candidate = False
-    saw_year_mismatch = False
-
+    candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
     for item in results:
         if not isinstance(item, dict):
             continue
         title_score = _title_similarity(provider_title, item, media_type)
         if title_score < MIN_TITLE_SCORE_WITH_YEAR:
             continue
-        saw_title_candidate = True
         candidate_year = _year_from_result(item, media_type)
         score = _candidate_score(
             provider_title, provider_year, item, media_type, provider_genres, genre_map
@@ -349,58 +342,24 @@ def find_tmdb_match(
             _genre_similarity(provider_genres, item, genre_map or {})
             if provider_genres and genre_map else None
         )
-        row = (score, item, title_score, candidate_year, genre_score)
+        candidates.append((score, item, title_score, candidate_year, genre_score))
 
-        if provider_year is None:
-            # Without a provider year, only an exact normalized title can be
-            # auto-matched. Similar titles need independent date evidence.
-            if title_score == 1.0:
-                exact_title_without_year.append(row)
-        elif candidate_year is None:
-            missing_year.append(row)
-        elif candidate_year == provider_year:
-            exact_year.append(row)
-        elif abs(candidate_year - provider_year) == 1:
-            # A one-year difference can be a regional premiere-date variation,
-            # but is not strong enough evidence for automatic identity assignment.
-            near_year.append(row)
-        else:
-            saw_year_mismatch = True
-
-    # Prefer an exact year. Near-year or yearless results are retained for
-    # manual review, never promoted automatically.
-    if provider_year is None:
-        candidates = exact_title_without_year
-        review_reason = None
-    elif exact_year:
-        candidates = exact_year
-        review_reason = None
-    elif near_year:
-        candidates = near_year
-        review_reason = "Candidate year differs by one year; manual review required"
-    elif missing_year:
-        candidates = missing_year
-        review_reason = "TMDB candidate has no release year; manual review required"
-    else:
-        candidates = []
-        review_reason = None
-
+    # Provider year (especially AniWorld's) is diagnostic only, never an
+    # exclusion criterion. Keep candidates regardless of year difference.
     if not candidates:
-        if provider_year is None and saw_title_candidate:
-            reason = "Provider year is missing and no exact title candidate was found"
-        elif saw_year_mismatch:
-            reason = "No title candidate has a compatible release year"
-        else:
-            reason = "TMDB returned no sufficiently strong title candidate"
-        return {"status": "no_match", "reason": reason}
+        return {"status": "no_match", "reason": "No TMDB candidate passed title similarity",
+                "diagnostics": {
+                    "provider_title": provider_title, "provider_year": provider_year,
+                    "provider_genres": provider_genres, "tmdb_result_count": len(results),
+                    "title_compatible_candidates": 0,
+                }}
 
     candidates.sort(key=lambda pair: pair[0], reverse=True)
 
-    # Optional cast/director/studio evidence is only fetched for the top
-    # five exact-title candidates. Missing metadata is neutral. These signals
-    # only affect the runner-up margin; title/year confidence remains mandatory.
+    # Fetch optional metadata for up to five shortlisted candidates, including
+    # a single candidate, so diagnostics can show actual evidence.
     metadata_scores: dict[int, dict[str, float | None]] = {}
-    if len(candidates) > 1:
+    if candidates:
         for _, item, _, _, _ in candidates[:5]:
             tmdb_id = item.get("id")
             if type(tmdb_id) is int and tmdb_id > 0:
@@ -439,6 +398,45 @@ def find_tmdb_match(
         # Combined optional metadata can contribute at most 0.12 to the margin.
         margin += (best_metadata_score - runner_metadata_score) * 0.12
     margin = round(margin, 4)
+    candidate_diagnostics = []
+    for _, item, item_title_score, item_year, item_genre_score in candidates[:10]:
+        signals = scores_for(item)
+        candidate_diagnostics.append({
+            "tmdb_id": item.get("id"),
+            "title": {"provider": provider_title,
+                      "tmdb": (item.get("name") if media_type == "series" else item.get("title")) or "",
+                      "status": "match" if item_title_score == 1.0 else "partial_match",
+                      "score": item_title_score},
+            "original_title": (item.get("original_name") if media_type == "series" else item.get("original_title")),
+            "year": {"provider": provider_year, "tmdb": item_year,
+                     "status": "missing" if provider_year is None or item_year is None else
+                               ("match" if provider_year == item_year else "mismatch"),
+                     "delta": abs(item_year-provider_year) if item_year is not None and provider_year is not None else None,
+                     "used_for_exclusion": False},
+            "genres": {"provider": provider_genres, "score": item_genre_score,
+                       "status": "not_comparable" if item_genre_score is None else
+                                 ("match" if item_genre_score >= 0.5 else "mismatch")},
+            "actors": {"provider": metadata.get("actors") or [], "score": signals.get("actor_score"),
+                       "status": "not_available" if signals.get("actor_score") is None else
+                                 ("match" if signals["actor_score"] >= 0.5 else "mismatch")},
+            "directors": {"provider": metadata.get("directors") or [], "score": signals.get("director_score"),
+                          "status": "not_available" if signals.get("director_score") is None else
+                                    ("match" if signals["director_score"] >= 0.5 else "mismatch")},
+            "studio": {"provider": metadata.get("producer") if provider == "aniworld" else None,
+                       "score": signals.get("studio_score"),
+                       "status": "not_available" if signals.get("studio_score") is None else
+                                 ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
+        })
+    diagnostics = {
+        "search": {"query": provider_title, "language": "de-DE",
+                   "tmdb_result_count": len(results),
+                   "title_compatible_candidates": len(candidates)},
+        "provider_data": {"title": provider_title, "year": provider_year,
+                          "genres": provider_genres, "actors": metadata.get("actors") or [],
+                          "directors": metadata.get("directors") or [],
+                          "studio": metadata.get("producer") if provider == "aniworld" else None},
+        "candidates": candidate_diagnostics,
+    }
     candidate = {
         "tmdb_id": best.get("id"),
         "candidate_title": (best.get("name") if media_type == "series" else best.get("title")) or "",
@@ -459,24 +457,28 @@ def find_tmdb_match(
         "studio_score": scores_for(best).get("studio_score"),
         "metadata_score": best_metadata_score,
     }
-    if review_reason:
-        return {"status": "ambiguous", "reason": review_reason, **candidate}
     if best_score < MIN_CONFIDENCE:
-        return {"status": "ambiguous", "reason": "Best candidate is below confidence threshold", **candidate}
+        return {"status": "ambiguous", "reason": "Best candidate is below confidence threshold",
+                "diagnostics": diagnostics, **candidate}
     if margin < MIN_MARGIN:
-        return {"status": "ambiguous", "reason": "Multiple candidates have similar scores", **candidate}
+        return {"status": "ambiguous", "reason": "Multiple candidates have similar scores",
+                "diagnostics": diagnostics, **candidate}
     if type(best.get("id")) is not int or best["id"] <= 0:
-        return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID", **candidate}
+        return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID",
+                "diagnostics": diagnostics, **candidate}
 
     try:
         external = search_fn(f"/{endpoint_type}/{best['id']}/external_ids", {})
     except Exception as exc:
-        return {"status": "error", "reason": f"External ID lookup failed: {type(exc).__name__}", **candidate}
+        return {"status": "error", "reason": f"External ID lookup failed: {type(exc).__name__}",
+                "diagnostics": diagnostics, **candidate}
     imdb_id = str(external.get("imdb_id") or "").strip()
     if not IMDB_ID_RE.fullmatch(imdb_id):
-        return {"status": "ambiguous", "reason": "TMDB candidate has no valid IMDb ID", **candidate}
+        return {"status": "ambiguous", "reason": "TMDB candidate has no valid IMDb ID",
+                "diagnostics": diagnostics, "external_ids": external, **candidate}
 
-    return {"status": "matched", "imdb_id": imdb_id, **candidate}
+    return {"status": "matched", "imdb_id": imdb_id,
+            "diagnostics": diagnostics, "external_ids": external, **candidate}
 
 
 def resolve_unresolved_titles(
@@ -584,7 +586,13 @@ def main() -> None:
     summary = resolve_unresolved_titles(
         provider=args.provider, limit=args.limit, apply=args.apply
     )
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    rendered = json.dumps(summary, ensure_ascii=False, indent=2)
+    report_path = "/app/data/identity-resolver-report.json"
+    with open(report_path, "w", encoding="utf-8") as report_file:
+        report_file.write(rendered + "\n")
+    compact = {key: value for key, value in summary.items() if key != "results"}
+    print(json.dumps(compact, ensure_ascii=False, indent=2))
+    print(f"Full diagnostic report: {report_path}")
 
 
 if __name__ == "__main__":
