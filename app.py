@@ -5,7 +5,11 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from scraper import get_movie_streams, get_metadata
-from providers.lazy import get_series_meta, get_series_streams_for_episode
+from providers.lazy import (
+    get_series_meta, get_series_streams_for_episode,
+    get_gsx_series_meta, get_gsx_series_streams_for_episode,
+)
+from catalog_identity import get_title as get_canonical_title
 from aniworld.config import logger
 from mdblist import queue_verified_title
 from mdblist_tracking import (
@@ -39,7 +43,7 @@ MANIFEST = {
     "catalogs": [
         {"type": "series", "id": "german_scraper_shows", "name": "German Scraper X - Shows"},
     ],
-    "idPrefixes": ["tt"],
+    "idPrefixes": ["tt", "gsx:series:", "gsx:movie:"],
 }
 
 app = FastAPI(title="German Scraper Stremio Addon", version=VERSION)
@@ -290,7 +294,38 @@ def get_catalog_with_extra(type: str, catalog_id: str, extra: str):
 
 @app.get("/meta/{type}/{id}.json")
 def get_meta(type: str, id: str):
-    """Return provider-backed episode metadata for series, on demand."""
+    """Return metadata for legacy IMDb IDs and canonical GSX IDs."""
+    if id.startswith("gsx:"):
+        title_id = ":".join(id.split(":")[:3])
+        canonical = get_canonical_title(title_id)
+        if not canonical or canonical.get("media_type") != type:
+            return {"meta": None}
+        if type == "series":
+            try:
+                return get_gsx_series_meta(title_id)
+            except Exception as exc:
+                logger.error(
+                    "GSX series metadata request failed for %s: %s",
+                    title_id, type(exc).__name__,
+                )
+                return {"meta": None}
+        metadata = canonical.get("metadata") or {}
+        meta = {
+            "id": title_id,
+            "type": type,
+            "name": canonical.get("title") or title_id,
+            "posterShape": "poster",
+        }
+        for key, source in (
+            ("poster", "poster_url"), ("background", "backdrop_url"),
+            ("description", "description"),
+        ):
+            if metadata.get(source):
+                meta[key] = metadata[source]
+        if canonical.get("year"):
+            meta["releaseInfo"] = str(canonical["year"])
+        return {"meta": meta}
+
     imdb_id = id.split(":", 1)[0]
     if type == "series":
         try:
@@ -323,7 +358,12 @@ def get_stream(type: str, id: str):
             streams = get_movie_streams(id)
         elif type == "series":
             parts = id.split(":")
-            if len(parts) >= 3:
+            if parts[0] == "gsx" and len(parts) == 5:
+                title_id = ":".join(parts[:3])
+                season = int(parts[3])
+                episode = int(parts[4])
+                streams = get_gsx_series_streams_for_episode(title_id, season, episode)
+            elif len(parts) >= 3:
                 imdb_id = parts[0]
                 season = int(parts[1])
                 episode = int(parts[2])
@@ -364,7 +404,8 @@ def get_stream(type: str, id: str):
     if unique_streams:
         # Export only after at least one source has yielded a usable stream.
         media_id = id.split(":", 1)[0] if type == "series" else id
-        queue_verified_title(type, media_id)
+        if not media_id.startswith("gsx"):
+            queue_verified_title(type, media_id)
 
     return {"streams": unique_streams}
 
