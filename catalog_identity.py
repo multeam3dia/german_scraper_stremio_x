@@ -78,6 +78,22 @@ def init_identity_schema() -> None:
 
             CREATE INDEX IF NOT EXISTS idx_external_title_ids_title
                 ON external_title_ids(title_id, namespace);
+
+            CREATE TABLE IF NOT EXISTS canonical_provider_links (
+                provider TEXT NOT NULL,
+                provider_url TEXT NOT NULL,
+                title_id TEXT NOT NULL,
+                provider_title TEXT,
+                availability_status TEXT NOT NULL DEFAULT 'available'
+                    CHECK(availability_status IN ('available','missing','unknown')),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+                PRIMARY KEY(provider, provider_url),
+                FOREIGN KEY(title_id) REFERENCES canonical_titles(title_id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_canonical_provider_links_title
+                ON canonical_provider_links(title_id, provider);
             """
         )
 
@@ -210,5 +226,59 @@ def get_title_by_external_id(
             """SELECT title_id FROM external_title_ids
                WHERE media_type=? AND namespace=? AND external_id=?""",
             (media_type, namespace, external_id),
+        ).fetchone()
+    return get_title(str(row["title_id"])) if row else None
+
+
+def link_provider_title(
+    title_id: str,
+    provider: str,
+    provider_url: str,
+    *,
+    provider_title: str | None = None,
+    availability_status: str = "available",
+) -> None:
+    """Link one provider detail page to a canonical GSX title."""
+    title_id = _validate_title_id(title_id)
+    provider = str(provider or "").strip().lower()
+    provider_url = str(provider_url or "").strip()
+    status = str(availability_status or "").strip().lower()
+    if not provider or not provider_url:
+        raise ValueError("provider and provider_url are required")
+    if status not in {"available", "missing", "unknown"}:
+        raise ValueError("invalid availability_status")
+    init_identity_schema()
+    with _connect() as db:
+        existing = db.execute(
+            "SELECT title_id FROM canonical_provider_links WHERE provider=? AND provider_url=?",
+            (provider, provider_url),
+        ).fetchone()
+        if existing and existing["title_id"] != title_id:
+            raise IdentityConflictError("Provider URL is already linked to another title")
+        cursor = db.execute(
+            """INSERT INTO canonical_provider_links(
+                   provider,provider_url,title_id,provider_title,availability_status
+               ) VALUES(?,?,?,?,?)
+               ON CONFLICT(provider,provider_url) DO UPDATE SET
+                   provider_title=COALESCE(excluded.provider_title,canonical_provider_links.provider_title),
+                   availability_status=excluded.availability_status,
+                   updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')""",
+            (provider, provider_url, title_id, provider_title, status),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("Could not link provider title")
+
+
+def get_title_by_provider_url(provider: str, provider_url: str) -> dict[str, Any] | None:
+    provider = str(provider or "").strip().lower()
+    provider_url = str(provider_url or "").strip()
+    if not provider or not provider_url:
+        return None
+    init_identity_schema()
+    with _connect() as db:
+        row = db.execute(
+            """SELECT title_id FROM canonical_provider_links
+               WHERE provider=? AND provider_url=?""",
+            (provider, provider_url),
         ).fetchone()
     return get_title(str(row["title_id"])) if row else None
