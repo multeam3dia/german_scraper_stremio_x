@@ -604,7 +604,7 @@ class IdentityResolverTests(unittest.TestCase):
              "year": 2022},
             search_fn=fake_get, wikidata_lookup_fn=fake_wikidata,
         )
-        self.assertEqual(result["status"], "missing_imdb")
+        self.assertEqual(result["status"], "identified")
 
     def test_gunma_chan_year_and_aniworld_studio_select_correct_candidate(self):
         def fake_get(path, params):
@@ -629,7 +629,7 @@ class IdentityResolverTests(unittest.TestCase):
              "metadata": {"producer": "Ascension"}},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "missing_imdb")
+        self.assertEqual(result["status"], "identified")
         self.assertEqual(result["tmdb_id"], 133306)
         self.assertEqual(result["studio_score"], 1.0)
         self.assertEqual(result["candidate_year"], 2021)
