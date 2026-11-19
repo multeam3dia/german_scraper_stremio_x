@@ -506,7 +506,11 @@ def find_tmdb_match(
                 "closest_title": matched_title,
                 "matched_queries": item.get("_matched_queries") or [],
                 "metadata_signals": scores_for(item),
-                "rejection": "insufficient_title_or_independent_metadata_evidence",
+                "rejection": (
+                    "below_title_similarity_threshold"
+                    if not independent_signals
+                    else "insufficient_title_or_independent_metadata_evidence"
+                ),
             })
             continue
 
@@ -544,8 +548,14 @@ def find_tmdb_match(
         # Metadata can rank candidates, but does not override a strong title
         # match. Rescue eligibility itself requires two strong independent signals.
         score = pair[0] + (
-            (corroboration - 0.5) * 0.04 if corroboration is not None else 0.0
+            (corroboration - 0.5) * 0.10 if corroboration is not None else 0.0
         )
+        # A positive genre overlap is a separate, weak ranking signal. A
+        # mismatch remains neutral, but a full match must be strong enough to
+        # distinguish otherwise identical title/year candidates.
+        genre_score = pair[4]
+        if genre_score is not None:
+            score += genre_score * 0.10
         # Year is a bounded ranking hint, never an exclusion rule or a confidence
         # score. A same-year candidate gets +0.05; a 10+ year gap gets -0.05.
         item_year = pair[3]
