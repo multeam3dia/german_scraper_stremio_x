@@ -26,6 +26,15 @@ from catalog_db import (
     get_unresolved_titles,
     mark_unresolved_title_resolved,
     record_discovery,
+    mark_unresolved_title_identified,
+)
+
+from catalog_identity import (
+    add_external_id,
+    create_title,
+    get_title_by_external_id,
+    get_title_by_provider_url,
+    link_provider_title,
 )
 
 logger = logging.getLogger(__name__)
@@ -703,7 +712,7 @@ def find_tmdb_match(
             if IMDB_ID_RE.fullmatch(imdb_id):
                 imdb_id_source = "wikidata_p345"
     if not IMDB_ID_RE.fullmatch(imdb_id):
-        return {"status": "missing_imdb", "reason": "No valid IMDb ID in TMDB or Wikidata",
+        return {"status": "identified", "reason": "TMDB identity is confident; no IMDb ID is available",
                 "diagnostics": diagnostics, "external_ids": external, **candidate}
     return {"status": "matched", "imdb_id": imdb_id,
             "imdb_id_source": imdb_id_source,
@@ -725,7 +734,7 @@ def resolve_unresolved_titles(
         "matched": 0,
         "applied": 0,
         "ambiguous": 0,
-        "missing_imdb": 0,
+        "identified_without_imdb": 0,
         "no_match": 0,
         "errors": 0,
         "dry_run": not apply,
@@ -762,9 +771,61 @@ def resolve_unresolved_titles(
         }
         summary["results"].append(result_row)
         status = result["status"]
-        if status == "matched":
-            summary["matched"] += 1
+        if status in {"matched", "identified"}:
+            if status == "matched":
+                summary["matched"] += 1
+            else:
+                summary["identified_without_imdb"] += 1
             if apply:
+                # Keep a canonical identity for every confident TMDB match,
+                # including titles that have no IMDb listing.
+                media_type = record["media_type"]
+                tmdb_id = str(result["tmdb_id"])
+                canonical = get_title_by_external_id(media_type, "tmdb", tmdb_id)
+                if canonical is None:
+                    canonical = get_title_by_provider_url(
+                        record["provider"], record["provider_url"]
+                    )
+                if canonical is None:
+                    title_id = create_title(
+                        media_type,
+                        result.get("candidate_title") or record["provider_title"],
+                        year=result.get("candidate_year") or record.get("year"),
+                        metadata={
+                            "identity_resolution": "tmdb",
+                            "provider_title": record["provider_title"],
+                            "provider": record["provider"],
+                            "score": result.get("score"),
+                            "margin": result.get("margin"),
+                        },
+                    )
+                else:
+                    title_id = canonical["title_id"]
+                add_external_id(
+                    title_id, "tmdb", tmdb_id, source="tmdb_identity_resolver",
+                    confidence=result.get("score"), verified=True,
+                )
+                external_ids = result.get("external_ids") or {}
+                for source_key, namespace in (
+                    ("tvdb_id", "tvdb"), ("wikidata_id", "wikidata")
+                ):
+                    external_value = external_ids.get(source_key)
+                    if external_value:
+                        add_external_id(
+                            title_id, namespace, str(external_value),
+                            source="tmdb_external_ids", verified=True,
+                        )
+                if result.get("imdb_id"):
+                    add_external_id(
+                        title_id, "imdb", result["imdb_id"],
+                        source=result.get("imdb_id_source", "tmdb_external_ids"),
+                        confidence=result.get("score"), verified=True,
+                    )
+                link_provider_title(
+                    title_id, record["provider"], record["provider_url"],
+                    provider_title=record["provider_title"],
+                )
+            if status == "matched" and apply:
                 metadata = dict(record.get("metadata") or {})
                 metadata["identity_resolution"] = {
                     "source": "tmdb",
@@ -795,11 +856,14 @@ def resolve_unresolved_titles(
                 mark_unresolved_title_resolved(
                     record["provider"], record["provider_url"], result["imdb_id"]
                 )
+            elif status == "identified" and apply:
+                mark_unresolved_title_identified(
+                    record["provider"], record["provider_url"], title_id
+                )
+            if apply:
                 summary["applied"] += 1
         elif status == "ambiguous":
             summary["ambiguous"] += 1
-        elif status == "missing_imdb":
-            summary["missing_imdb"] += 1
         elif status == "no_match":
             summary["no_match"] += 1
         else:
