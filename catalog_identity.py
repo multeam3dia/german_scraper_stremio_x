@@ -282,3 +282,18 @@ def get_title_by_provider_url(provider: str, provider_url: str) -> dict[str, Any
             (provider, provider_url),
         ).fetchone()
     return get_title(str(row["title_id"])) if row else None
+
+
+def get_provider_links(title_id: str) -> list[dict[str, Any]]:
+    """Return available provider detail-page links for a canonical title."""
+    title_id = _validate_title_id(title_id)
+    init_identity_schema()
+    with _connect() as db:
+        rows = db.execute(
+            """SELECT provider,provider_url,provider_title,availability_status
+               FROM canonical_provider_links
+               WHERE title_id=? AND availability_status='available'
+               ORDER BY provider""",
+            (title_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
