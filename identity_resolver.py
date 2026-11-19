@@ -152,6 +152,37 @@ def _genre_similarity(
     return round(len(provider_set & candidate_set) / len(provider_set | candidate_set), 4)
 
 
+def _person_similarity(provider_people: list[str], candidate_people: list[str]) -> float | None:
+    """Compare optional cast names; missing metadata is neutral, not a mismatch."""
+    provider_set = {_normalize(value) for value in provider_people if _normalize(value)}
+    candidate_set = {_normalize(value) for value in candidate_people if _normalize(value)}
+    if not provider_set or not candidate_set:
+        return None
+    # Provider cast lists are usually shorter than TMDB's; overlap coefficient
+    # avoids penalizing a provider for not listing the complete cast.
+    return round(len(provider_set & candidate_set) / min(len(provider_set), len(candidate_set)), 4)
+
+
+def _candidate_cast_score(
+    item: dict[str, Any], media_type: str, provider_actors: list[str],
+    search_fn: Callable[..., dict[str, Any]],
+) -> float | None:
+    """Fetch credits only for shortlisted candidates, never for every search hit."""
+    tmdb_id = item.get("id")
+    if type(tmdb_id) is not int or tmdb_id <= 0 or not provider_actors:
+        return None
+    endpoint_type = "tv" if media_type == "series" else "movie"
+    try:
+        credits = search_fn(f"/{endpoint_type}/{tmdb_id}/credits", {})
+    except Exception:
+        return None
+    cast = credits.get("cast")
+    if not isinstance(cast, list):
+        return None
+    names = [str(person.get("name") or "") for person in cast[:40] if isinstance(person, dict)]
+    return _person_similarity(provider_actors, names)
+
+
 def _candidate_score(
     provider_title: str, provider_year: int | None,
     item: dict[str, Any], media_type: str,
@@ -199,6 +230,9 @@ def find_tmdb_match(
     provider_genres = metadata.get("provider_genres")
     if not isinstance(provider_genres, list):
         provider_genres = []
+    provider_actors = metadata.get("actors")
+    if not isinstance(provider_actors, list):
+        provider_actors = []
     if provider_genres and genre_map is None:
         genre_endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
         try:
@@ -300,12 +334,42 @@ def find_tmdb_match(
         return {"status": "no_match", "reason": reason}
 
     candidates.sort(key=lambda pair: pair[0], reverse=True)
+
+    # Actor data is optional on both providers. Fetch TMDB credits only for a
+    # small shortlist when there is a genuine tie to resolve; absent credits
+    # never count against a candidate and actors can never create a title match.
+    actor_scores: dict[int, float | None] = {}
+    if provider_actors and len(candidates) > 1:
+        for _, item, _, _, _ in candidates[:5]:
+            tmdb_id = item.get("id")
+            if type(tmdb_id) is int and tmdb_id > 0:
+                actor_scores[tmdb_id] = _candidate_cast_score(
+                    item, media_type, provider_actors, search_fn
+                )
+
+    def actor_score_for(item: dict[str, Any]) -> float | None:
+        tmdb_id = item.get("id")
+        return actor_scores.get(tmdb_id) if type(tmdb_id) is int else None
+
+    candidates.sort(
+        key=lambda pair: (
+            pair[0],
+            actor_score_for(pair[1]) if actor_score_for(pair[1]) is not None else -1.0,
+        ),
+        reverse=True,
+    )
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
     runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
     margin = best_score - runner_up
     runner_up_genre = candidates[1][4] if len(candidates) > 1 else None
     if best_genre_score is not None and runner_up_genre is not None:
         margin += (best_genre_score - runner_up_genre) * 0.10
+    best_actor_score = actor_score_for(best)
+    runner_actor_score = actor_score_for(candidates[1][1]) if len(candidates) > 1 else None
+    if best_actor_score is not None and runner_actor_score is not None:
+        # At most 0.12 margin contribution: useful corroboration, never a
+        # substitute for the title/year threshold or a valid IMDb identifier.
+        margin += (best_actor_score - runner_actor_score) * 0.12
     margin = round(margin, 4)
     candidate = {
         "tmdb_id": best.get("id"),
@@ -322,6 +386,7 @@ def find_tmdb_match(
         "score": best_score,
         "margin": margin,
         "genre_score": best_genre_score,
+        "actor_score": best_actor_score,
     }
     if review_reason:
         return {"status": "ambiguous", "reason": review_reason, **candidate}
@@ -408,6 +473,7 @@ def resolve_unresolved_titles(
                     "candidate_year_delta": result.get("candidate_year_delta"),
                     "title_score": result.get("title_score"),
                     "genre_score": result.get("genre_score"),
+                    "actor_score": result.get("actor_score"),
                 }
                 record_discovery(
                     record["media_type"],
