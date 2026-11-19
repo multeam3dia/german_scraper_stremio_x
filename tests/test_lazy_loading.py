@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import catalog_db
+from catalog_identity import create_title, link_provider_title
 from providers.base import (
     BaseProvider,
     ProviderEpisode,
@@ -13,7 +14,10 @@ from providers.base import (
     ProviderTitle,
 )
 from providers.crawler import crawl_provider
-from providers.lazy import get_series_meta, get_series_streams_for_episode
+from providers.lazy import (
+    get_series_meta, get_series_streams_for_episode,
+    get_gsx_series_meta, get_gsx_series_streams_for_episode,
+)
 
 
 class _CatalogOnlyProvider(BaseProvider):
@@ -233,6 +237,31 @@ class LazyLoadingTests(unittest.TestCase):
 
         self.assertEqual(response["meta"]["videos"][0]["id"], "tt2468102:1:1")
         self.assertEqual(_LazyPlaybackProvider.seasons_calls, 1)
+
+
+    def test_gsx_series_metadata_and_streams_use_linked_provider(self):
+        title_id = create_title("series", "GSX Example")
+        link_provider_title(
+            title_id, "testprovider",
+            "https://provider.example/series/gsx-example",
+            provider_title="GSX Example",
+        )
+        _LazyPlaybackProvider.seasons_calls = 0
+        _LazyPlaybackProvider.stream_calls = 0
+        with patch.dict(
+            "providers.lazy.PROVIDERS",
+            {"testprovider": _LazyPlaybackProvider},
+        ):
+            response = get_gsx_series_meta(title_id)
+            video = response["meta"]["videos"][0]
+            streams = get_gsx_series_streams_for_episode(title_id, 1, 1)
+
+        self.assertEqual(response["meta"]["id"], title_id)
+        self.assertEqual(video["id"], f"{title_id}:1:1")
+        self.assertEqual(video["title"], "Pilot")
+        self.assertEqual(streams[0]["name"], "Example Hoster")
+        self.assertEqual(_LazyPlaybackProvider.seasons_calls, 2)
+        self.assertEqual(_LazyPlaybackProvider.stream_calls, 1)
 
     def test_provider_structure_cache_has_persistent_freshness(self):
         catalog_db.record_discovery(
