@@ -638,14 +638,10 @@ def find_tmdb_match(
         return {"status": "error", "reason": f"Search failed: {type(exc).__name__}"}
 
     all_candidates = list(raw_candidates.values()) + anonymous_candidates
-    if not all_candidates:
-        return {"status": "no_match", "reason": "TMDB returned no candidates",
-                "diagnostics": {
-                    "provider_title": provider_title, "provider_year": provider_year,
-                    "provider_genres": provider_genres, "search_attempts": search_attempts,
-                    "tmdb_result_count": 0, "title_compatible_candidates": 0,
-                    "candidates": [],
-                }}
+    # Keep the empty-result case flowing into the conservative fallback below:
+    # AniWorld sometimes labels standalone films as series, so an empty TV
+    # search must not prevent a movie lookup. Other providers retain the normal
+    # no-candidate result without probing the movie endpoint.
 
     # TMDB's main/original title may not match the provider label. Check
     # alternative titles for a bounded shortlist before rejecting candidates.
@@ -820,7 +816,10 @@ def find_tmdb_match(
             and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
             for row in rejected_diagnostics
         )
-        if media_type == "series" and structural_rejection:
+        empty_aniworld_series_search = provider == "aniworld" and not all_candidates
+        if media_type == "series" and (
+            structural_rejection or empty_aniworld_series_search
+        ):
             alternate_record = dict(record)
             alternate_record["media_type"] = "movie"
             alternate = find_tmdb_match(
