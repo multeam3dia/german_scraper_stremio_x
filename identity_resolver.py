@@ -33,14 +33,6 @@ MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 MIN_TITLE_SCORE_WITH_YEAR = 0.94
 
-# Explicitly verified AniWorld title aliases. These are deliberately bound to
-# both a TMDB ID and an IMDb ID; a title-only override must never create a match.
-VERIFIED_ANIWORLD_ALIASES = {
-    "zakuro": {"tmdb_id": 36836, "imdb_id": "tt1738078"},
-    "yuri is my job": {"tmdb_id": 201949, "imdb_id": "tt20234560"},
-    "yu gi oh zero": {"tmdb_id": 36406, "imdb_id": "tt4834194"},
-}
-
 GENRE_ALIASES = {
     "abenteuer": "adventure", "komodie": "comedy", "krimi": "crime",
     "kriminalfilm": "crime", "dokumentation": "documentary", "doku": "documentary",
@@ -461,43 +453,46 @@ def find_tmdb_match(
         except Exception as exc:
             item["_alternative_titles_error"] = type(exc).__name__
 
-    candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    alias_key = _normalize(provider_title)
-    verified_alias = (
-        VERIFIED_ANIWORLD_ALIASES.get(alias_key)
-        if provider == "aniworld" and media_type == "series" else None
-    )
-    for item in all_candidates:
-        title_score = _title_similarity(provider_title, item, media_type)
-        is_verified_alias_candidate = (
-            verified_alias is not None
-            and item.get("id") == verified_alias["tmdb_id"]
-        )
-        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not is_verified_alias_candidate:
-            continue
-        # An allowlisted candidate receives a full title score, but it is only
-        # accepted later if TMDB's external IMDb ID also matches the allowlist.
-        if is_verified_alias_candidate:
-            title_score = 1.0
-        candidate_year = _year_from_result(item, media_type)
-        score = (
-            1.0 if is_verified_alias_candidate else
-            _candidate_score(
-                provider_title, provider_year, item, media_type, provider_genres, genre_map
+    # Fetch corroborating metadata for a bounded shortlist BEFORE applying the
+    # title threshold. This lets independent provider metadata rescue translated
+    # or abbreviated titles without lowering the global title threshold.
+    metadata_scores: dict[int, dict[str, float | None]] = {}
+    for item in preliminary[:5]:
+        tmdb_id = item.get("id")
+        if type(tmdb_id) is int and tmdb_id > 0:
+            metadata_scores[tmdb_id] = _metadata_signal_scores(
+                item, media_type, metadata, provider, search_fn
             )
-        )
-        genre_score = (
-            _genre_similarity(provider_genres, item, genre_map or {})
-            if provider_genres and genre_map else None
-        )
-        candidates.append((score, item, title_score, candidate_year, genre_score))
 
-    # Provider year (especially AniWorld's) is diagnostic only, never an
-    # exclusion criterion. Keep candidates regardless of year difference.
-    if not candidates:
-        rejected_diagnostics = []
-        for item in preliminary[:10]:
-            score, matched_title = _best_title_match(provider_title, item, media_type)
+    def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
+        tmdb_id = item.get("id")
+        return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
+
+    def corroboration_values(item: dict[str, Any]) -> list[float]:
+        signals = scores_for(item)
+        # Genres are useful for ranking, but not strong enough to independently
+        # rescue a weak title match. Require two separate people/studio signals.
+        return [
+            value for key, value in signals.items()
+            if key in {"actor_score", "director_score", "studio_score"}
+            and value is not None
+        ]
+
+    def corroboration_score(item: dict[str, Any]) -> float | None:
+        values = corroboration_values(item)
+        return round(sum(values) / len(values), 4) if values else None
+
+    candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
+    rejected_diagnostics = []
+    for item in preliminary[:10]:
+        title_score, matched_title = _best_title_match(provider_title, item, media_type)
+        independent_signals = corroboration_values(item)
+        strong_metadata = (
+            len([value for value in independent_signals if value >= 0.85]) >= 2
+            and corroboration_score(item) is not None
+            and corroboration_score(item) >= 0.85
+        )
+        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata:
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
@@ -506,12 +501,34 @@ def find_tmdb_match(
                     else item.get("original_title")
                 ),
                 "alternative_titles": item.get("_alternative_titles") or [],
-                "title_score": score,
+                "title_score": title_score,
                 "closest_title": matched_title,
                 "matched_queries": item.get("_matched_queries") or [],
-                "rejection": "below_title_similarity_threshold",
+                "metadata_signals": scores_for(item),
+                "rejection": "insufficient_title_or_independent_metadata_evidence",
             })
-        return {"status": "no_match", "reason": "No TMDB candidate passed title similarity",
+            continue
+
+        candidate_year = _year_from_result(item, media_type)
+        base_score = _candidate_score(
+            provider_title, provider_year, item, media_type, provider_genres, genre_map
+        )
+        if strong_metadata and title_score < MIN_TITLE_SCORE_WITH_YEAR:
+            # A metadata-rescued candidate must clear a high evidence floor.
+            # The separate margin check below still protects against competing
+            # candidates with similarly strong evidence.
+            evidence = corroboration_score(item) or 0.85
+            base_score = max(base_score, min(0.97, 0.94 + (evidence - 0.85) * 0.2))
+        genre_score = (
+            _genre_similarity(provider_genres, item, genre_map or {})
+            if provider_genres and genre_map else None
+        )
+        candidates.append((base_score, item, title_score, candidate_year, genre_score))
+
+    # Provider year (especially AniWorld's) remains diagnostic only: it never
+    # excludes a candidate. Strong metadata corroboration is provider-neutral.
+    if not candidates:
+        return {"status": "no_match", "reason": "No TMDB candidate had sufficient title or independent metadata evidence",
                 "diagnostics": {
                     "provider_title": provider_title, "provider_year": provider_year,
                     "provider_genres": provider_genres,
@@ -521,31 +538,10 @@ def find_tmdb_match(
                     "candidates": rejected_diagnostics,
                 }}
 
-    candidates.sort(key=lambda pair: pair[0], reverse=True)
-
-    # Fetch optional metadata for up to five shortlisted candidates, including
-    # a single candidate, so diagnostics can show actual evidence.
-    metadata_scores: dict[int, dict[str, float | None]] = {}
-    if candidates:
-        for _, item, _, _, _ in candidates[:5]:
-            tmdb_id = item.get("id")
-            if type(tmdb_id) is int and tmdb_id > 0:
-                metadata_scores[tmdb_id] = _metadata_signal_scores(
-                    item, media_type, metadata, provider, search_fn
-                )
-
-    def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
-        tmdb_id = item.get("id")
-        return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
-
-    def corroboration_score(item: dict[str, Any]) -> float | None:
-        values = [value for value in scores_for(item).values() if value is not None]
-        return round(sum(values) / len(values), 4) if values else None
-
     def adjusted_score(pair: tuple[float, dict[str, Any], float, int | None, float | None]) -> float:
         corroboration = corroboration_score(pair[1])
-        # A bounded +/-0.02 nudge lets metadata resolve close candidates
-        # without overpowering the primary title/year score.
+        # Metadata can rank candidates, but does not override a strong title
+        # match. Rescue eligibility itself requires two strong independent signals.
         return pair[0] + ((corroboration - 0.5) * 0.04 if corroboration is not None else 0.0)
 
     candidates.sort(key=adjusted_score, reverse=True)
@@ -598,10 +594,6 @@ def find_tmdb_match(
                                  ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
         })
     diagnostics = {
-        "verified_alias": (
-            {"tmdb_id": verified_alias["tmdb_id"], "expected_imdb_id": verified_alias["imdb_id"]}
-            if verified_alias else None
-        ),
         "search": {"query": provider_title, "languages": languages,
                    "attempts": search_attempts,
                    "tmdb_result_count": len(all_candidates),
@@ -651,11 +643,6 @@ def find_tmdb_match(
     if not IMDB_ID_RE.fullmatch(imdb_id):
         return {"status": "ambiguous", "reason": "TMDB candidate has no valid IMDb ID",
                 "diagnostics": diagnostics, "external_ids": external, **candidate}
-    if verified_alias and best.get("id") == verified_alias["tmdb_id"]:
-        if imdb_id != verified_alias["imdb_id"]:
-            return {"status": "ambiguous", "reason": "Verified alias IMDb ID did not match",
-                    "diagnostics": diagnostics, "external_ids": external, **candidate}
-
     return {"status": "matched", "imdb_id": imdb_id,
             "diagnostics": diagnostics, "external_ids": external, **candidate}
 
