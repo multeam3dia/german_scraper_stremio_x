@@ -147,6 +147,39 @@ def _best_title_match(
     return round(score, 4), raw
 
 
+def _strip_format_suffix(value: str) -> tuple[str, str | None]:
+    """Remove a trailing format label while preserving what was removed.
+
+    Labels such as 'Shorts', 'OVA' and 'Special' can describe a related
+    release rather than a different work. They are therefore a weaker title
+    signal and always need independent corroboration before auto-matching.
+    """
+    normalized = " ".join(str(value or "").strip().split())
+    match = re.search(r"(?i)(?:\\s*[-:–—]\\s*|\\s+)(shorts?|ova|specials?|movie|film)$", normalized)
+    if not match:
+        return normalized, None
+    core = normalized[:match.start()].strip(" -:–—")
+    return (core, match.group(1).casefold()) if core else (normalized, None)
+
+
+def _format_suffix_match(
+    provider_title: str, item: dict[str, Any], media_type: str
+) -> tuple[float, str | None, str | None]:
+    """Return a deliberately sub-threshold match after removing a format suffix."""
+    source_core, source_suffix = _strip_format_suffix(provider_title)
+    best: tuple[float, str | None, str | None] = (0.0, None, None)
+    for raw in _title_variants(item, media_type):
+        candidate_core, candidate_suffix = _strip_format_suffix(raw)
+        if not candidate_suffix:
+            continue
+        score = _title_similarity(source_core, {"name": candidate_core,
+            "original_name": candidate_core} if media_type == "series" else
+            {"title": candidate_core, "original_title": candidate_core}, media_type)
+        if score > best[0]:
+            best = (score, raw, candidate_suffix)
+    return best
+
+
 def _title_similarity(
     provider_title: str, item: dict[str, Any], media_type: str
 ) -> float:
@@ -534,12 +567,26 @@ def find_tmdb_match(
     for item in preliminary[:10]:
         title_score, matched_title = _best_title_match(provider_title, item, media_type)
         independent_signals = corroboration_values(item)
+        strong_signal_count = len([value for value in independent_signals if value >= 0.85])
         strong_metadata = (
-            len([value for value in independent_signals if value >= 0.85]) >= 2
+            strong_signal_count >= 2
             and corroboration_score(item) is not None
             and corroboration_score(item) >= 0.85
         )
-        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata:
+        suffix_score, suffix_title, suffix_kind = _format_suffix_match(
+            provider_title, item, media_type
+        )
+        suffix_variant = suffix_score >= 0.99
+        candidate_year = _year_from_result(item, media_type)
+        exact_year = provider_year is not None and candidate_year == provider_year
+        # A trailing format label is weaker evidence than a title match. Accept
+        # it only when the year agrees and at least one independent metadata
+        # signal corroborates it, or when two independent metadata signals do.
+        suffix_supported = suffix_variant and (
+            strong_metadata or (exact_year and strong_signal_count >= 1
+                                and (corroboration_score(item) or 0) >= 0.85)
+        )
+        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported:
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
@@ -564,14 +611,14 @@ def find_tmdb_match(
             })
             continue
 
-        candidate_year = _year_from_result(item, media_type)
         base_score = _candidate_score(
             provider_title, provider_year, item, media_type, provider_genres, genre_map
         )
-        if strong_metadata and title_score < MIN_TITLE_SCORE_WITH_YEAR:
-            # A metadata-rescued candidate must clear a high evidence floor.
-            # The separate margin check below still protects against competing
-            # candidates with similarly strong evidence.
+        if (strong_metadata or suffix_supported) and (
+            title_score < MIN_TITLE_SCORE_WITH_YEAR or suffix_supported
+        ):
+            # Metadata-rescued and format-suffix candidates must clear a high
+            # evidence floor; the separate margin check protects against ties.
             evidence = corroboration_score(item) or 0.85
             base_score = max(base_score, min(0.97, 0.94 + (evidence - 0.85) * 0.2))
         genre_score = (
@@ -607,12 +654,14 @@ def find_tmdb_match(
         genre_score = pair[4]
         if genre_score is not None:
             score += genre_score * 0.10
-        # Year is a bounded ranking hint, never an exclusion rule or a confidence
-        # score. A same-year candidate gets +0.05; a 10+ year gap gets -0.05.
+        # Year is a ranking hint, never an exclusion rule or standalone proof.
+        # A same-year candidate gets +0.08; a 10+ year gap gets -0.07. This
+        # makes a reliable exact-year distinction decisive without filtering
+        # candidates when provider dates are absent or known to be unreliable.
         item_year = pair[3]
         if provider_year is not None and item_year is not None:
             delta = abs(provider_year - item_year)
-            score += 0.05 - min(delta, 10) * 0.01
+            score += 0.08 - min(delta, 10) * 0.015
         return score
 
     candidates.sort(key=adjusted_score, reverse=True)
