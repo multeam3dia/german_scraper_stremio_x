@@ -5,7 +5,10 @@ import tempfile
 import unittest
 
 import catalog_db
-from identity_resolver import find_tmdb_match, resolve_unresolved_titles, _structure_comparison
+from identity_resolver import (
+    find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
+    _genre_similarity,
+)
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
@@ -1149,6 +1152,49 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 303)
         self.assertEqual(result["candidate_year"], 1979)
 
+
+
+    def test_aniworld_language_labels_are_excluded_from_genre_similarity(self):
+        score = _genre_similarity(
+            ["Abenteuer", "Ger", "GerSub"],
+            {"genre_ids": [12]},
+            {12: "Adventure"},
+        )
+        self.assertEqual(score, 1.0)
+
+    def test_country_metadata_breaks_a_close_same_title_candidate_tie(self):
+        def fake_get(path, params):
+            if path == "/search/movie":
+                return {"results": [
+                    {"id": 101, "title": "Tokyo Godfathers",
+                     "original_title": "Tokyo Godfathers", "release_date": "2003-01-01"},
+                    {"id": 102, "title": "Tokyo Godfathers",
+                     "original_title": "Tokyo Godfathers", "release_date": "2008-01-01"},
+                ]}
+            if path == "/movie/101":
+                return {"production_countries": [{"iso_3166_1": "JP", "name": "Japan"}]}
+            if path == "/movie/102":
+                return {"production_countries": [{"iso_3166_1": "US", "name": "United States"}]}
+            if path == "/movie/101/external_ids":
+                return {"imdb_id": "tt0388473"}
+            if path == "/movie/102/external_ids":
+                return {"imdb_id": "tt7654321"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld",
+                "media_type": "movie",
+                "provider_title": "Tokyo Godfathers",
+                "year": 2003,
+                "metadata": {"country": "Japan"},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 101)
+        self.assertEqual(result["diagnostics"]["candidates"][0]["country"]["score"], 1.0)
+        self.assertEqual(result["diagnostics"]["candidates"][1]["country"]["score"], 0.0)
 
 if __name__ == "__main__":
     unittest.main()
