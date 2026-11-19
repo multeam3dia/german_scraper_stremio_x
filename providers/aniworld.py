@@ -14,7 +14,7 @@ def _structure_summary(series: AniworldSeries) -> dict:
     """Summarize parsed season pages without fetching individual episode pages."""
     seasons = []
     for season in series.seasons or []:
-        episodes = list(season.episodes or [])
+        episodes = list(getattr(season, "episodes", []) or [])
         seasons.append({
             "season_number": int(getattr(season, "season_number", 0) or 0),
             "episode_count": len(episodes),
