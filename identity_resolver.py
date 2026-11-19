@@ -416,17 +416,18 @@ def find_tmdb_match(
         values = [value for value in scores_for(item).values() if value is not None]
         return round(sum(values) / len(values), 4) if values else None
 
-    candidates.sort(
-        key=lambda pair: (
-            pair[0],
-            corroboration_score(pair[1])
-            if corroboration_score(pair[1]) is not None else -1.0,
-        ),
-        reverse=True,
-    )
+    def adjusted_score(pair: tuple[float, dict[str, Any], float, int | None, float | None]) -> float:
+        corroboration = corroboration_score(pair[1])
+        # A bounded +/-0.02 nudge lets metadata resolve close candidates
+        # without overpowering the primary title/year score.
+        return pair[0] + ((corroboration - 0.5) * 0.04 if corroboration is not None else 0.0)
+
+    candidates.sort(key=adjusted_score, reverse=True)
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
     runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
-    margin = best_score - runner_up
+    margin = adjusted_score(candidates[0]) - (
+        adjusted_score(candidates[1]) if len(candidates) > 1 else 0.0
+    )
     runner_up_genre = candidates[1][4] if len(candidates) > 1 else None
     if best_genre_score is not None and runner_up_genre is not None:
         margin += (best_genre_score - runner_up_genre) * 0.10
