@@ -265,5 +265,66 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, ["/search/tv", "/tv/33/external_ids"])
 
 
+    def test_optional_actor_signal_breaks_same_title_year_tie(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 41, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01"},
+                    {"id": 42, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01"},
+                ]}
+            if path == "/tv/41/credits":
+                return {"cast": [{"name": "Actor One"}, {"name": "Actor Two"}]}
+            if path == "/tv/42/credits":
+                return {"cast": [{"name": "Unrelated Actor"}]}
+            if path == "/tv/41/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {"imdb_id": "tt7654321"}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series",
+                "provider_title": "Example",
+                "year": 2020,
+                "metadata": {"actors": ["Actor One", "Actor Two"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 41)
+        self.assertEqual(result["actor_score"], 1.0)
+        self.assertIn("/tv/41/credits", calls)
+        self.assertIn("/tv/42/credits", calls)
+
+    def test_missing_actor_data_is_neutral_and_keeps_tie_ambiguous(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 43, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01"},
+                    {"id": 44, "name": "Example", "original_name": "Example",
+                     "first_air_date": "2020-01-01"},
+                ]}
+            if path.endswith("/credits"):
+                return {}
+            return {"imdb_id": "tt1234567"}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series",
+                "provider_title": "Example",
+                "year": 2020,
+                "metadata": {"actors": ["Actor One"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertIsNone(result["actor_score"])
+
+
 if __name__ == "__main__":
     unittest.main()
