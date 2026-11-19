@@ -340,6 +340,72 @@ def _metadata_signal_scores(
     return scores
 
 
+def _structure_comparison(
+    provider_structure: dict[str, Any], candidate_details: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Compare provider season/episode counts with TMDB; missing data stays neutral."""
+    if not isinstance(provider_structure, dict) or not provider_structure.get("complete"):
+        return {"status": "not_available", "score": None, "mismatch": False}
+    if not isinstance(candidate_details, dict):
+        return {"status": "not_available", "score": None, "mismatch": False}
+
+    try:
+        provider_episodes = int(provider_structure.get("episode_count"))
+        provider_seasons = int(provider_structure.get("season_count"))
+        tmdb_episodes = int(candidate_details.get("number_of_episodes"))
+        tmdb_seasons = int(candidate_details.get("number_of_seasons"))
+    except (TypeError, ValueError):
+        return {"status": "not_available", "score": None, "mismatch": False}
+    if min(provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons) < 1:
+        return {"status": "not_available", "score": None, "mismatch": False}
+
+    episode_delta = abs(provider_episodes - tmdb_episodes)
+    episode_ratio = episode_delta / max(provider_episodes, tmdb_episodes)
+    season_delta = abs(provider_seasons - tmdb_seasons)
+    # A large episode-count contradiction is strong negative evidence. A small
+    # discrepancy is common for specials, split cours and provider numbering.
+    episode_mismatch = episode_delta >= max(5, int(max(provider_episodes, tmdb_episodes) * 0.25))
+    season_mismatch = season_delta >= 2 and min(provider_seasons, tmdb_seasons) >= 2
+    mismatch = episode_mismatch or season_mismatch
+
+    provider_by_season = {
+        str(item.get("season_number")): int(item.get("episode_count", 0))
+        for item in provider_structure.get("seasons", [])
+        if isinstance(item, dict) and item.get("season_number") is not None
+    }
+    tmdb_by_season = candidate_details.get("seasons")
+    season_comparable = isinstance(tmdb_by_season, list) and bool(provider_by_season)
+    season_detail_mismatch = False
+    if season_comparable:
+        tmdb_map = {
+            str(item.get("season_number")): int(item.get("episode_count", 0))
+            for item in tmdb_by_season
+            if isinstance(item, dict) and item.get("season_number") is not None
+            and int(item.get("season_number", 0)) > 0
+        }
+        shared = set(provider_by_season) & set(tmdb_map)
+        if shared:
+            season_detail_mismatch = any(
+                abs(provider_by_season[key] - tmdb_map[key]) >= max(
+                    5, int(max(provider_by_season[key], tmdb_map[key]) * 0.35)
+                )
+                for key in shared
+            )
+            mismatch = mismatch or season_detail_mismatch
+
+    return {
+        "status": "mismatch" if mismatch else "match",
+        "score": 0.0 if mismatch else round(max(0.0, 1.0 - episode_ratio * 0.5 - season_delta * 0.05), 4),
+        "mismatch": mismatch,
+        "provider": {"season_count": provider_seasons, "episode_count": provider_episodes,
+                     "seasons": provider_by_season},
+        "tmdb": {"season_count": tmdb_seasons, "episode_count": tmdb_episodes},
+        "episode_delta": episode_delta,
+        "season_delta": season_delta,
+        "season_detail_mismatch": season_detail_mismatch,
+    }
+
+
 def _candidate_score(
     provider_title: str, provider_year: int | None,
     item: dict[str, Any], media_type: str,
@@ -544,6 +610,16 @@ def find_tmdb_match(
                 item, media_type, metadata, provider, search_fn
             )
 
+    provider_structure = metadata.get("provider_structure")
+    structure_scores: dict[int, dict[str, Any]] = {}
+    if media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"):
+        for item in preliminary[:10]:
+            tmdb_id = item.get("id")
+            if type(tmdb_id) is not int or tmdb_id <= 0:
+                continue
+            details = _candidate_details(item, media_type, search_fn)
+            structure_scores[tmdb_id] = _structure_comparison(provider_structure, details)
+
     def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
         tmdb_id = item.get("id")
         return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
@@ -586,6 +662,18 @@ def find_tmdb_match(
             strong_metadata or (exact_year and strong_signal_count >= 1
                                 and (corroboration_score(item) or 0) >= 0.85)
         )
+        structure = structure_scores.get(item.get("id"), {
+            "status": "not_available", "score": None, "mismatch": False,
+        })
+        if structure.get("mismatch"):
+            rejected_diagnostics.append({
+                "tmdb_id": item.get("id"),
+                "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
+                "title_score": title_score,
+                "structure": structure,
+                "rejection": "provider_tmdb_episode_structure_mismatch",
+            })
+            continue
         if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported:
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
@@ -648,6 +736,9 @@ def find_tmdb_match(
             max(0.0, corroboration - 0.5) * 0.20
             if corroboration is not None else 0.0
         )
+        structure = structure_scores.get(pair[1].get("id"))
+        if structure and structure.get("status") == "match":
+            score += 0.04
         # A positive genre overlap is a separate, weak ranking signal. A
         # mismatch remains neutral, but a full match must be strong enough to
         # distinguish otherwise identical title/year candidates.
@@ -705,6 +796,9 @@ def find_tmdb_match(
                        "score": signals.get("studio_score"),
                        "status": "not_available" if signals.get("studio_score") is None else
                                  ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
+            "structure": structure_scores.get(item.get("id"), {
+                "status": "not_available", "score": None, "mismatch": False,
+            }),
         })
     diagnostics = {
         "search": {"query": provider_title, "languages": languages,
