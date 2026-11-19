@@ -53,6 +53,22 @@ GENRE_ALIASES = {
     "action abenteuer": "action", "action adventure": "action",
     "action and adventure": "action", "action and abenteuer": "action",
     "sci fi fantasy": "fantasy", "zeichentrick": "animation",
+    "alltagsleben": "slice of life", "slice of life": "slice of life",
+}
+
+# AniWorld mixes audio/subtitle availability labels into its genre list.
+# These are not genres and must not distort the TMDB genre comparison.
+IGNORED_PROVIDER_GENRES = {
+    "ger", "gersub", "eng", "engsub", "dub", "sub", "deutsch",
+    "deutsch sub", "deutsche synchro", "omu", "originalton",
+}
+
+COUNTRY_ALIASES = {
+    "japan": "jp", "deutschland": "de", "germany": "de",
+    "vereinigte staaten": "us", "united states": "us", "usa": "us",
+    "grossbritannien": "gb", "great britain": "gb", "united kingdom": "gb",
+    "frankreich": "fr", "france": "fr", "sudkorea": "kr",
+    "south korea": "kr", "china": "cn", "kanada": "ca", "canada": "ca",
 }
 
 
@@ -227,9 +243,12 @@ def _genre_similarity(
     item: dict[str, Any],
     genre_map: dict[int, str],
 ) -> float | None:
-    """Compare provider genre labels with TMDB genre IDs when both are available."""
+    """Compare actual genres, excluding AniWorld audio/subtitle labels."""
     provider_set = {
-        _normalize_genre(value) for value in provider_genres if _normalize_genre(value)
+        _normalize_genre(value)
+        for value in provider_genres
+        if _normalize_genre(value)
+        and _normalize(value) not in IGNORED_PROVIDER_GENRES
     }
     candidate_set = set()
     for raw_id in item.get("genre_ids") or []:
@@ -299,6 +318,30 @@ def _names_from_people(rows: Any, key: str = "name") -> list[str]:
     ]
 
 
+def _country_similarity(provider_country: Any, candidate_details: dict[str, Any] | None) -> float | None:
+    """Compare a provider country with TMDB production-country metadata."""
+    source = _normalize(provider_country)
+    if not source or not isinstance(candidate_details, dict):
+        return None
+    source_code = COUNTRY_ALIASES.get(source, source)
+    rows = candidate_details.get("production_countries")
+    if not isinstance(rows, list):
+        return None
+    candidate_values: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = _normalize(row.get("name"))
+        code = _normalize(row.get("iso_3166_1"))
+        if name:
+            candidate_values.add(COUNTRY_ALIASES.get(name, name))
+        if code:
+            candidate_values.add(code)
+    if not candidate_values:
+        return None
+    return 1.0 if source_code in candidate_values else 0.0
+
+
 def _metadata_signal_scores(
     item: dict[str, Any], media_type: str, metadata: dict[str, Any],
     provider: str, search_fn: Callable[..., dict[str, Any]],
@@ -315,7 +358,8 @@ def _metadata_signal_scores(
     studios = [studio] if isinstance(studio, str) and studio.strip() else []
 
     scores: dict[str, float | None] = {
-        "actor_score": None, "director_score": None, "studio_score": None,
+        "actor_score": None, "director_score": None,
+        "studio_score": None, "country_score": None,
     }
     if (actors or directors) and type(item.get("id")) is int:
         credits = _candidate_credits(item, media_type, search_fn)
@@ -333,10 +377,14 @@ def _metadata_signal_scores(
                 directors, director_names
             ) if directors else None
 
-    if studios:
+    country = metadata.get("country")
+    if studios or country:
         details = _candidate_details(item, media_type, search_fn)
-        companies = _names_from_people(details.get("production_companies")) if details else []
-        scores["studio_score"] = _person_similarity(studios, companies)
+        if studios:
+            companies = _names_from_people(details.get("production_companies")) if details else []
+            scores["studio_score"] = _person_similarity(studios, companies)
+        if country:
+            scores["country_score"] = _country_similarity(country, details)
     return scores
 
 
@@ -888,6 +936,11 @@ def find_tmdb_match(
         genre_score = pair[4]
         if genre_score is not None:
             score += genre_score * 0.10
+        # Country is a low-weight corroborating hint: production countries can
+        # be incomplete or multi-national, so a mismatch never rejects a title.
+        country_score = scores_for(pair[1]).get("country_score")
+        if country_score is not None:
+            score += country_score * 0.04
         # Year is a ranking hint, never an exclusion rule or standalone proof.
         # A same-year candidate gets +0.08; a 10+ year gap gets -0.07. This
         # makes a reliable exact-year distinction decisive without filtering
@@ -896,7 +949,7 @@ def find_tmdb_match(
         if provider_year is not None and item_year is not None:
             delta = abs(provider_year - item_year)
             score += 0.08 - min(delta, 10) * 0.015
-        return score
+        return round(max(0.0, min(1.0, score)), 4)
 
     candidates.sort(key=adjusted_score, reverse=True)
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
@@ -939,6 +992,10 @@ def find_tmdb_match(
                        "score": signals.get("studio_score"),
                        "status": "not_available" if signals.get("studio_score") is None else
                                  ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
+            "country": {"provider": metadata.get("country"),
+                        "score": signals.get("country_score"),
+                        "status": "not_available" if signals.get("country_score") is None else
+                                  ("match" if signals["country_score"] >= 0.5 else "mismatch")},
             "structure": structure_scores.get(item.get("id"), {
                 "status": "not_available", "score": None, "mismatch": False,
             }),
@@ -954,7 +1011,8 @@ def find_tmdb_match(
         "provider_data": {"title": provider_title, "year": provider_year,
                           "genres": provider_genres, "actors": metadata.get("actors") or [],
                           "directors": metadata.get("directors") or [],
-                          "studio": metadata.get("producer") if provider == "aniworld" else None},
+                          "studio": metadata.get("producer") if provider == "aniworld" else None,
+                          "country": metadata.get("country")},
         "candidates": candidate_diagnostics,
     }
     candidate = {
