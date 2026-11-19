@@ -155,7 +155,7 @@ def _strip_format_suffix(value: str) -> tuple[str, str | None]:
     signal and always need independent corroboration before auto-matching.
     """
     normalized = " ".join(str(value or "").strip().split())
-    match = re.search(r"(?i)(?:\\s*[-:–—]\\s*|\\s+)(shorts?|ova|specials?|movie|film)$", normalized)
+    match = re.search(r"(?i)(?:\s*[-:–—]\s*|\s+)(shorts?|ova|specials?|movie|film)$", normalized)
     if not match:
         return normalized, None
     core = normalized[:match.start()].strip(" -:–—")
