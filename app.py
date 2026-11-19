@@ -306,7 +306,7 @@ def get_meta(type: str, id: str):
             except Exception as exc:
                 logger.error(
                     "GSX series metadata request failed for %s: %s",
-                    title_id, type(exc).__name__,
+                    title_id, exc.__class__.__name__,
                 )
                 return {"meta": None}
         metadata = canonical.get("metadata") or {}
@@ -355,7 +355,10 @@ def get_stream(type: str, id: str):
     streams = []
     try:
         if type == "movie":
-            streams = get_movie_streams(id)
+            if id.startswith("gsx:movie:"):
+                streams = get_gsx_movie_streams(id)
+            else:
+                streams = get_movie_streams(id)
         elif type == "series":
             parts = id.split(":")
             if parts[0] == "gsx" and len(parts) == 5:
