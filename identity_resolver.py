@@ -2,8 +2,8 @@
 
 The resolver is intentionally conservative: it never promotes a title based on
 fuzzy title similarity alone. A candidate must have a strong title match, a
-compatible release year, a valid IMDb ID from TMDB external IDs, and a clear
-margin over the runner-up.
+valid IMDb ID from TMDB external IDs, and a clear margin over the runner-up.
+Provider years are retained for diagnostics but are not used to exclude matches.
 """
 from __future__ import annotations
 
