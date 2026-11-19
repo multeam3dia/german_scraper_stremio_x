@@ -292,10 +292,10 @@ def init_db() -> None:
             )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (5)")
-        elif row["version"] < 5:
-            db.execute("UPDATE schema_version SET version = 5")
-        elif row["version"] > 5:
+            db.execute("INSERT INTO schema_version(version) VALUES (6)")
+        elif row["version"] < 6:
+            db.execute("UPDATE schema_version SET version = 6")
+        elif row["version"] > 6:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
