@@ -328,7 +328,7 @@ def _wikidata_imdb_id(
 ) -> str | None:
     """Resolve a Wikidata item to IMDb via its P345 identifier, when available."""
     identifier = str(wikidata_id or "").strip()
-    if not re.fullmatch(r"Q[1-9]\\d*", identifier):
+    if not re.fullmatch(r"Q[1-9]\d*", identifier):
         return None
     try:
         if fetch_fn is not None:
