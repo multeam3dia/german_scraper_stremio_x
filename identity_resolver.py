@@ -255,15 +255,9 @@ def _candidate_score(
     title_score = _title_similarity(provider_title, item, media_type)
     if title_score <= 0:
         return 0.0
-    provider_year = _coerce_year(provider_year)
-    result_year = _year_from_result(item, media_type)
-    if provider_year is None or result_year is None:
-        year_score = 0.5
-    elif result_year == provider_year:
-        year_score = 1.0
-    else:
-        year_score = max(0.0, 1.0 - abs(result_year - provider_year) / 5.0)
-    score = (title_score * 0.88) + (year_score * 0.12)
+    # Provider year is known to be unreliable (notably on AniWorld).
+    # It remains available in diagnostics but has zero influence on identity score.
+    score = title_score
     genre_score = (
         _genre_similarity(provider_genres or [], item, genre_map or {})
         if provider_genres and genre_map else None
