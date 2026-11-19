@@ -1104,6 +1104,74 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertIn("/search/movie", calls)
 
+    def test_aniworld_empty_tv_search_probes_movie_and_corrects_verified_film(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": []}
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 11875, "title": "Tokyo Godfathers",
+                    "original_title": "東京ゴッドファーザーズ",
+                    "release_date": "2003-12-29",
+                }]}
+            if path == "/movie/11875/credits":
+                return {
+                    "cast": [{"name": "Toru Emori"}, {"name": "Aya Okamoto"}],
+                    "crew": [{"name": "Satoshi Kon", "job": "Director"}],
+                }
+            if path == "/movie/11875":
+                return {"production_companies": [{"name": "Madhouse"}],
+                        "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}]}
+            if path == "/movie/11875/external_ids":
+                return {"imdb_id": "tt0388473"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Tokyo Godfathers", "year": 2003,
+                "metadata": {
+                    "actors": ["Toru Emori", "Aya Okamoto"],
+                    "directors": ["Satoshi Kon"], "producer": "Madhouse",
+                    "country": "Japan",
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 11875)
+        self.assertEqual(result["media_type"], "movie")
+        self.assertEqual(result["media_type_correction"]["from"], "series")
+        self.assertIn("/search/movie", calls)
+
+    def test_aniworld_empty_tv_search_without_two_signals_is_not_auto_corrected(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": []}
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 11875, "title": "Tokyo Godfathers",
+                    "original_title": "東京ゴッドファーザーズ",
+                    "release_date": "2003-12-29",
+                }]}
+            if path == "/movie/11875/external_ids":
+                return {"imdb_id": "tt0388473"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Tokyo Godfathers", "year": 2003,
+                "metadata": {},
+            },
+            search_fn=fake_get,
+        )
+        self.assertNotEqual(result["status"], "matched")
+        self.assertNotEqual(result.get("media_type"), "movie")
+
     def test_exact_series_match_does_not_probe_movie_endpoint(self):
         calls = []
 
