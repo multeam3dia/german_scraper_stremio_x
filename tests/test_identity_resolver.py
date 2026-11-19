@@ -1001,6 +1001,74 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["provider"]["seasons"], {"1": 1})
         self.assertTrue(result["season_detail_mismatch"])
 
+    def test_verified_aniworld_movie_type_correction_is_applied_as_movie(self):
+        url = "https://aniworld.to/anime/stream/animal-crossing"
+        catalog_db.record_unresolved_title(
+            "aniworld", url, "Animal Crossing", "series", year=2006,
+            metadata={
+                "actors": ["Yui Horie", "Fumiko Orikasa"],
+                "directors": ["Joji Shimura"],
+                "producer": "OLM",
+                "provider_structure": {
+                    "complete": True, "season_count": 1, "episode_count": 1,
+                    "seasons": [{"season_number": 1, "episode_count": 1}],
+                },
+            },
+        )
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 341826, "name": "Animal Crossing Shorts",
+                    "original_name": "どうぶつの森",
+                    "first_air_date": "2006-01-01",
+                }]}
+            if path == "/tv/341826/credits":
+                return {"cast": [], "crew": []}
+            if path == "/tv/341826":
+                return {
+                    "number_of_seasons": 1, "number_of_episodes": 12,
+                    "seasons": [{"season_number": 1, "episode_count": 12}],
+                }
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 20523, "title": "Animal Crossing: Der Film",
+                    "original_title": "どうぶつの森",
+                    "release_date": "2006-12-16",
+                }]}
+            if path == "/movie/20523/alternative_titles":
+                return {"titles": [{"title": "Animal Crossing"}]}
+            if path == "/movie/20523/credits":
+                return {
+                    "cast": [{"name": "Yui Horie"}, {"name": "Fumiko Orikasa"}],
+                    "crew": [{"name": "Joji Shimura", "job": "Director"}],
+                }
+            if path == "/movie/20523":
+                return {"production_companies": [{"name": "OLM"}]}
+            if path == "/movie/20523/external_ids":
+                return {"imdb_id": "tt090?0000"}
+            return {}
+
+        # Use a valid IMDb identifier for the apply path.
+        def search_with_valid_imdb(path, params):
+            payload = fake_get(path, params)
+            if path == "/movie/20523/external_ids":
+                return {"imdb_id": "tt0900000"}
+            return payload
+
+        summary = resolve_unresolved_titles(apply=True, search_fn=search_with_valid_imdb)
+
+        self.assertEqual(summary["matched"], 1)
+        self.assertEqual(summary["applied"], 1)
+        self.assertEqual(catalog_db.get_unresolved_titles(), [])
+        canonical = get_title_by_provider_url("aniworld", url)
+        self.assertIsNotNone(canonical)
+        self.assertEqual(
+            get_title_by_external_id("movie", "tmdb", "20523")["title_id"],
+            canonical["title_id"],
+        )
+        self.assertIsNone(get_title_by_external_id("series", "tmdb", "20523"))
+
     def test_structural_series_rejection_probes_movie_and_reports_type_conflict(self):
         calls = []
 
