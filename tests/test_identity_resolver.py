@@ -28,7 +28,7 @@ class IdentityResolverTests(unittest.TestCase):
                 return {"results": [
                     {"id": 10, "name": "Dark", "original_name": "Dark",
                      "first_air_date": "2017-12-01"},
-                    {"id": 11, "name": "Dark", "original_name": "Dark",
+                    {"id": 11, "name": "Dark: The Remake", "original_name": "Dark: The Remake",
                      "first_air_date": "2022-01-01"},
                 ]}
             return {"imdb_id": "tt5753856"}
@@ -154,20 +154,23 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["candidate_year_delta"], 1)
 
-    def test_missing_tmdb_year_requires_manual_review(self):
+    def test_missing_tmdb_year_is_diagnostic_not_automatic_rejection(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
                     {"id": 24, "name": "Dark", "original_name": "Dark"}
                 ]}
-            return {"imdb_id": "tt5753856"}
+            if path == "/tv/24/external_ids":
+                return {"imdb_id": "tt5753856"}
+            return {}
 
         result = find_tmdb_match(
             {"media_type": "series", "provider_title": "Dark", "year": 2017},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["status"], "matched")
         self.assertIsNone(result["candidate_year"])
+        self.assertEqual(result["diagnostics"]["candidates"][0]["year"]["status"], "missing")
 
     def test_same_title_homonyms_without_provider_year_are_ambiguous(self):
         def fake_get(path, params):
