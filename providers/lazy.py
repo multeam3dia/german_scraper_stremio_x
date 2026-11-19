@@ -413,3 +413,46 @@ def get_gsx_series_streams_for_episode(
                 type(exc).__name__,
             )
     return streams
+
+
+def get_gsx_movie_streams(title_id: str) -> list[dict[str, Any]]:
+    """Resolve a GSX movie through provider movie-collection episode pages."""
+    from catalog_identity import get_provider_links, get_title
+
+    canonical = get_title(title_id)
+    if not canonical or canonical.get("media_type") != "movie":
+        return []
+    display_title = str(canonical.get("title") or title_id)
+    streams: list[dict[str, Any]] = []
+    for entry in get_provider_links(title_id):
+        provider_id = str(entry.get("provider") or "").lower()
+        provider_class = PROVIDERS.get(provider_id)
+        provider_url = str(entry.get("provider_url") or "")
+        if not provider_class or not provider_url:
+            continue
+        try:
+            provider = provider_class()
+            provider_title = ProviderTitle(
+                provider=provider_id,
+                media_type="movie",
+                title=str(entry.get("provider_title") or display_title),
+                url=provider_url,
+            )
+            seasons = provider.get_seasons(provider_title)
+            movie_episodes = [
+                episode for season in seasons
+                if season.is_movie_collection
+                for episode in season.episodes
+                if episode.is_movie
+            ]
+            # Do not guess if a provider page exposes multiple films.
+            if len(movie_episodes) == 1:
+                streams.extend(provider.get_episode_streams(
+                    movie_episodes[0].url, display_title, title_id
+                ))
+        except Exception as exc:
+            logger.warning(
+                "GSX movie lookup failed for %s (%s): %s",
+                title_id, provider_id, type(exc).__name__,
+            )
+    return streams
