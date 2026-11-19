@@ -543,65 +543,70 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
-    def test_verified_aniworld_aliases_require_matching_tmdb_and_imdb_ids(self):
-        cases = [
-            ("Zakuro", 36836, "tt1738078"),
-            ("Yuri Is My Job!", 201949, "tt20234560"),
-            ("Yu-Gi-Oh! Zero", 36406, "tt4834194"),
-        ]
-        for title, tmdb_id, imdb_id in cases:
-            with self.subTest(title=title):
-                def fake_get(path, params):
-                    if path == "/search/tv":
-                        return {"results": [{
-                            "id": tmdb_id,
-                            "name": "TMDB localized title",
-                            "original_name": "Japanese title",
-                            "first_air_date": "2010-01-01",
-                        }]}
-                    if path == f"/tv/{tmdb_id}/external_ids":
-                        return {"imdb_id": imdb_id}
-                    if path == f"/tv/{tmdb_id}/alternative_titles":
-                        return {"results": []}
-                    return {}
+    def test_weak_title_can_be_rescued_by_two_independent_metadata_signals(self):
+        calls = []
 
-                result = find_tmdb_match(
-                    {
-                        "provider": "aniworld",
-                        "media_type": "series",
-                        "provider_title": title,
-                        "year": 2010,
-                    },
-                    search_fn=fake_get,
-                )
-                self.assertEqual(result["status"], "matched")
-                self.assertEqual(result["tmdb_id"], tmdb_id)
-                self.assertEqual(result["imdb_id"], imdb_id)
-                self.assertIsNotNone(result["diagnostics"]["verified_alias"])
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 201, "name": "Otome Yokai Zakuro",
+                    "original_name": "おとめ妖怪 ざくろ",
+                    "first_air_date": "2010-10-01",
+                }]}
+            if path == "/tv/201/credits":
+                return {
+                    "cast": [{"name": "Actor One"}],
+                    "crew": [{"name": "Director One", "job": "Director"}],
+                }
+            if path == "/tv/201/external_ids":
+                return {"imdb_id": "tt1738078"}
+            return {}
 
-    def test_verified_aniworld_alias_rejects_unexpected_imdb_id(self):
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream",
+                "media_type": "series",
+                "provider_title": "Zakuro",
+                "metadata": {
+                    "actors": ["Actor One"],
+                    "directors": ["Director One"],
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt1738078")
+        self.assertLess(result["title_score"], 0.94)
+        self.assertEqual(result["actor_score"], 1.0)
+        self.assertEqual(result["director_score"], 1.0)
+
+    def test_weak_title_without_two_independent_signals_is_not_rescued(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
-                    "id": 36836, "name": "Otome Yokai Zakuro",
+                    "id": 202, "name": "Otome Yokai Zakuro",
                     "original_name": "おとめ妖怪 ざくろ",
                 }]}
-            if path == "/tv/36836/external_ids":
-                return {"imdb_id": "tt9999999"}
-            if path == "/tv/36836/alternative_titles":
+            if path == "/tv/202/alternative_titles":
                 return {"results": []}
             return {}
 
         result = find_tmdb_match(
             {
-                "provider": "aniworld",
+                "provider": "serienstream",
                 "media_type": "series",
                 "provider_title": "Zakuro",
+                "metadata": {"actors": ["Unknown Actor"]},
             },
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "ambiguous")
-        self.assertEqual(result["reason"], "Verified alias IMDb ID did not match")
+        self.assertEqual(result["status"], "no_match")
+        self.assertEqual(
+            result["diagnostics"]["candidates"][0]["rejection"],
+            "insufficient_title_or_independent_metadata_evidence",
+        )
+
 
 
 if __name__ == "__main__":
