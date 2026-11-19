@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 import catalog_db
-from identity_resolver import find_tmdb_match, resolve_unresolved_titles
+from identity_resolver import find_tmdb_match, resolve_unresolved_titles, _structure_comparison
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
@@ -988,6 +988,78 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "matched")
         self.assertNotIn("/tv/810", calls)
+
+    
+    def test_structure_diagnostics_include_tmdb_per_season_counts(self):
+        result = _structure_comparison(
+            {"complete": True, "season_count": 1, "episode_count": 1,
+             "seasons": [{"season_number": 1, "episode_count": 1}]},
+            {"number_of_seasons": 1, "number_of_episodes": 12,
+             "seasons": [{"season_number": 1, "episode_count": 12}]},
+        )
+        self.assertEqual(result["tmdb"]["seasons"], {"1": 12})
+        self.assertEqual(result["provider"]["seasons"], {"1": 1})
+        self.assertTrue(result["season_detail_mismatch"])
+
+    def test_structural_series_rejection_probes_movie_and_reports_type_conflict(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 341826, "name": "Animal Crossing Shorts",
+                    "original_name": "どうぶつの森", "first_air_date": "2006-01-01",
+                }]}
+            if path == "/tv/341826":
+                return {"number_of_seasons": 1, "number_of_episodes": 12,
+                        "seasons": [{"season_number": 1, "episode_count": 12}]}
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 98765, "title": "Animal Crossing: The Movie",
+                    "original_title": "劇場版 どうぶつの森",
+                    "release_date": "2006-12-16",
+                }]}
+            if path == "/movie/98765/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider": "aniworld",
+             "provider_title": "Animal Crossing", "year": 2006,
+             "metadata": {"provider_structure": {
+                 "complete": True, "season_count": 1, "episode_count": 1,
+                 "seasons": [{"season_number": 1, "episode_count": 1}],
+             }}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertTrue(result["media_type_conflict"])
+        self.assertEqual(
+            result["diagnostics"]["alternate_movie_candidate"]["tmdb_id"], 98765
+        )
+        self.assertIn("/search/movie", calls)
+
+    def test_exact_series_match_does_not_probe_movie_endpoint(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 810, "name": "Exact Series", "original_name": "Exact Series",
+                    "first_air_date": "2020-01-01",
+                }]}
+            if path == "/tv/810/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Exact Series", "year": 2020},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertNotIn("/search/movie", calls)
 
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
