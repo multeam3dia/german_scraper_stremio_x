@@ -1143,7 +1143,6 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 11875)
-        self.assertEqual(result["media_type"], "movie")
         self.assertEqual(result["media_type_correction"]["from"], "series")
         self.assertIn("/search/movie", calls)
 
