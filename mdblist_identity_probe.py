@@ -107,7 +107,7 @@ def main() -> int:
             try:
                 _, payload = _lookup(api_key, media_type, int(raw_tmdb_id))
                 ids = payload.get("ids") if isinstance(payload.get("ids"), dict) else {}
-                imdb_id = str(ids.get("imdb") or payload.get("imdb_id") or "").strip()
+                imdb_id = str(ids.get("imdb") or ids.get("imdbid") or ids.get("imdb_id") or payload.get("imdb_id") or "").strip()
                 row.update({
                     "lookup_status": "found" if imdb_id else "no_imdb_id",
                     "imdb_id": imdb_id or None,
