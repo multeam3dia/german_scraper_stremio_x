@@ -981,8 +981,18 @@ def resolve_unresolved_titles(
         )
         diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
         candidate_rows = diagnostics.get("candidates") if isinstance(diagnostics.get("candidates"), list) else []
+        def _diagnostic_title_score(row: dict[str, Any]) -> float:
+            value = row.get("title_score")
+            title_info = row.get("title")
+            if value is None and isinstance(title_info, dict):
+                value = title_info.get("score")
+            try:
+                return float(value or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
         promising_rejected = any(
-            float(row.get("title_score") or (row.get("title") or {}).get("score") or 0) >= 0.70
+            _diagnostic_title_score(row) >= 0.70
             for row in candidate_rows if isinstance(row, dict)
         )
         uncertain = result.get("status") == "ambiguous" or (
