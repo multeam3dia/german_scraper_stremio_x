@@ -768,6 +768,7 @@ def resolve_unresolved_titles(
                 metadata = dict(record.get("metadata") or {})
                 metadata["identity_resolution"] = {
                     "source": "tmdb",
+                    "imdb_id_source": result.get("imdb_id_source", "tmdb_external_ids"),
                     "tmdb_id": result["tmdb_id"],
                     "score": result["score"],
                     "margin": result["margin"],
