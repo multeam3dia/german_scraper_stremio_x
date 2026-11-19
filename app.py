@@ -35,7 +35,7 @@ from simkl_tracking import (
 )
 
 ADDON_ID = "org.stremio.german.scraper"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 MANIFEST = {
     "id": ADDON_ID,
