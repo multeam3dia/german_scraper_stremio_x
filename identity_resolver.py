@@ -740,6 +740,10 @@ def resolve_unresolved_titles(
         "dry_run": not apply,
         "results": [],
     }
+    # Resolve the complete batch before writing anything. This preflight catches
+    # multiple distinct pages from one provider that collapse onto one TMDB ID
+    # (for example sequel/season pages sharing a franchise-level external ID).
+    evaluated: list[tuple[dict[str, Any], dict[str, Any]]] = []
     genre_maps: dict[str, dict[int, str]] = {}
     for record in records:
         metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
@@ -763,6 +767,59 @@ def resolve_unresolved_titles(
                     genre_maps[media_type] = {}
             genre_map = genre_maps[media_type]
         result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+        evaluated.append((record, result))
+
+    # A TMDB series/movie identity can be shared by several provider pages.
+    # Until provider-page identity is modelled separately, do not merge distinct
+    # same-provider titles into one GSX identity or resolve their queue entries.
+    collision_groups: dict[tuple[str, str, str], list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+    for record, result in evaluated:
+        if result.get("status") not in {"matched", "identified"}:
+            continue
+        tmdb_id = str(result.get("tmdb_id") or "")
+        if not tmdb_id:
+            continue
+        key = (
+            str(record.get("media_type") or ""),
+            str(record.get("provider") or "").strip().lower(),
+            tmdb_id,
+        )
+        collision_groups.setdefault(key, []).append((record, result))
+
+    for (media_type, provider, tmdb_id), group in collision_groups.items():
+        distinct_titles = {
+            _normalize(record.get("provider_title"))
+            for record, _ in group
+            if _normalize(record.get("provider_title"))
+        }
+        distinct_urls = {
+            str(record.get("provider_url") or "").strip()
+            for record, _ in group
+            if str(record.get("provider_url") or "").strip()
+        }
+        if len(distinct_titles) <= 1 or len(distinct_urls) <= 1:
+            continue
+        collision = {
+            "media_type": media_type,
+            "provider": provider,
+            "tmdb_id": tmdb_id,
+            "provider_entries": [
+                {
+                    "title": record.get("provider_title"),
+                    "url": record.get("provider_url"),
+                }
+                for record, _ in group
+            ],
+        }
+        for _, result in group:
+            result["status"] = "ambiguous"
+            result["reason"] = (
+                "Distinct provider entries from the same provider resolve to "
+                "the same TMDB identity; manual provider-page identity review is required"
+            )
+            result["identity_collision"] = collision
+
+    for record, result in evaluated:
         result_row = {
             "provider": record["provider"],
             "title": record["provider_title"],
