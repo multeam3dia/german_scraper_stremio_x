@@ -407,5 +407,99 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, ["/search/tv", "/tv/53/external_ids"])
 
 
+    def test_yugioh_zero_matches_tmdb_alternative_title(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, params))
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 101, "name": "Yu-Gi-Oh!", "original_name": "遊☆戯☆王",
+                    "first_air_date": "1998-04-04",
+                }]}
+            if path == "/tv/101/alternative_titles":
+                return {"results": [{"title": "Yu-Gi-Oh! Zero", "iso_3166_1": "US"}]}
+            if path == "/tv/101/external_ids":
+                return {"imdb_id": "tt4834194"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Yu-Gi-Oh! Zero", "year": 1998},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt4834194")
+        self.assertIn("Yu-Gi-Oh! Zero", result["diagnostics"]["candidates"][0]["alternative_titles"])
+        self.assertEqual(
+            result["diagnostics"]["candidates"][0]["title"]["matched_variant"],
+            "Yu-Gi-Oh! Zero",
+        )
+        self.assertIn("/tv/101/alternative_titles", [path for path, _ in calls])
+
+    def test_yakitate_japan_matches_tmdb_alias_when_main_title_is_japanese(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 102, "name": "焼きたて!! ジャぱん",
+                    "original_name": "焼きたて!! ジャぱん",
+                    "first_air_date": "2004-10-12",
+                }]}
+            if path == "/tv/102/alternative_titles":
+                return {"titles": [{"title": "Yakitate!! Japan", "iso_3166_1": "US"}]}
+            if path == "/tv/102/external_ids":
+                return {"imdb_id": "tt0479783"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Yakitate!! Japan", "year": 2004},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt0479783")
+        self.assertEqual(result["title_score"], 1.0)
+
+    def test_world_dai_star_exact_title_is_found(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 103, "name": "World Dai Star",
+                    "original_name": "ワールドダイスター",
+                    "first_air_date": "2023-04-09",
+                }]}
+            if path == "/tv/103/external_ids":
+                return {"imdb_id": "tt27418288"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "World Dai Star", "year": 2023},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt27418288")
+
+    def test_rejected_candidates_are_included_in_no_match_diagnostics(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 104, "name": "Unrelated Show",
+                    "original_name": "別の番組",
+                    "first_air_date": "2020-01-01",
+                }]}
+            if path == "/tv/104/alternative_titles":
+                return {"results": [{"title": "Other Local Title"}]}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "No Such Anime"},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "no_match")
+        candidate = result["diagnostics"]["candidates"][0]
+        self.assertEqual(candidate["tmdb_id"], 104)
+        self.assertEqual(candidate["rejection"], "below_title_similarity_threshold")
+        self.assertIn("Other Local Title", candidate["alternative_titles"])
+
+
+
 if __name__ == "__main__":
     unittest.main()
