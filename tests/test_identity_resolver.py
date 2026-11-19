@@ -6,6 +6,7 @@ import unittest
 
 import catalog_db
 from identity_resolver import find_tmdb_match, resolve_unresolved_titles
+from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
 class IdentityResolverTests(unittest.TestCase):
@@ -59,7 +60,7 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ambiguous")
 
-    def test_missing_imdb_id_is_reported_separately_from_ambiguity(self):
+    def test_confident_tmdb_match_without_imdb_is_still_identified(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
@@ -74,7 +75,7 @@ class IdentityResolverTests(unittest.TestCase):
             {"media_type": "series", "provider_title": "Exact Match", "year": 2020},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "missing_imdb")
+        self.assertEqual(result["status"], "identified")
         self.assertEqual(result["tmdb_id"], 901)
 
     def test_nonmatching_metadata_does_not_penalize_candidate(self):
@@ -146,6 +147,39 @@ class IdentityResolverTests(unittest.TestCase):
             catalog_db.get_resolved_imdb_id("serienstream", url), "tt5753856"
         )
         self.assertEqual(catalog_db.get_catalog_stats()["active_titles"], 1)
+
+
+    def test_apply_persists_title_without_imdb_and_resolves_queue_item(self):
+        url = "https://aniworld.to/anime/stream/example-no-imdb"
+        catalog_db.record_unresolved_title(
+            "aniworld", url, "Example Anime", "series", year=2024,
+        )
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 98765, "name": "Example Anime",
+                    "original_name": "Example Anime",
+                    "first_air_date": "2024-01-01",
+                }]}
+            if path == "/tv/98765/external_ids":
+                return {"imdb_id": None, "tvdb_id": 123456}
+            return {}
+
+        summary = resolve_unresolved_titles(apply=True, search_fn=fake_get)
+        self.assertEqual(summary["identified_without_imdb"], 1)
+        self.assertEqual(summary["applied"], 1)
+        self.assertEqual(catalog_db.get_unresolved_titles(), [])
+        canonical = get_title_by_provider_url("aniworld", url)
+        self.assertIsNotNone(canonical)
+        self.assertEqual(canonical["title"], "Example Anime")
+        self.assertNotIn("imdb", canonical["external_ids"])
+        self.assertEqual(canonical["external_ids"]["tmdb"]["id"], "98765")
+        self.assertEqual(canonical["external_ids"]["tvdb"]["id"], "123456")
+        self.assertEqual(
+            get_title_by_external_id("series", "tmdb", "98765")["title_id"],
+            canonical["title_id"],
+        )
 
     def test_partial_substring_title_is_not_accepted(self):
         def fake_get(path, params):
