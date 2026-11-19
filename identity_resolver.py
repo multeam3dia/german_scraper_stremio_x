@@ -125,7 +125,14 @@ def _best_title_match(
         variants,
         key=lambda pair: 1.0 if source == pair[1] else difflib.SequenceMatcher(None, source, pair[1]).ratio(),
     )
-    score = 1.0 if source == normalized else difflib.SequenceMatcher(None, source, normalized).ratio()
+    # Ignore spacing differences as well: AniWorld occasionally concatenates
+    # words (for example "TwoCar" vs. TMDB's "Two Car").
+    compact_source = source.replace(" ", "")
+    compact_variant = normalized.replace(" ", "")
+    score = (
+        1.0 if source == normalized or compact_source == compact_variant
+        else difflib.SequenceMatcher(None, source, normalized).ratio()
+    )
     return round(score, 4), raw
 
 
@@ -378,24 +385,38 @@ def find_tmdb_match(
                         existing.setdefault("_matched_queries", []).append(query)
                 else:
                     anonymous_candidates.append(dict(item))
-        if not raw_candidates and not anonymous_candidates:
+        # German search results can exist but still be unrelated. In that case
+        # also search in English instead of treating any result as a successful
+        # search. This is especially important for international anime titles.
+        best_german_score = max(
+            (_title_similarity(provider_title, item, media_type)
+             for item in list(raw_candidates.values()) + anonymous_candidates),
+            default=0.0,
+        )
+        if best_german_score < MIN_TITLE_SCORE_WITH_YEAR:
             languages.append("en-US")
-            response = search_fn(search_path, {
-                "query": provider_title, "include_adult": "false", "language": "en-US",
-            })
-            results = response.get("results")
-            results = results if isinstance(results, list) else []
-            search_attempts.append({
-                "query": provider_title, "language": "en-US", "result_count": len(results),
-            })
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-                tmdb_id = item.get("id")
-                if type(tmdb_id) is int and tmdb_id > 0:
-                    raw_candidates.setdefault(tmdb_id, dict(item))
-                else:
-                    anonymous_candidates.append(dict(item))
+            for query in query_variants:
+                response = search_fn(search_path, {
+                    "query": query, "include_adult": "false", "language": "en-US",
+                })
+                results = response.get("results")
+                results = results if isinstance(results, list) else []
+                search_attempts.append({
+                    "query": query, "language": "en-US", "result_count": len(results),
+                })
+                for item in results:
+                    if not isinstance(item, dict):
+                        continue
+                    tmdb_id = item.get("id")
+                    if type(tmdb_id) is int and tmdb_id > 0:
+                        existing = raw_candidates.get(tmdb_id)
+                        if existing is None:
+                            raw_candidates[tmdb_id] = dict(item)
+                            raw_candidates[tmdb_id]["_matched_queries"] = [query]
+                        else:
+                            existing.setdefault("_matched_queries", []).append(query)
+                    else:
+                        anonymous_candidates.append(dict(item))
     except (TMDBAPIError, TMDBConfigurationError) as exc:
         return {"status": "error", "reason": str(exc)}
     except Exception as exc:
