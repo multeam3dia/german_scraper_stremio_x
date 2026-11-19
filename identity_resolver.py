@@ -33,6 +33,14 @@ MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 MIN_TITLE_SCORE_WITH_YEAR = 0.94
 
+# Explicitly verified AniWorld title aliases. These are deliberately bound to
+# both a TMDB ID and an IMDb ID; a title-only override must never create a match.
+VERIFIED_ANIWORLD_ALIASES = {
+    "zakuro": {"tmdb_id": 36836, "imdb_id": "tt1738078"},
+    "yuri is my job": {"tmdb_id": 201949, "imdb_id": "tt20234560"},
+    "yu gi oh zero": {"tmdb_id": 36406, "imdb_id": "tt4834194"},
+}
+
 GENRE_ALIASES = {
     "abenteuer": "adventure", "komodie": "comedy", "krimi": "crime",
     "kriminalfilm": "crime", "dokumentation": "documentary", "doku": "documentary",
@@ -454,10 +462,23 @@ def find_tmdb_match(
             item["_alternative_titles_error"] = type(exc).__name__
 
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
+    alias_key = _normalize(provider_title)
+    verified_alias = (
+        VERIFIED_ANIWORLD_ALIASES.get(alias_key)
+        if provider == "aniworld" and media_type == "series" else None
+    )
     for item in all_candidates:
         title_score = _title_similarity(provider_title, item, media_type)
-        if title_score < MIN_TITLE_SCORE_WITH_YEAR:
+        is_verified_alias_candidate = (
+            verified_alias is not None
+            and item.get("id") == verified_alias["tmdb_id"]
+        )
+        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not is_verified_alias_candidate:
             continue
+        # An allowlisted candidate receives a full title score, but it is only
+        # accepted later if TMDB's external IMDb ID also matches the allowlist.
+        if is_verified_alias_candidate:
+            title_score = 1.0
         candidate_year = _year_from_result(item, media_type)
         score = _candidate_score(
             provider_title, provider_year, item, media_type, provider_genres, genre_map
@@ -574,6 +595,10 @@ def find_tmdb_match(
                                  ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
         })
     diagnostics = {
+        "verified_alias": (
+            {"tmdb_id": verified_alias["tmdb_id"], "expected_imdb_id": verified_alias["imdb_id"]}
+            if verified_alias else None
+        ),
         "search": {"query": provider_title, "languages": languages,
                    "attempts": search_attempts,
                    "tmdb_result_count": len(all_candidates),
@@ -623,6 +648,10 @@ def find_tmdb_match(
     if not IMDB_ID_RE.fullmatch(imdb_id):
         return {"status": "ambiguous", "reason": "TMDB candidate has no valid IMDb ID",
                 "diagnostics": diagnostics, "external_ids": external, **candidate}
+    if verified_alias and best.get("id") == verified_alias["tmdb_id"]:
+        if imdb_id != verified_alias["imdb_id"]:
+            return {"status": "ambiguous", "reason": "Verified alias IMDb ID did not match",
+                    "diagnostics": diagnostics, "external_ids": external, **candidate}
 
     return {"status": "matched", "imdb_id": imdb_id,
             "diagnostics": diagnostics, "external_ids": external, **candidate}
