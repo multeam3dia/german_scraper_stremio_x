@@ -154,6 +154,7 @@ def init_db() -> None:
                 last_attempt_at TEXT,
                 last_error TEXT,
                 resolved_imdb_id TEXT,
+                resolved_title_id TEXT,
                 resolved_at TEXT,
                 PRIMARY KEY (provider, provider_url)
             );
@@ -280,6 +281,15 @@ def init_db() -> None:
                 ON sync_outbox(status, next_attempt_at, id);
             """
         )
+        unresolved_columns = {
+            row["name"] for row in db.execute(
+                "PRAGMA table_info(unresolved_provider_titles)"
+            ).fetchall()
+        }
+        if "resolved_title_id" not in unresolved_columns:
+            db.execute(
+                "ALTER TABLE unresolved_provider_titles ADD COLUMN resolved_title_id TEXT"
+            )
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
             db.execute("INSERT INTO schema_version(version) VALUES (5)")
@@ -493,7 +503,7 @@ def get_unresolved_titles(
             rows = db.execute(
                 """
                 SELECT * FROM unresolved_provider_titles
-                WHERE resolved_imdb_id IS NULL AND provider = ?
+                WHERE resolved_imdb_id IS NULL AND resolved_title_id IS NULL AND provider = ?
                 ORDER BY last_seen_at DESC LIMIT ?
                 """,
                 (provider.strip().lower(), limit),
@@ -502,7 +512,7 @@ def get_unresolved_titles(
             rows = db.execute(
                 """
                 SELECT * FROM unresolved_provider_titles
-                WHERE resolved_imdb_id IS NULL
+                WHERE resolved_imdb_id IS NULL AND resolved_title_id IS NULL
                 ORDER BY last_seen_at DESC LIMIT ?
                 """,
                 (limit,),
@@ -528,6 +538,24 @@ def mark_unresolved_title_resolved(
             WHERE provider=? AND provider_url=?
             """,
             (imdb_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
+        )
+
+
+def mark_unresolved_title_identified(
+    provider: str, provider_url: str, title_id: str
+) -> None:
+    """Mark a provider record resolved to a canonical GSX identity without IMDb."""
+    title_id = str(title_id or "").strip()
+    if not title_id.startswith(("gsx:movie:", "gsx:series:")):
+        raise ValueError("A valid GSX title ID is required")
+    with _connect() as db:
+        db.execute(
+            """
+            UPDATE unresolved_provider_titles
+            SET resolved_title_id=?, resolved_at=?, last_error=NULL
+            WHERE provider=? AND provider_url=?
+            """,
+            (title_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
         )
 
 
