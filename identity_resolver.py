@@ -1,9 +1,9 @@
-"""Confidence-aware provider-title to IMDb identity resolution via TMDB.
+"""Confidence-aware provider-title identity resolution via TMDB.
 
 The resolver is intentionally conservative: it never promotes a title based on
-fuzzy title similarity alone. A candidate must have a strong title match, a
-valid IMDb ID from TMDB external IDs, and a clear margin over the runner-up.
-Provider years are retained for diagnostics but are not used to exclude matches.
+fuzzy title similarity alone. A candidate must have strong title/metadata evidence
+and a clear margin over the runner-up. IMDb is attached when available, but is not
+required for a confident canonical TMDB identity.
 """
 from __future__ import annotations
 
@@ -872,7 +872,7 @@ def resolve_unresolved_titles(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Resolve provider titles to IMDb IDs via TMDB")
+    parser = argparse.ArgumentParser(description="Resolve provider titles to canonical TMDB identities (IMDb optional)")
     parser.add_argument("--provider", choices=("aniworld", "serienstream"))
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument(
