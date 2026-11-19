@@ -250,7 +250,7 @@ def _catalog_response(
             search=search,
             genre=genre,
         )
-        return {"metas": [_catalog_meta(record) for record in records]
+        return {"metas": [_catalog_meta(record) for record in records]}
     except Exception as exc:
         logger.error(
             "SQLite catalog request failed for %s: %s: %s",
