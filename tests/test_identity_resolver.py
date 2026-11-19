@@ -181,6 +181,43 @@ class IdentityResolverTests(unittest.TestCase):
             canonical["title_id"],
         )
 
+    def test_distinct_provider_pages_sharing_tmdb_identity_are_not_auto_applied(self):
+        first_url = "https://aniworld.to/anime/stream/beyblade-burst-rise"
+        second_url = "https://aniworld.to/anime/stream/beyblade-burst-quaddrive"
+        catalog_db.record_unresolved_title(
+            "aniworld", first_url, "Beyblade Burst Rise", "series", year=2023,
+        )
+        catalog_db.record_unresolved_title(
+            "aniworld", second_url, "Beyblade Burst QuadDrive", "series", year=2023,
+        )
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 67667, "name": "Beyblade Burst",
+                    "original_name": "ベイブレードバースト",
+                    "first_air_date": "2016-04-04",
+                }]}
+            if path == "/tv/67667/alternative_titles":
+                return {"results": [
+                    {"title": "Beyblade Burst Rise"},
+                    {"title": "Beyblade Burst QuadDrive"},
+                ]}
+            if path == "/tv/67667/external_ids":
+                return {"imdb_id": "tt6348126"}
+            return {}
+
+        summary = resolve_unresolved_titles(apply=True, search_fn=fake_get)
+
+        self.assertEqual(summary["applied"], 0)
+        self.assertEqual(summary["ambiguous"], 2)
+        self.assertEqual(summary["matched"], 0)
+        self.assertEqual(len(catalog_db.get_unresolved_titles()), 2)
+        for item in summary["results"]:
+            self.assertEqual(item["status"], "ambiguous")
+            self.assertIn("identity_collision", item)
+            self.assertEqual(item["identity_collision"]["tmdb_id"], "67667")
+
     def test_partial_substring_title_is_not_accepted(self):
         def fake_get(path, params):
             if path == "/search/tv":
