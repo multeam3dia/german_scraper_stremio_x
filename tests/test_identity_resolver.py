@@ -326,5 +326,77 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNone(result["actor_score"])
 
 
+    def test_director_and_aniworld_studio_signals_break_candidate_tie(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 51, "name": "Blood Lad", "original_name": "Blood Lad",
+                     "first_air_date": "2013-07-01"},
+                    {"id": 52, "name": "Blood Lad", "original_name": "Blood Lad",
+                     "first_air_date": "2013-07-01"},
+                ]}
+            if path == "/tv/51/credits":
+                return {"cast": [], "crew": [{"name": "Takeshi Yasuda", "job": "Director"}]}
+            if path == "/tv/52/credits":
+                return {"cast": [], "crew": [{"name": "Different Director", "job": "Director"}]}
+            if path == "/tv/51":
+                return {"production_companies": [{"name": "Brain's Base"}]}
+            if path == "/tv/52":
+                return {"production_companies": [{"name": "Different Studio"}]}
+            if path == "/tv/51/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {"imdb_id": "tt7654321"}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld",
+                "media_type": "series",
+                "provider_title": "Blood Lad",
+                "year": 2013,
+                "metadata": {
+                    "directors": ["Takeshi Yasuda"],
+                    "producer": "Brain's Base",
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 51)
+        self.assertEqual(result["director_score"], 1.0)
+        self.assertEqual(result["studio_score"], 1.0)
+        self.assertEqual(result["metadata_score"], 1.0)
+        self.assertIn("/tv/51/credits", calls)
+        self.assertIn("/tv/51", calls)
+
+    def test_serienstream_producer_people_are_not_treated_as_studio(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 53, "name": "Unique", "original_name": "Unique",
+                     "first_air_date": "2020-01-01"}
+                ]}
+            return {"imdb_id": "tt1234567"}
+
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream",
+                "media_type": "series",
+                "provider_title": "Unique",
+                "year": 2020,
+                "metadata": {"producer": ["Person One", "Person Two"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertIsNone(result["studio_score"])
+        self.assertEqual(calls, ["/search/tv", "/tv/53/external_ids"])
+
+
 if __name__ == "__main__":
     unittest.main()
