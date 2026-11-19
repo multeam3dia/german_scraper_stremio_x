@@ -305,16 +305,23 @@ def _candidate_score(
     title_score = _title_similarity(provider_title, item, media_type)
     if title_score <= 0:
         return 0.0
-    # Provider year is known to be unreliable (notably on AniWorld).
-    # It remains available in diagnostics but has zero influence on identity score.
+    # Provider year can be unreliable (especially on AniWorld), so it is a
+    # bounded ranking hint only. It never excludes a candidate.
     score = title_score
+    candidate_year = _year_from_result(item, media_type)
+    if provider_year is not None and candidate_year is not None:
+        year_delta = abs(provider_year - candidate_year)
+        # Exact year adds 0.03; the adjustment tapers to -0.03 at a 10+ year gap.
+        score += 0.03 - min(year_delta, 10) * 0.006
+
     genre_score = (
         _genre_similarity(provider_genres or [], item, genre_map or {})
         if provider_genres and genre_map else None
     )
-    # Genre is a small tie-breaker, never a replacement for title/year evidence.
+    # Genre can only be a weak positive tie-breaker. A mismatch is neutral:
+    # provider genre taxonomies are incomplete and often not comparable.
     if genre_score is not None:
-        score += (genre_score - 0.5) * 0.04
+        score += max(0.0, genre_score - 0.5) * 0.01
     return round(max(0.0, min(1.0, score)), 4)
 
 
@@ -550,16 +557,9 @@ def find_tmdb_match(
     margin = adjusted_score(candidates[0]) - (
         adjusted_score(candidates[1]) if len(candidates) > 1 else 0.0
     )
-    runner_up_genre = candidates[1][4] if len(candidates) > 1 else None
-    if best_genre_score is not None and runner_up_genre is not None:
-        margin += (best_genre_score - runner_up_genre) * 0.10
+    # adjusted_score already includes the bounded metadata tie-breaker.
+    # Do not add metadata or genre a second time to the candidate margin.
     best_metadata_score = corroboration_score(best)
-    runner_metadata_score = (
-        corroboration_score(candidates[1][1]) if len(candidates) > 1 else None
-    )
-    if best_metadata_score is not None and runner_metadata_score is not None:
-        # Combined optional metadata can contribute at most 0.12 to the margin.
-        margin += (best_metadata_score - runner_metadata_score) * 0.12
     margin = round(margin, 4)
     candidate_diagnostics = []
     for _, item, item_title_score, item_year, item_genre_score in candidates[:10]:
