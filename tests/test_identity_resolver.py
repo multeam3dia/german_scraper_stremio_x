@@ -59,6 +59,52 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ambiguous")
 
+    def test_missing_imdb_id_is_reported_separately_from_ambiguity(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 901, "name": "Exact Match", "original_name": "Exact Match",
+                     "first_air_date": "2020-01-01"}
+                ]}
+            if path == "/tv/901/external_ids":
+                return {"imdb_id": None}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Exact Match", "year": 2020},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "missing_imdb")
+        self.assertEqual(result["tmdb_id"], 901)
+
+    def test_nonmatching_metadata_does_not_penalize_candidate(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 902, "name": "Exact Match", "original_name": "Exact Match",
+                     "first_air_date": "2020-01-01"},
+                    {"id": 903, "name": "Exact Match", "original_name": "Exact Match",
+                     "first_air_date": "2020-01-01"},
+                ]}
+            if path == "/tv/902/credits":
+                return {"cast": [{"name": "Known Actor"}], "crew": []}
+            if path == "/tv/903/credits":
+                return {"cast": [{"name": "Different Actor"}], "crew": []}
+            if path == "/tv/902/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {"imdb_id": "tt7654321"}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series", "provider_title": "Exact Match", "year": 2020,
+                "metadata": {"actors": ["Known Actor"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 902)
+        self.assertGreaterEqual(result["margin"], 0.08)
+
     def test_dry_run_does_not_admit_title_to_catalog(self):
         catalog_db.record_unresolved_title(
             "serienstream", "https://serienstream.to/serie/dark", "Dark",
