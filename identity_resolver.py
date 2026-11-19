@@ -283,7 +283,7 @@ def _candidate_details(
         return None
     endpoint_type = "tv" if media_type == "series" else "movie"
     try:
-        payload = search_fn(f"/{endpoint_type}/{tmdb_id}", {})
+        payload = search_fn(f"/{endpoint_type}/{tmdb_id}", {"language": "de-DE"})
     except Exception:
         return None
     return payload if isinstance(payload, dict) else None
@@ -338,6 +338,21 @@ def _metadata_signal_scores(
         companies = _names_from_people(details.get("production_companies")) if details else []
         scores["studio_score"] = _person_similarity(studios, companies)
     return scores
+
+
+def _description_similarity(provider_text: str, candidate_text: str) -> float | None:
+    """Weak same-language synopsis overlap; never used to reject a candidate."""
+    stop = {
+        "aber", "alle", "auch", "auf", "aus", "bei", "das", "dass", "der", "die",
+        "ein", "eine", "einer", "eines", "er", "es", "für", "hat", "im", "in",
+        "ist", "mit", "nach", "nicht", "oder", "sich", "sie", "und", "von", "zu",
+        "the", "and", "for", "from", "with", "this", "that", "into", "their", "they",
+    }
+    left = {word for word in _normalize(provider_text).split() if len(word) > 3 and word not in stop}
+    right = {word for word in _normalize(candidate_text).split() if len(word) > 3 and word not in stop}
+    if len(left) < 4 or len(right) < 4:
+        return None
+    return round(len(left & right) / min(len(left), len(right)), 4)
 
 
 def _structure_comparison(
@@ -611,14 +626,28 @@ def find_tmdb_match(
             )
 
     provider_structure = metadata.get("provider_structure")
+    provider_description = str(record.get("description") or metadata.get("description") or "").strip()
     structure_scores: dict[int, dict[str, Any]] = {}
-    if media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"):
+    description_scores: dict[int, float | None] = {}
+    best_preliminary_title = _title_similarity(provider_title, preliminary[0], media_type) if preliminary else 0.0
+    second_preliminary_title = _title_similarity(provider_title, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
+    uncertain_shortlist = (
+        best_preliminary_title < 0.99
+        or (len(preliminary) > 1 and best_preliminary_title - second_preliminary_title < 0.08)
+    )
+    if uncertain_shortlist and (
+        (media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"))
+        or provider_description
+    ):
         for item in preliminary[:10]:
             tmdb_id = item.get("id")
             if type(tmdb_id) is not int or tmdb_id <= 0:
                 continue
             details = _candidate_details(item, media_type, search_fn)
-            structure_scores[tmdb_id] = _structure_comparison(provider_structure, details)
+            if media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"):
+                structure_scores[tmdb_id] = _structure_comparison(provider_structure, details)
+            overview = str((details or {}).get("overview") or "").strip()
+            description_scores[tmdb_id] = _description_similarity(provider_description, overview)
 
     def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
         tmdb_id = item.get("id")
@@ -739,6 +768,9 @@ def find_tmdb_match(
         structure = structure_scores.get(pair[1].get("id"))
         if structure and structure.get("status") == "match":
             score += 0.04
+        description_score = description_scores.get(pair[1].get("id"))
+        if description_score is not None:
+            score += min(0.03, max(0.0, description_score - 0.25) * 0.04)
         # A positive genre overlap is a separate, weak ranking signal. A
         # mismatch remains neutral, but a full match must be strong enough to
         # distinguish otherwise identical title/year candidates.
@@ -799,6 +831,9 @@ def find_tmdb_match(
             "structure": structure_scores.get(item.get("id"), {
                 "status": "not_available", "score": None, "mismatch": False,
             }),
+            "description": {"provider_available": bool(provider_description),
+                           "similarity": description_scores.get(item.get("id")),
+                           "status": "not_available" if description_scores.get(item.get("id")) is None else "weak_support"},
         })
     diagnostics = {
         "search": {"query": provider_title, "languages": languages,
