@@ -523,6 +523,110 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["imdb_id"], "tt27418288")
 
+    def test_wikidata_p345_is_used_when_tmdb_has_no_imdb_id(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 410, "name": "My Cultivator Girlfriend",
+                    "original_name": "我的天劫女友", "first_air_date": "2017-09-20",
+                }]}
+            if path == "/tv/410/external_ids":
+                return {"imdb_id": None, "wikidata_id": "Q12345"}
+            return {}
+
+        def fake_wikidata(identifier):
+            self.assertEqual(identifier, "Q12345")
+            return {"entities": {"Q12345": {"claims": {
+                "P345": [{"mainsnak": {"datavalue": {"value": "tt16155418"}}}]
+            }}}}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "My Cultivator Girlfriend",
+             "year": 2017},
+            search_fn=fake_get, wikidata_lookup_fn=fake_wikidata,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt16155418")
+        self.assertEqual(result["imdb_id_source"], "wikidata_p345")
+
+    def test_wikidata_fallback_rejects_malformed_imdb_identifiers(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 411, "name": "Mahjong Soul Pon",
+                    "original_name": "じゃんたま PONG☆", "first_air_date": "2022-04-01",
+                }]}
+            if path == "/tv/411/external_ids":
+                return {"wikidata_id": "Q12346"}
+            return {}
+
+        def fake_wikidata(identifier):
+            return {"entities": {identifier: {"claims": {
+                "P345": [{"mainsnak": {"datavalue": {"value": "not-an-imdb-id"}}}]
+            }}}}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Mahjong Soul Pon",
+             "year": 2022},
+            search_fn=fake_get, wikidata_lookup_fn=fake_wikidata,
+        )
+        self.assertEqual(result["status"], "missing_imdb")
+
+    def test_gunma_chan_year_and_aniworld_studio_select_correct_candidate(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 133306, "name": "Gunma-chan",
+                     "original_name": "ぐんまちゃん", "first_air_date": "2021-10-03"},
+                    {"id": 999001, "name": "Gunma-chan",
+                     "original_name": "ぐんまちゃん", "first_air_date": "2021-10-03"},
+                ]}
+            if path == "/tv/133306":
+                return {"production_companies": [{"name": "Ascension"}]}
+            if path == "/tv/999001":
+                return {"production_companies": [{"name": "Different Studio"}]}
+            if path == "/tv/133306/external_ids":
+                return {"imdb_id": None}
+            return {"imdb_id": "tt9999999"}
+
+        result = find_tmdb_match(
+            {"provider": "aniworld", "media_type": "series",
+             "provider_title": "Gunma-chan", "year": 2021,
+             "metadata": {"producer": "Ascension"}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "missing_imdb")
+        self.assertEqual(result["tmdb_id"], 133306)
+        self.assertEqual(result["studio_score"], 1.0)
+        self.assertEqual(result["candidate_year"], 2021)
+
+    def test_user_verified_imdb_ids_are_supported_by_standard_resolution_flow(self):
+        examples = [
+            ("You Don't Know Gunma Yet", 2018, "tt37894675"),
+            ("My Cultivator Girlfriend", 2017, "tt16155418"),
+            ("Mahjong Soul Pon", 2022, "tt37854502"),
+            ("I'll Live a Long Life to Dote on My Favorite Stepbrother!", 2026, "tt42728353"),
+            ("Gakuen Handsome", 2016, "tt41856393"),
+        ]
+        for index, (title, year, imdb_id) in enumerate(examples, start=1):
+            with self.subTest(title=title):
+                def fake_get(path, params):
+                    if path == "/search/tv":
+                        return {"results": [{
+                            "id": 420 + index, "name": title,
+                            "original_name": title, "first_air_date": f"{year}-01-01",
+                        }]}
+                    if path.endswith("/external_ids"):
+                        return {"imdb_id": imdb_id}
+                    return {}
+
+                result = find_tmdb_match(
+                    {"media_type": "series", "provider_title": title, "year": year},
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["imdb_id"], imdb_id)
+
     def test_rejected_candidates_are_included_in_no_match_diagnostics(self):
         def fake_get(path, params):
             if path == "/search/tv":
