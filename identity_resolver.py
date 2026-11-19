@@ -897,6 +897,36 @@ def find_tmdb_match(
             "diagnostics": diagnostics, "external_ids": external, **candidate}
 
 
+def _refresh_provider_evidence(record: dict[str, Any]) -> dict[str, Any]:
+    """Fetch one provider detail page to enrich an uncertain legacy queue item."""
+    provider_id = str(record.get("provider") or "").strip().lower()
+    provider_url = str(record.get("provider_url") or "").strip()
+    if not provider_id or not provider_url:
+        return record
+    try:
+        from providers import PROVIDERS
+        provider_class = PROVIDERS.get(provider_id)
+        if provider_class is None:
+            return record
+        detail = provider_class().get_title(provider_url)
+    except Exception as exc:
+        logger.debug("Provider evidence refresh failed for %s: %s", provider_url, type(exc).__name__)
+        return record
+
+    refreshed = dict(record)
+    metadata = dict(record.get("metadata") or {})
+    if isinstance(getattr(detail, "metadata", None), dict):
+        metadata.update(detail.metadata)
+    if getattr(detail, "provider_genres", None):
+        metadata["provider_genres"] = list(detail.provider_genres)
+    if getattr(detail, "description", None):
+        metadata["description"] = detail.description
+        if not refreshed.get("description"):
+            refreshed["description"] = detail.description
+    refreshed["metadata"] = metadata
+    return refreshed
+
+
 def resolve_unresolved_titles(
     *,
     provider: str | None = None,
@@ -945,6 +975,25 @@ def resolve_unresolved_titles(
                     genre_maps[media_type] = {}
             genre_map = genre_maps[media_type]
         result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+        has_structure = (
+            isinstance(metadata.get("provider_structure"), dict)
+            and bool(metadata["provider_structure"].get("complete"))
+        )
+        diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
+        candidate_rows = diagnostics.get("candidates") if isinstance(diagnostics.get("candidates"), list) else []
+        promising_rejected = any(
+            float(row.get("title_score") or (row.get("title") or {}).get("score") or 0) >= 0.70
+            for row in candidate_rows if isinstance(row, dict)
+        )
+        uncertain = result.get("status") == "ambiguous" or (
+            result.get("status") == "no_match" and promising_rejected
+        )
+        if uncertain and not has_structure:
+            enriched = _refresh_provider_evidence(record)
+            enriched_metadata = enriched.get("metadata") if isinstance(enriched.get("metadata"), dict) else {}
+            if enriched_metadata.get("provider_structure") or enriched.get("description"):
+                record = enriched
+                result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
         evaluated.append((record, result))
 
     # A TMDB series/movie identity can be shared by several provider pages.
