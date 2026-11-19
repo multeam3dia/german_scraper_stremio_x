@@ -765,8 +765,8 @@ def find_tmdb_match(
         }
         # A series candidate rejected by episode structure can actually be a
         # feature film incorrectly exposed as a one-episode season. Probe the
-        # movie endpoint only in this specific case. Never silently change the
-        # provider record's media type: surface a manual-review conflict.
+        # movie endpoint only in this specific case. A type correction requires
+        # exact year, a high-confidence movie match and multiple metadata signals.
         structural_rejection = any(
             isinstance(row, dict)
             and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
@@ -1180,6 +1180,8 @@ def resolve_unresolved_titles(
             "provider": record["provider"],
             "title": record["provider_title"],
             "url": record["provider_url"],
+            "provider_media_type": record.get("provider_media_type", record["media_type"]),
+            "resolved_media_type": record["media_type"],
             **result,
         }
         summary["results"].append(result_row)
