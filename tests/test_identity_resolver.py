@@ -609,5 +609,69 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+
+    def test_genre_mismatch_does_not_penalize_strong_title_match(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 301, "name": "Butlers: Chitose Momotose Monogatari",
+                    "original_name": "Butlers: Chitose Momotose Monogatari",
+                    "first_air_date": "2018-01-01", "genre_ids": [18],
+                }]}
+            if path == "/tv/301/alternative_titles":
+                return {"results": [{"title": "Butlers x Battlers"}]}
+            if path == "/tv/301/credits":
+                return {"cast": [{"name": "Actor One"}], "crew": []}
+            if path == "/tv/301":
+                return {"production_companies": [{"name": "Studio One"}]}
+            if path == "/tv/301/external_ids":
+                return {"imdb_id": "tt1234567"}
+            if path == "/genre/tv/list":
+                return {"genres": [{"id": 18, "name": "Drama"}]}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Butlers x Battlers", "year": 2018,
+                "metadata": {
+                    "provider_genres": ["Action"],
+                    "actors": ["Actor One"], "producer": "Studio One",
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["genre_score"], 0.0)
+        self.assertGreaterEqual(result["score"], 0.94)
+
+    def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 302, "name": "Anne Shirley", "original_name": "Anne Shirley",
+                     "first_air_date": "2025-01-01"},
+                    {"id": 303, "name": "Anne mit den roten Haaren",
+                     "original_name": "赤毛のアン", "first_air_date": "1979-01-01"},
+                ]}
+            if path == "/tv/302/alternative_titles":
+                return {"results": [{"title": "Anne of Green Gables"}]}
+            if path == "/tv/303/alternative_titles":
+                return {"results": [{"title": "Anne of Green Gables"}]}
+            if path == "/tv/303/external_ids":
+                return {"imdb_id": "tt1234567"}
+            if path == "/tv/302/external_ids":
+                return {"imdb_id": "tt7654321"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Anne of Green Gables", "year": 1979},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 303)
+        self.assertEqual(result["candidate_year"], 1979)
+
+
 if __name__ == "__main__":
     unittest.main()
