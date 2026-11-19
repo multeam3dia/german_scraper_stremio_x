@@ -414,7 +414,13 @@ def _structure_comparison(
         "mismatch": mismatch,
         "provider": {"season_count": provider_seasons, "episode_count": provider_episodes,
                      "seasons": provider_by_season},
-        "tmdb": {"season_count": tmdb_seasons, "episode_count": tmdb_episodes},
+        "tmdb": {"season_count": tmdb_seasons, "episode_count": tmdb_episodes,
+                 "seasons": {
+                     str(item.get("season_number")): int(item.get("episode_count", 0))
+                     for item in tmdb_by_season
+                     if isinstance(item, dict) and item.get("season_number") is not None
+                     and int(item.get("season_number", 0)) > 0
+                 } if isinstance(tmdb_by_season, list) else {}},
         "episode_delta": episode_delta,
         "season_delta": season_delta,
         "season_detail_mismatch": season_detail_mismatch,
@@ -747,15 +753,51 @@ def find_tmdb_match(
     # Provider year (especially AniWorld's) remains diagnostic only: it never
     # excludes a candidate. Strong metadata corroboration is provider-neutral.
     if not candidates:
+        diagnostics = {
+            "provider_title": provider_title, "provider_year": provider_year,
+            "provider_genres": provider_genres,
+            "search_attempts": search_attempts,
+            "tmdb_result_count": len(all_candidates),
+            "title_compatible_candidates": 0,
+            "candidates": rejected_diagnostics,
+        }
+        # A series candidate rejected by episode structure can actually be a
+        # feature film incorrectly exposed as a one-episode season. Probe the
+        # movie endpoint only in this specific case. Never silently change the
+        # provider record's media type: surface a manual-review conflict.
+        structural_rejection = any(
+            isinstance(row, dict)
+            and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
+            for row in rejected_diagnostics
+        )
+        if media_type == "series" and structural_rejection:
+            alternate_record = dict(record)
+            alternate_record["media_type"] = "movie"
+            alternate = find_tmdb_match(
+                alternate_record, search_fn=search_fn, genre_map=None,
+                wikidata_lookup_fn=wikidata_lookup_fn,
+            )
+            if alternate.get("status") in {"matched", "identified", "ambiguous"}:
+                diagnostics["alternate_movie_candidate"] = {
+                    "status": alternate.get("status"),
+                    "tmdb_id": alternate.get("tmdb_id"),
+                    "title": alternate.get("candidate_title"),
+                    "year": alternate.get("candidate_year"),
+                    "score": alternate.get("score"),
+                    "margin": alternate.get("margin"),
+                    "diagnostics": alternate.get("diagnostics"),
+                }
+                return {
+                    "status": "ambiguous",
+                    "reason": (
+                        "A possible TMDB movie exists, but the provider entry is "
+                        "classified as a series; manual media-type review is required"
+                    ),
+                    "media_type_conflict": True,
+                    "diagnostics": diagnostics,
+                }
         return {"status": "no_match", "reason": "No TMDB candidate had sufficient title or independent metadata evidence",
-                "diagnostics": {
-                    "provider_title": provider_title, "provider_year": provider_year,
-                    "provider_genres": provider_genres,
-                    "search_attempts": search_attempts,
-                    "tmdb_result_count": len(all_candidates),
-                    "title_compatible_candidates": 0,
-                    "candidates": rejected_diagnostics,
-                }}
+                "diagnostics": diagnostics}
 
     def adjusted_score(pair: tuple[float, dict[str, Any], float, int | None, float | None]) -> float:
         corroboration = corroboration_score(pair[1])
