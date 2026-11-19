@@ -932,6 +932,63 @@ class IdentityResolverTests(unittest.TestCase):
             "below_title_similarity_threshold",
         )
 
+    def test_provider_episode_structure_rejects_clear_tmdb_mismatch(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 341826, "name": "Animal Crossing Shorts",
+                    "original_name": "どうぶつの森", "first_air_date": "2006-01-01",
+                }]}
+            if path == "/tv/341826":
+                return {"number_of_seasons": 1, "number_of_episodes": 12,
+                        "seasons": [{"season_number": 1, "episode_count": 12}]}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series", "provider_title": "Animal Crossing", "year": 2006,
+                "metadata": {"provider_structure": {
+                    "complete": True, "season_count": 1, "episode_count": 1,
+                    "seasons": [{"season_number": 1, "episode_count": 1}],
+                }},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "no_match")
+        self.assertEqual(
+            result["diagnostics"]["candidates"][0]["rejection"],
+            "provider_tmdb_episode_structure_mismatch",
+        )
+        self.assertIn("/tv/341826", calls)
+
+    def test_structure_check_is_not_fetched_for_clear_exact_match(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 810, "name": "Exact Series", "original_name": "Exact Series",
+                    "first_air_date": "2020-01-01",
+                }]}
+            if path == "/tv/810/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Exact Series", "year": 2020,
+             "metadata": {"provider_structure": {
+                 "complete": True, "season_count": 1, "episode_count": 10,
+                 "seasons": [{"season_number": 1, "episode_count": 10}],
+             }}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertNotIn("/tv/810", calls)
+
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
             if path == "/search/tv":
