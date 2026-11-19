@@ -106,21 +106,64 @@ def _year_from_result(item: dict[str, Any], media_type: str) -> int | None:
 
 def _title_variants(item: dict[str, Any], media_type: str) -> list[str]:
     keys = ("name", "original_name") if media_type == "series" else ("title", "original_title")
-    return [str(item[key]) for key in keys if item.get(key)]
+    values = [str(item[key]) for key in keys if item.get(key)]
+    aliases = item.get("_alternative_titles")
+    if isinstance(aliases, list):
+        values.extend(str(value) for value in aliases if value)
+    return list(dict.fromkeys(values))
+
+
+def _best_title_match(
+    provider_title: str, item: dict[str, Any], media_type: str
+) -> tuple[float, str | None]:
+    source = _normalize(provider_title)
+    variants = [(value, _normalize(value)) for value in _title_variants(item, media_type)]
+    variants = [(raw, value) for raw, value in variants if value]
+    if not source or not variants:
+        return 0.0, None
+    raw, normalized = max(
+        variants,
+        key=lambda pair: 1.0 if source == pair[1] else difflib.SequenceMatcher(None, source, pair[1]).ratio(),
+    )
+    score = 1.0 if source == normalized else difflib.SequenceMatcher(None, source, normalized).ratio()
+    return round(score, 4), raw
 
 
 def _title_similarity(
     provider_title: str, item: dict[str, Any], media_type: str
 ) -> float:
-    source = _normalize(provider_title)
-    variants = [_normalize(value) for value in _title_variants(item, media_type)]
-    variants = [value for value in variants if value]
-    if not source or not variants:
-        return 0.0
-    return round(max(
-        1.0 if source == value else difflib.SequenceMatcher(None, source, value).ratio()
-        for value in variants
-    ), 4)
+    return _best_title_match(provider_title, item, media_type)[0]
+
+
+def _search_query_variants(provider_title: str) -> list[str]:
+    """Build a small, conservative set of TMDB search queries."""
+    candidates = [provider_title]
+    punctuation_light = re.sub(r"[^\\w\\s]", " ", provider_title, flags=re.UNICODE)
+    punctuation_light = " ".join(punctuation_light.split())
+    if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
+        candidates.append(punctuation_light)
+    without_parenthetical = re.sub(r"\\s*[（(][^）)]*[）)]\\s*", " ", provider_title)
+    without_parenthetical = " ".join(without_parenthetical.split())
+    if without_parenthetical and _normalize(without_parenthetical) not in {
+        _normalize(value) for value in candidates
+    }:
+        candidates.append(without_parenthetical)
+    return candidates[:3]
+
+
+def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
+    """Read title aliases from both TMDB TV and movie alternative-title responses."""
+    values: list[str] = []
+    for key in ("results", "titles"):
+        rows = payload.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                value = row.get("title") or row.get("name")
+                if value:
+                    values.append(str(value))
+    return list(dict.fromkeys(values))
 
 
 def _normalize_genre(value: Any) -> str:
@@ -302,29 +345,95 @@ def find_tmdb_match(
             genre_map = {}
 
     endpoint_type = "tv" if media_type == "series" else "movie"
-    # Search by title only. Filtering at the API level can hide remakes or
-    # nearby premiere years before the resolver has a chance to compare them.
-    params: dict[str, Any] = {
-        "query": provider_title,
-        "include_adult": "false",
-        "language": "de-DE",
-    }
+    search_path = f"/search/{endpoint_type}"
+    search_attempts: list[dict[str, Any]] = []
+    raw_candidates: dict[int, dict[str, Any]] = {}
+    anonymous_candidates: list[dict[str, Any]] = []
 
+    # Try the original spelling and at most two conservative query variants.
+    # Keep the result language stable; only fall back to English if the German
+    # searches return no candidates at all.
+    query_variants = _search_query_variants(provider_title)
+    languages = ["de-DE"]
     try:
-        response = search_fn(f"/search/{endpoint_type}", params)
+        for query in query_variants:
+            response = search_fn(search_path, {
+                "query": query, "include_adult": "false", "language": "de-DE",
+            })
+            results = response.get("results")
+            results = results if isinstance(results, list) else []
+            search_attempts.append({
+                "query": query, "language": "de-DE", "result_count": len(results),
+            })
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                tmdb_id = item.get("id")
+                if type(tmdb_id) is int and tmdb_id > 0:
+                    existing = raw_candidates.get(tmdb_id)
+                    if existing is None:
+                        raw_candidates[tmdb_id] = dict(item)
+                        raw_candidates[tmdb_id]["_matched_queries"] = [query]
+                    else:
+                        existing.setdefault("_matched_queries", []).append(query)
+                else:
+                    anonymous_candidates.append(dict(item))
+        if not raw_candidates and not anonymous_candidates:
+            languages.append("en-US")
+            response = search_fn(search_path, {
+                "query": provider_title, "include_adult": "false", "language": "en-US",
+            })
+            results = response.get("results")
+            results = results if isinstance(results, list) else []
+            search_attempts.append({
+                "query": provider_title, "language": "en-US", "result_count": len(results),
+            })
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                tmdb_id = item.get("id")
+                if type(tmdb_id) is int and tmdb_id > 0:
+                    raw_candidates.setdefault(tmdb_id, dict(item))
+                else:
+                    anonymous_candidates.append(dict(item))
     except (TMDBAPIError, TMDBConfigurationError) as exc:
         return {"status": "error", "reason": str(exc)}
     except Exception as exc:
         return {"status": "error", "reason": f"Search failed: {type(exc).__name__}"}
 
-    results = response.get("results")
-    if not isinstance(results, list) or not results:
-        return {"status": "no_match", "reason": "TMDB returned no candidates"}
+    all_candidates = list(raw_candidates.values()) + anonymous_candidates
+    if not all_candidates:
+        return {"status": "no_match", "reason": "TMDB returned no candidates",
+                "diagnostics": {
+                    "provider_title": provider_title, "provider_year": provider_year,
+                    "provider_genres": provider_genres, "search_attempts": search_attempts,
+                    "tmdb_result_count": 0, "title_compatible_candidates": 0,
+                    "candidates": [],
+                }}
+
+    # TMDB's main/original title may not match the provider label. Check
+    # alternative titles for a bounded shortlist before rejecting candidates.
+    preliminary = sorted(
+        all_candidates,
+        key=lambda item: _title_similarity(provider_title, item, media_type),
+        reverse=True,
+    )
+    for item in preliminary[:10]:
+        tmdb_id = item.get("id")
+        if type(tmdb_id) is not int or tmdb_id <= 0:
+            continue
+        if _title_similarity(provider_title, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
+            continue
+        try:
+            aliases_payload = search_fn(
+                f"/{endpoint_type}/{tmdb_id}/alternative_titles", {}
+            )
+            item["_alternative_titles"] = _alternative_title_values(aliases_payload)
+        except Exception as exc:
+            item["_alternative_titles_error"] = type(exc).__name__
 
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
-    for item in results:
-        if not isinstance(item, dict):
-            continue
+    for item in all_candidates:
         title_score = _title_similarity(provider_title, item, media_type)
         if title_score < MIN_TITLE_SCORE_WITH_YEAR:
             continue
@@ -341,11 +450,30 @@ def find_tmdb_match(
     # Provider year (especially AniWorld's) is diagnostic only, never an
     # exclusion criterion. Keep candidates regardless of year difference.
     if not candidates:
+        rejected_diagnostics = []
+        for item in preliminary[:10]:
+            score, matched_title = _best_title_match(provider_title, item, media_type)
+            rejected_diagnostics.append({
+                "tmdb_id": item.get("id"),
+                "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
+                "original_title": (
+                    item.get("original_name") if media_type == "series"
+                    else item.get("original_title")
+                ),
+                "alternative_titles": item.get("_alternative_titles") or [],
+                "title_score": score,
+                "closest_title": matched_title,
+                "matched_queries": item.get("_matched_queries") or [],
+                "rejection": "below_title_similarity_threshold",
+            })
         return {"status": "no_match", "reason": "No TMDB candidate passed title similarity",
                 "diagnostics": {
                     "provider_title": provider_title, "provider_year": provider_year,
-                    "provider_genres": provider_genres, "tmdb_result_count": len(results),
+                    "provider_genres": provider_genres,
+                    "search_attempts": search_attempts,
+                    "tmdb_result_count": len(all_candidates),
                     "title_compatible_candidates": 0,
+                    "candidates": rejected_diagnostics,
                 }}
 
     candidates.sort(key=lambda pair: pair[0], reverse=True)
@@ -400,8 +528,11 @@ def find_tmdb_match(
             "title": {"provider": provider_title,
                       "tmdb": (item.get("name") if media_type == "series" else item.get("title")) or "",
                       "status": "match" if item_title_score == 1.0 else "partial_match",
-                      "score": item_title_score},
+                      "score": item_title_score,
+                      "matched_variant": _best_title_match(provider_title, item, media_type)[1]},
             "original_title": (item.get("original_name") if media_type == "series" else item.get("original_title")),
+            "alternative_titles": item.get("_alternative_titles") or [],
+            "matched_queries": item.get("_matched_queries") or [],
             "year": {"provider": provider_year, "tmdb": item_year,
                      "status": "missing" if provider_year is None or item_year is None else
                                ("match" if provider_year == item_year else "mismatch"),
@@ -422,8 +553,9 @@ def find_tmdb_match(
                                  ("match" if signals["studio_score"] >= 0.5 else "mismatch")},
         })
     diagnostics = {
-        "search": {"query": provider_title, "language": "de-DE",
-                   "tmdb_result_count": len(results),
+        "search": {"query": provider_title, "languages": languages,
+                   "attempts": search_attempts,
+                   "tmdb_result_count": len(all_candidates),
                    "title_compatible_candidates": len(candidates)},
         "provider_data": {"title": provider_title, "year": provider_year,
                           "genres": provider_genres, "actors": metadata.get("actors") or [],
