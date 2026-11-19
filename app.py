@@ -8,6 +8,7 @@ from scraper import get_movie_streams, get_metadata
 from providers.lazy import (
     get_series_meta, get_series_streams_for_episode,
     get_gsx_series_meta, get_gsx_series_streams_for_episode,
+    get_gsx_movie_streams,
 )
 from catalog_identity import get_title as get_canonical_title
 from aniworld.config import logger
