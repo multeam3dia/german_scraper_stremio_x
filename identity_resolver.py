@@ -552,7 +552,8 @@ def find_tmdb_match(
         # Metadata can rank candidates, but does not override a strong title
         # match. Rescue eligibility itself requires two strong independent signals.
         score = pair[0] + (
-            (corroboration - 0.5) * 0.10 if corroboration is not None else 0.0
+            max(0.0, corroboration - 0.5) * 0.20
+            if corroboration is not None else 0.0
         )
         # A positive genre overlap is a separate, weak ranking signal. A
         # mismatch remains neutral, but a full match must be strong enough to
@@ -658,7 +659,7 @@ def find_tmdb_match(
                 "diagnostics": diagnostics, **candidate}
     imdb_id = str(external.get("imdb_id") or "").strip()
     if not IMDB_ID_RE.fullmatch(imdb_id):
-        return {"status": "ambiguous", "reason": "TMDB candidate has no valid IMDb ID",
+        return {"status": "missing_imdb", "reason": "TMDB candidate has no valid IMDb ID",
                 "diagnostics": diagnostics, "external_ids": external, **candidate}
     return {"status": "matched", "imdb_id": imdb_id,
             "diagnostics": diagnostics, "external_ids": external, **candidate}
@@ -679,6 +680,7 @@ def resolve_unresolved_titles(
         "matched": 0,
         "applied": 0,
         "ambiguous": 0,
+        "missing_imdb": 0,
         "no_match": 0,
         "errors": 0,
         "dry_run": not apply,
@@ -750,6 +752,8 @@ def resolve_unresolved_titles(
                 summary["applied"] += 1
         elif status == "ambiguous":
             summary["ambiguous"] += 1
+        elif status == "missing_imdb":
+            summary["missing_imdb"] += 1
         elif status == "no_match":
             summary["no_match"] += 1
         else:
