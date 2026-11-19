@@ -949,7 +949,7 @@ def find_tmdb_match(
         if provider_year is not None and item_year is not None:
             delta = abs(provider_year - item_year)
             score += 0.08 - min(delta, 10) * 0.015
-        return round(max(0.0, min(1.0, score)), 4)
+        return score
 
     candidates.sort(key=adjusted_score, reverse=True)
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
