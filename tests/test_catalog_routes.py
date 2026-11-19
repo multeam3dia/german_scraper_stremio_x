@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import catalog_db
 import app
+from catalog_identity import create_title, link_provider_title
 
 
 class CatalogRouteTests(unittest.TestCase):
@@ -108,6 +109,39 @@ class CatalogRouteTests(unittest.TestCase):
             response = app.get_meta("series", "tt7654321")
 
         self.assertEqual(response["meta"]["videos"], canonical_meta["videos"])
+
+
+    def test_manifest_accepts_canonical_gsx_ids(self):
+        manifest = app._manifest_response()
+        self.assertIn("gsx:series:", manifest["idPrefixes"])
+        self.assertIn("gsx:movie:", manifest["idPrefixes"])
+
+    def test_gsx_series_meta_is_routed_to_canonical_provider_metadata(self):
+        title_id = create_title("series", "Series without IMDb")
+        link_provider_title(
+            title_id, "aniworld",
+            "https://aniworld.to/anime/stream/example",
+            provider_title="Series without IMDb",
+        )
+        expected = {
+            "meta": {
+                "id": title_id, "type": "series",
+                "name": "Series without IMDb", "videos": [],
+            }
+        }
+        with patch("app.get_gsx_series_meta", return_value=expected) as resolver:
+            response = app.get_meta("series", title_id)
+        self.assertEqual(response, expected)
+        resolver.assert_called_once_with(title_id)
+
+    def test_gsx_series_stream_route_uses_canonical_provider_resolver(self):
+        title_id = create_title("series", "Series without IMDb")
+        episode_id = f"{title_id}:1:2"
+        expected = [{"name": "Direct provider stream", "url": "https://cdn.example/episode.mp4"}]
+        with patch("app.get_gsx_series_streams_for_episode", return_value=expected) as resolver:
+            response = app.get_stream("series", episode_id)
+        self.assertEqual(response["streams"], expected)
+        resolver.assert_called_once_with(title_id, 1, 2)
 
     def test_manifest_advertises_only_configured_catalog_sources(self):
         manifest = app._manifest_response()
