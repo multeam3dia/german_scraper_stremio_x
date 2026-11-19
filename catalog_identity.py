@@ -115,6 +115,7 @@ def create_title(
     if title_id.split(":")[1] != media_type:
         raise ValueError("title ID media type does not match media_type")
     metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+    init_identity_schema()
     with _connect() as db:
         db.execute(
             """INSERT INTO canonical_titles(title_id,media_type,title,year,metadata_json)
@@ -143,6 +144,7 @@ def add_external_id(
         raise ValueError("external_id is required")
     if confidence is not None and not 0 <= float(confidence) <= 1:
         raise ValueError("confidence must be between 0 and 1")
+    init_identity_schema()
     with _connect() as db:
         owner = db.execute(
             """SELECT title_id FROM external_title_ids
