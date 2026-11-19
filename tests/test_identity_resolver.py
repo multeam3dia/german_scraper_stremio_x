@@ -866,6 +866,72 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["genre_score"], 0.0)
         self.assertGreaterEqual(result["score"], 0.94)
 
+    def test_anne_of_green_gables_exact_year_breaks_alias_collision(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 16047, "name": "Anne mit den roten Haaren",
+                     "original_name": "赤毛のアン", "first_air_date": "1979-01-01"},
+                    {"id": 5874, "name": "Anne of Green Gables",
+                     "original_name": "Anne of Green Gables", "first_air_date": "1985-01-01"},
+                ]}
+            if path == "/tv/16047/alternative_titles":
+                return {"results": [{"title": "Anne of Green Gables"}]}
+            if path == "/tv/5874/alternative_titles":
+                return {"results": [{"title": "Anne of Green Gables"}]}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt1234567" if "/16047/" in path else "tt7654321"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Anne of Green Gables",
+             "year": 1979}, search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 16047)
+
+    def test_format_suffix_candidate_needs_independent_confirmation(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 341826, "name": "Animal Crossing Shorts",
+                    "original_name": "どうぶつの森", "first_air_date": "2006-01-01",
+                }]}
+            if path == "/tv/341826/credits":
+                return {"cast": [{"name": "Kazumi Totaka"}], "crew": []}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"provider": "aniworld", "media_type": "series",
+             "provider_title": "Animal Crossing", "year": 2006,
+             "metadata": {"actors": ["Kazumi Totaka"]}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 341826)
+        self.assertLess(result["title_score"], 0.94)
+
+    def test_format_suffix_without_corroboration_is_not_auto_matched(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 341826, "name": "Animal Crossing Shorts",
+                    "original_name": "どうぶつの森", "first_air_date": "2006-01-01",
+                }]}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Animal Crossing",
+             "year": 2006}, search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "no_match")
+        self.assertEqual(
+            result["diagnostics"]["candidates"][0]["rejection"],
+            "below_title_similarity_threshold",
+        )
+
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
             if path == "/search/tv":
