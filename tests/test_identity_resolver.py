@@ -116,36 +116,42 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "no_match")
 
-    def test_exact_title_with_two_years_difference_is_rejected(self):
+    def test_provider_year_difference_does_not_exclude_exact_title(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
                     {"id": 22, "name": "Dark", "original_name": "Dark",
                      "first_air_date": "2019-01-01"}
                 ]}
-            return {"imdb_id": "tt5753856"}
+            if path == "/tv/22/external_ids":
+                return {"imdb_id": "tt5753856"}
+            return {}
 
         result = find_tmdb_match(
             {"media_type": "series", "provider_title": "Dark", "year": 2017},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "no_match")
-        self.assertIn("release year", result["reason"])
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["candidate_year_delta"], 2)
+        self.assertFalse(result["diagnostics"]["candidates"][0]["year"]["used_for_exclusion"])
+        self.assertEqual(result["diagnostics"]["candidates"][0]["year"]["status"], "mismatch")
 
-    def test_one_year_difference_requires_manual_review(self):
+    def test_one_year_difference_does_not_force_manual_review(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
                     {"id": 23, "name": "Dark", "original_name": "Dark",
                      "first_air_date": "2018-01-01"}
                 ]}
-            return {"imdb_id": "tt5753856"}
+            if path == "/tv/23/external_ids":
+                return {"imdb_id": "tt5753856"}
+            return {}
 
         result = find_tmdb_match(
             {"media_type": "series", "provider_title": "Dark", "year": 2017},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["status"], "matched")
         self.assertEqual(result["candidate_year_delta"], 1)
 
     def test_missing_tmdb_year_requires_manual_review(self):
