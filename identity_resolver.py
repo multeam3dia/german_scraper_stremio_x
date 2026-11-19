@@ -305,15 +305,9 @@ def _candidate_score(
     title_score = _title_similarity(provider_title, item, media_type)
     if title_score <= 0:
         return 0.0
-    # Provider year can be unreliable (especially on AniWorld), so it is a
-    # bounded ranking hint only. It never excludes a candidate.
+    # Year is applied only during ranking below, not to the candidate's
+    # confidence score. Provider years can be unreliable (especially AniWorld).
     score = title_score
-    candidate_year = _year_from_result(item, media_type)
-    if provider_year is not None and candidate_year is not None:
-        year_delta = abs(provider_year - candidate_year)
-        # Exact year adds 0.03; the adjustment tapers to -0.03 at a 10+ year gap.
-        score += 0.03 - min(year_delta, 10) * 0.006
-
     genre_score = (
         _genre_similarity(provider_genres or [], item, genre_map or {})
         if provider_genres and genre_map else None
@@ -549,7 +543,16 @@ def find_tmdb_match(
         corroboration = corroboration_score(pair[1])
         # Metadata can rank candidates, but does not override a strong title
         # match. Rescue eligibility itself requires two strong independent signals.
-        return pair[0] + ((corroboration - 0.5) * 0.04 if corroboration is not None else 0.0)
+        score = pair[0] + (
+            (corroboration - 0.5) * 0.04 if corroboration is not None else 0.0
+        )
+        # Year is a bounded ranking hint, never an exclusion rule or a confidence
+        # score. A same-year candidate gets +0.05; a 10+ year gap gets -0.05.
+        item_year = pair[3]
+        if provider_year is not None and item_year is not None:
+            delta = abs(provider_year - item_year)
+            score += 0.05 - min(delta, 10) * 0.01
+        return score
 
     candidates.sort(key=adjusted_score, reverse=True)
     best_score, best, title_score, candidate_year, best_genre_score = candidates[0]
