@@ -15,6 +15,22 @@ def _year(value: object) -> int | None:
     return int(match.group(0)) if match else None
 
 
+def _is_standalone_movie(series: AniworldSeries) -> bool:
+    """Classify a catalog entry as a movie only when its structure proves it.
+
+    AniWorld exposes films attached to a series under a separate /filme
+    collection. A series page with only that collection and no numbered seasons
+    is treated as a standalone movie entry. Mixed series-plus-film pages remain
+    series. An empty/unavailable structure is deliberately inconclusive.
+    """
+    if not bool(series.has_movies):
+        return False
+    seasons = list(series.seasons or [])
+    return bool(seasons) and all(
+        bool(getattr(season, "are_movies", False)) for season in seasons
+    )
+
+
 class AniWorldProvider(BaseProvider):
     provider_id = "aniworld"
     catalog_scan_complete = True
@@ -43,9 +59,10 @@ class AniWorldProvider(BaseProvider):
     def get_title(self, url: str, session=None) -> ProviderTitle:
         series = AniworldSeries(url, session=session)
         imdb_id = str(series.imdb or "").strip() or None
+        media_type = "movie" if _is_standalone_movie(series) else "series"
         return ProviderTitle(
             provider=self.provider_id,
-            media_type="series",
+            media_type=media_type,
             title=str(series.title),
             url=url,
             imdb_id=imdb_id,
@@ -62,6 +79,7 @@ class AniWorldProvider(BaseProvider):
                 "actors": series.actors,
                 "producer": series.producer,
                 "has_movies": bool(series.has_movies),
+                "standalone_movie": media_type == "movie",
             },
         )
 
