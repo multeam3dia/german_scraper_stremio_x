@@ -41,6 +41,96 @@ class AniWorldAdapterTests(unittest.TestCase):
         self.assertFalse(provider.catalog_scan_complete)
 
 
+    def test_detail_classifies_movie_only_structure_as_movie(self):
+        class MovieCollection:
+            are_movies = True
+
+        class FakeSeries:
+            imdb = None
+            title = "Bright: Samurai Soul"
+            release_year = "2021"
+            poster_url = None
+            description = None
+            genres = []
+            has_movies = True
+            seasons = [MovieCollection()]
+            country = None
+            age_rating = None
+            rating = None
+            directors = []
+            actors = []
+            producer = None
+
+            def __init__(self, url, session=None):
+                pass
+
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            item = AniWorldProvider().get_title(
+                "https://aniworld.to/anime/stream/bright-samurai-soul"
+            )
+        self.assertEqual(item.media_type, "movie")
+        self.assertTrue(item.metadata["standalone_movie"])
+
+    def test_detail_keeps_mixed_series_and_movie_collection_as_series(self):
+        class RegularSeason:
+            are_movies = False
+
+        class MovieCollection:
+            are_movies = True
+
+        class FakeSeries:
+            imdb = None
+            title = "Example"
+            release_year = "2018"
+            poster_url = None
+            description = None
+            genres = []
+            has_movies = True
+            seasons = [RegularSeason(), MovieCollection()]
+            country = None
+            age_rating = None
+            rating = None
+            directors = []
+            actors = []
+            producer = None
+
+            def __init__(self, url, session=None):
+                pass
+
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            item = AniWorldProvider().get_title(
+                "https://aniworld.to/anime/stream/example"
+            )
+        self.assertEqual(item.media_type, "series")
+        self.assertFalse(item.metadata["standalone_movie"])
+
+    def test_detail_does_not_guess_movie_when_structure_is_empty(self):
+        class FakeSeries:
+            imdb = None
+            title = "Unknown"
+            release_year = None
+            poster_url = None
+            description = None
+            genres = []
+            has_movies = True
+            seasons = []
+            country = None
+            age_rating = None
+            rating = None
+            directors = []
+            actors = []
+            producer = None
+
+            def __init__(self, url, session=None):
+                pass
+
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            item = AniWorldProvider().get_title(
+                "https://aniworld.to/anime/stream/unknown"
+            )
+        self.assertEqual(item.media_type, "series")
+
+
 class AniWorldLazyStructureTests(unittest.TestCase):
     def test_structure_loading_uses_only_season_page_title_cache(self):
         class FakeEpisode:
