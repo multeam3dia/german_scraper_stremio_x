@@ -56,9 +56,14 @@ def _is_standalone_movie(series: AniworldSeries) -> bool:
     if not bool(series.has_movies):
         return False
     seasons = list(series.seasons or [])
-    return bool(seasons) and all(
+    if not seasons or not all(
         bool(getattr(season, "are_movies", False)) for season in seasons
-    )
+    ):
+        return False
+    # A page containing several independent films is a collection, not one
+    # movie identity. Only a single-film collection can be promoted as a movie.
+    movie_count = sum(len(list(getattr(season, "episodes", []) or [])) for season in seasons)
+    return movie_count == 1
 
 
 class AniWorldProvider(BaseProvider):
@@ -111,6 +116,11 @@ class AniWorldProvider(BaseProvider):
                 "producer": series.producer,
                 "has_movies": bool(series.has_movies),
                 "standalone_movie": media_type == "movie",
+                "movie_collection_count": sum(
+                    len(list(getattr(season, "episodes", []) or []))
+                    for season in (series.seasons or [])
+                    if bool(getattr(season, "are_movies", False))
+                ),
                 "provider_structure": _structure_summary(series),
             },
         )
