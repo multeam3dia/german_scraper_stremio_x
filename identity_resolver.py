@@ -86,7 +86,7 @@ def _normalize(value: Any) -> str:
     value = value.replace("&", " and ")
     # Preserve non-Latin scripts (notably Japanese and Chinese anime titles)
     # instead of silently deleting them before title comparison.
-    return " ".join(re.findall(r"[^\\W_]+", value, flags=re.UNICODE))
+    return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
 
 
 def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
