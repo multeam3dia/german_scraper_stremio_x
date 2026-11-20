@@ -1315,6 +1315,15 @@ def _refresh_provider_evidence(record: dict[str, Any]) -> dict[str, Any]:
         metadata.update(detail.metadata)
     if getattr(detail, "provider_genres", None):
         metadata["provider_genres"] = list(detail.provider_genres)
+    if getattr(detail, "year", None):
+        refreshed["year"] = detail.year
+    if getattr(detail, "title", None):
+        refreshed["provider_title"] = detail.title
+    if getattr(detail, "media_type", None) in {"movie", "series"}:
+        # Preserve the source classification for diagnostics while using the
+        # refreshed page structure to choose the correct TMDB endpoint.
+        refreshed.setdefault("provider_media_type", record.get("media_type"))
+        refreshed["media_type"] = detail.media_type
     if getattr(detail, "description", None):
         metadata["description"] = detail.description
         if not refreshed.get("description"):
@@ -1371,10 +1380,24 @@ def resolve_unresolved_titles(
                     genre_maps[media_type] = {}
             genre_map = genre_maps[media_type]
         result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+        provider_structure = metadata.get("provider_structure")
         has_structure = (
-            isinstance(metadata.get("provider_structure"), dict)
-            and bool(metadata["provider_structure"].get("complete"))
+            isinstance(provider_structure, dict)
+            and bool(provider_structure.get("complete"))
         )
+        has_episode_titles = bool(
+            isinstance(provider_structure, dict)
+            and any(
+                isinstance(season, dict) and any(
+                    isinstance(episode, dict) and (
+                        episode.get("title") or episode.get("title_original")
+                    )
+                    for episode in season.get("episodes", []) or []
+                )
+                for season in provider_structure.get("seasons", []) or []
+            )
+        )
+        has_alternative_titles = bool(metadata.get("alternative_titles"))
         diagnostics = result.get("diagnostics") if isinstance(result.get("diagnostics"), dict) else {}
         candidate_rows = diagnostics.get("candidates") if isinstance(diagnostics.get("candidates"), list) else []
         def _diagnostic_title_score(row: dict[str, Any]) -> float:
@@ -1394,7 +1417,7 @@ def resolve_unresolved_titles(
         uncertain = result.get("status") == "ambiguous" or (
             result.get("status") == "no_match" and promising_rejected
         )
-        if uncertain and not has_structure:
+        if uncertain and (not has_structure or not has_episode_titles or not has_alternative_titles):
             enriched = _refresh_provider_evidence(record)
             enriched_metadata = enriched.get("metadata") if isinstance(enriched.get("metadata"), dict) else {}
             if enriched_metadata.get("provider_structure") or enriched.get("description"):
