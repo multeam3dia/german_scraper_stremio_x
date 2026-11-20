@@ -192,13 +192,21 @@ default, even after a container restart. Use `--force` when you deliberately
 want to refresh stored results. The optional `--cache-days N` flag re-enables
 a time-limited cache for a particular run; it is not enabled by default.
 
-The Stremio catalog and IMDb metadata route continue to prefer TMDB/Cinemeta
-artwork, descriptions, years, genres and episode lists. Cached MDBList data
-fills missing artwork, descriptions, years, genres and IMDb ratings only; it
-never replaces existing metadata or episodes. MDBList's season summaries are
-not a replacement for TMDB or Cinemeta's complete episode metadata. This
-optional job reuses `MDBLIST_API_KEY`; without the key it exits without
-affecting the catalog or playback.
+Stremio metadata requests prefer TMDB/Cinemeta. If core display metadata
+(poster, description or release year) is missing, the request checks the
+verified IMDb title in SQLite and performs one exact-ID MDBList lookup only if
+no prior result exists. Both successful lookups and no-match results are stored
+permanently. Later requests use SQLite and do not spend another MDBList API hit.
+MDBList fills missing artwork, descriptions, years, genres and IMDb ratings
+only; it never replaces existing metadata or episode lists. Its season
+summaries are not a replacement for TMDB or Cinemeta's complete episode
+metadata. This on-demand fallback reuses `MDBLIST_API_KEY`; without the key it
+is skipped without affecting the catalog or playback.
+
+The manual `mdblist_enricher` command remains available for deliberate bulk
+backfills, but it is not required for normal operation and should not be run
+routinely. Use `--force` only when you intentionally want to spend API requests
+refreshing already stored results.
 
 The crawler and enrichment commands are currently run manually inside the
 application container. A scheduled crawl, availability reconciliation, and
