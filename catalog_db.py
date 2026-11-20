@@ -889,7 +889,7 @@ def get_catalog_titles(
 def get_metadata_candidates(*, limit: int = 500, force: bool = False) -> list[dict[str, Any]]:
     """Return active titles that still need TMDB metadata enrichment."""
     try:
-        max_items = max(1, min(5000, int(limit)))
+        max_items = max(1, min(50000, int(limit)))
     except (TypeError, ValueError):
         max_items = 500
     provider_condition, provider_params = _catalog_provider_condition(None)
