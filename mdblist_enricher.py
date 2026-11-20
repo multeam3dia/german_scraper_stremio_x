@@ -198,9 +198,20 @@ def find_mdblist_metadata(
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-def _is_cache_fresh(metadata: Any, cache_days: int) -> bool:
-    if not isinstance(metadata, dict):
+def _is_cache_fresh(metadata: Any, cache_days: int | None = None) -> bool:
+    """Return whether a stored MDBList result should suppress another API call.
+
+    By default, successful lookups and explicit no-match results are permanent.
+    A cache lifetime is applied only when the operator explicitly supplies
+    --cache-days. Records without a timestamp remain reusable in permanent mode.
+    """
+    if not isinstance(metadata, dict) or metadata.get("status") not in {
+        "found", "no_match"
+    }:
         return False
+    if cache_days is None:
+        return True
+
     fetched_at = metadata.get("fetched_at")
     if not isinstance(fetched_at, str):
         return False
@@ -217,7 +228,7 @@ def enrich_mdblist_metadata(
     *,
     limit: int = 500,
     force: bool = False,
-    cache_days: int = 7,
+    cache_days: int | None = None,
     fetch_fn: Callable[[str, dict[str, Any]], Any] = _mdblist_get,
 ) -> dict[str, Any]:
     """Enrich active, verified catalog entries; never performs title matching."""
@@ -232,8 +243,8 @@ def enrich_mdblist_metadata(
         max_enrichments = max(1, min(50000, int(limit)))
     except (TypeError, ValueError):
         max_enrichments = 500
-    # Scan the full verified catalogue so fresh cached records at the beginning
-    # do not permanently hide older, not-yet-enriched titles beyond --limit.
+    # Scan the full verified catalogue so cached records at the beginning do
+    # not hide older, not-yet-enriched titles beyond --limit.
     records = get_metadata_candidates(limit=50000, force=True)
     summary: dict[str, Any] = {
         "scanned": 0,
@@ -304,7 +315,13 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--cache-days", type=int, default=7)
+    parser.add_argument(
+        "--cache-days",
+        type=int,
+        default=None,
+        help="Temporarily treat cached results as stale after this many days; "
+             "by default, found and no-match results are kept indefinitely",
+    )
     args = parser.parse_args()
     print(json.dumps(
         enrich_mdblist_metadata(
