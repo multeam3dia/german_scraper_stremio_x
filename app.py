@@ -377,7 +377,7 @@ def _merge_cached_mdblist_metadata(
     MDBList API call. Existing TMDB/Cinemeta fields and episode lists win.
     """
     meta = response.get("meta") if isinstance(response, dict) else None
-    if not isinstance(meta, dict):
+    if not isinstance(meta, dict) or not _local_catalog_enabled():
         return response
     try:
         record = get_title_metadata(media_type, imdb_id)
