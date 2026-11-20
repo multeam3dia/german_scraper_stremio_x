@@ -1185,14 +1185,14 @@ def find_tmdb_match(
         country_score = scores_for(pair[1]).get("country_score")
         if country_score is not None:
             score += country_score * 0.04
-        # Year is a ranking hint, never an exclusion rule or standalone proof.
-        # A same-year candidate gets +0.08; a 10+ year gap gets -0.07. This
-        # makes a reliable exact-year distinction decisive without filtering
-        # candidates when provider dates are absent or known to be unreliable.
+        # Year decisively separates same-title releases (e.g. Kanon 2002
+        # vs. 2006), but remains a ranking signal rather than a hard filter
+        # because provider dates can be imperfect. The stronger differential
+        # lets a four-year gap clear MIN_MARGIN.
         item_year = pair[3]
         if provider_year is not None and item_year is not None:
             delta = abs(provider_year - item_year)
-            score += 0.08 - min(delta, 10) * 0.015
+            score += 0.14 - min(delta, 10) * 0.02
         return score
 
     candidates.sort(key=adjusted_score, reverse=True)
