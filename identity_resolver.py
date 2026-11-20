@@ -318,6 +318,37 @@ def _names_from_people(rows: Any, key: str = "name") -> list[str]:
     ]
 
 
+def _normalize_company(value: Any) -> str:
+    """Normalize legal suffixes without weakening company-name matching."""
+    tokens = _normalize(value).split()
+    legal_suffixes = {
+        "inc", "incorporated", "ltd", "limited", "llc", "plc",
+        "corp", "corporation", "co", "company", "gmbh",
+    }
+    while tokens and tokens[-1] in legal_suffixes:
+        tokens.pop()
+    return " ".join(tokens)
+
+
+def _company_similarity(
+    provider_companies: list[str], candidate_companies: list[str],
+) -> float | None:
+    """Compare studio names while ignoring common legal-entity suffixes."""
+    provider_set = {
+        _normalize_company(value) for value in provider_companies
+        if _normalize_company(value)
+    }
+    candidate_set = {
+        _normalize_company(value) for value in candidate_companies
+        if _normalize_company(value)
+    }
+    if not provider_set or not candidate_set:
+        return None
+    return round(len(provider_set & candidate_set) / min(
+        len(provider_set), len(candidate_set)
+    ), 4)
+
+
 def _country_similarity(provider_country: Any, candidate_details: dict[str, Any] | None) -> float | None:
     """Compare a provider country with TMDB production-country metadata."""
     source = _normalize(provider_country)
@@ -382,7 +413,7 @@ def _metadata_signal_scores(
         details = _candidate_details(item, media_type, search_fn)
         if studios:
             companies = _names_from_people(details.get("production_companies")) if details else []
-            scores["studio_score"] = _person_similarity(studios, companies)
+            scores["studio_score"] = _company_similarity(studios, companies)
         if country:
             scores["country_score"] = _country_similarity(country, details)
     return scores
