@@ -25,6 +25,8 @@ class MDBListIdentityAuditTests(unittest.TestCase):
 
     def test_imdb_id_extraction_supports_common_shapes(self):
         self.assertEqual(_imdb_id({"ids": {"imdb": "tt1234567"}}), "tt1234567")
+        # MDBList search responses use `ids.imdbid`, unlike detail responses.
+        self.assertEqual(_imdb_id({"ids": {"imdbid": "tt1234567"}}), "tt1234567")
         self.assertEqual(_imdb_id({"imdb_id": "tt7654321"}), "tt7654321")
         self.assertIsNone(_imdb_id({"imdb": "not-an-imdb-id"}))
 
