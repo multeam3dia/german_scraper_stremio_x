@@ -7,7 +7,8 @@ import unittest
 import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
-    _genre_similarity,
+    _genre_similarity, _search_query_variants, _best_provider_title_match,
+    _episode_title_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -1262,6 +1263,70 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 101)
         self.assertEqual(result["diagnostics"]["candidates"][0]["country"]["score"], 1.0)
         self.assertEqual(result["diagnostics"]["candidates"][1]["country"]["score"], 0.0)
+
+
+    def test_aniworld_alternate_japanese_title_can_match_tmdb_original_title(self):
+        variants = _search_query_variants(
+            "The Space Between (2012)", ["間の楔", "Ai no Kusabi"]
+        )
+        self.assertIn("間の楔", variants)
+        score, matched = _best_provider_title_match(
+            "The Space Between (2012)", ["間の楔", "Ai no Kusabi"],
+            {"name": "The Space Between", "original_name": "間の楔"},
+            "series",
+        )
+        self.assertEqual(score, 1.0)
+        self.assertEqual(matched, "間の楔")
+
+    def test_aniworld_format_suffix_adds_clean_base_title_query(self):
+        variants = _search_query_variants("Loveless: SD Theatre")
+        self.assertEqual(variants[0], "Loveless: SD Theatre")
+        self.assertIn("Loveless", variants)
+
+    def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
+        provider_structure = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"episode_number": 1, "title": "The First Part / The Second Part"},
+                    {"episode_number": 2, "title": "The Third Episode"},
+                    {"episode_number": 3, "title": "The Fourth Episode"},
+                ],
+            }],
+        }
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "The First Part"},
+            {"episode_number": 2, "name": "The Second Part"},
+            {"episode_number": 3, "name": "The Third Episode"},
+            {"episode_number": 4, "name": "The Fourth Episode"},
+        ]}
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertGreaterEqual(score, 0.75)
+
+    def test_exact_year_and_one_strong_credit_can_rescue_translated_title(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 36406, "name": "Yu-Gi-Oh! Season Zero",
+                    "original_name": "遊☆戯☆王", "first_air_date": "1998-04-04",
+                }]}
+            if path == "/tv/36406/credits":
+                return {"cast": [{"name": "Yugi Muto"}], "crew": []}
+            if path == "/tv/36406/external_ids":
+                return {"imdb_id": "tt4834194"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Yu-Gi-Oh! Zero", "year": 1998,
+                "metadata": {"actors": ["Yugi Muto"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["imdb_id"], "tt4834194")
+
 
 if __name__ == "__main__":
     unittest.main()
