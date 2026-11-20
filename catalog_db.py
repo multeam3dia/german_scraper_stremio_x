@@ -818,9 +818,9 @@ def get_catalog_titles(
     params: list[Any] = [media_type, *provider_params]
     query = str(search or "").strip()
     if query:
-        # Search only title-like fields. Searching the serialized metadata JSON
-        # also matches descriptions, cast names and unrelated prose, producing
-        # false positives (for example a D4DJ result for a Naruto query).
+        # Include broad metadata matches, but rank them below title matches.
+        # This keeps useful description/cast matches discoverable without letting
+        # them outrank titles that actually contain the search term.
         clauses.append(
             "("
             "instr(lower(t.title), lower(?)) > 0 "
@@ -832,10 +832,11 @@ def get_catalog_titles(
             "SELECT 1 FROM provider_entries search_pe "
             "WHERE search_pe.media_type=t.media_type AND search_pe.imdb_id=t.imdb_id "
             "AND instr(lower(COALESCE(search_pe.provider_title, '')), lower(?)) > 0"
-            ")"
+            ") "
+            "OR instr(lower(t.metadata_json), lower(?)) > 0"
             ")"
         )
-        params.extend([query[:200]] * 6)
+        params.extend([query[:200]] * 7)
     selected_genre = str(genre or "").strip()
     if selected_genre:
         clauses.append(
@@ -856,10 +857,24 @@ def get_catalog_titles(
             SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
             FROM titles t
             WHERE {" AND ".join(clauses)}
-            ORDER BY t.last_verified_at DESC, t.title COLLATE NOCASE
+            ORDER BY
+                CASE
+                    WHEN instr(lower(t.title), lower(?)) > 0 THEN 0
+                    WHEN instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.title'), '')), lower(?)) > 0
+                      OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.original_title'), '')), lower(?)) > 0
+                      OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.display_title'), '')), lower(?)) > 0
+                      OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.original_title'), '')), lower(?)) > 0
+                      OR EXISTS (
+                          SELECT 1 FROM provider_entries rank_pe
+                          WHERE rank_pe.media_type=t.media_type AND rank_pe.imdb_id=t.imdb_id
+                            AND instr(lower(COALESCE(rank_pe.provider_title, '')), lower(?)) > 0
+                      ) THEN 1
+                    ELSE 2
+                END,
+                t.last_verified_at DESC, t.title COLLATE NOCASE
             LIMIT ? OFFSET ?
             """,
-            (*params, page_size, offset),
+            (*params, *([query[:200]] * 6 if query else []), page_size, offset),
         ).fetchall()
 
         imdb_ids = [str(row["imdb_id"]) for row in rows]
