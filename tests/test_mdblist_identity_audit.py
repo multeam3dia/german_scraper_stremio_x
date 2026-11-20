@@ -36,6 +36,20 @@ class MDBListIdentityAuditTests(unittest.TestCase):
         self.assertEqual(_imdb_id({"imdb_id": "tt7654321"}), "tt7654321")
         self.assertIsNone(_imdb_id({"imdb": "not-an-imdb-id"}))
 
+    def test_uploaded_anime_sample_fixture_has_210_unique_series_identities(self):
+        fixture_path = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "aniworld_anime_identity_sample.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        entries = fixture["entries"]
+        self.assertEqual(len(entries), 210)
+        self.assertTrue(all(entry["media_type"] == "series" for entry in entries))
+        ids = [entry["imdb_ids"][0] for entry in entries]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(all(value.startswith("tt") for value in ids))
+
     def test_run_audit_accepts_single_imdb_id_and_series_only_fixture(self):
         fixture = {
             "provider": "AniWorld",
