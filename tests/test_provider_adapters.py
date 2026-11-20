@@ -71,6 +71,81 @@ class AniWorldAdapterTests(unittest.TestCase):
         self.assertEqual(item.media_type, "movie")
         self.assertTrue(item.metadata["standalone_movie"])
 
+    def test_detail_preserves_alternate_titles_and_episode_titles_for_identity(self):
+        class FakeEpisode:
+            episode_number = 1
+            is_movie = False
+            _AniworldEpisode__title_de = "Die erste Folge"
+            _AniworldEpisode__title_en = "The First Episode"
+
+        class FakeSeason:
+            season_number = 1
+            are_movies = False
+            episodes = [FakeEpisode()]
+
+        class FakeSeries:
+            imdb = None
+            title = "Example"
+            alternative_titles = ["例", "Example Original"]
+            release_year = "2020"
+            poster_url = None
+            description = None
+            genres = []
+            has_movies = False
+            seasons = [FakeSeason()]
+            country = "Japan"
+            age_rating = None
+            rating = None
+            directors = []
+            actors = []
+            producer = None
+
+            def __init__(self, url, session=None):
+                pass
+
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            item = AniWorldProvider().get_title(
+                "https://aniworld.to/anime/stream/example"
+            )
+
+        self.assertEqual(item.metadata["alternative_titles"], ["例", "Example Original"])
+        episode = item.metadata["provider_structure"]["seasons"][0]["episodes"][0]
+        self.assertEqual(episode["title"], "Die erste Folge")
+        self.assertEqual(episode["title_original"], "The First Episode")
+
+    def test_multi_film_collection_is_not_classified_as_one_movie(self):
+        class MovieCollection:
+            are_movies = True
+            episodes = [object(), object(), object(), object()]
+
+        class FakeSeries:
+            imdb = None
+            title = "Persona 3: The Movie"
+            alternative_titles = []
+            release_year = "2013-2016"
+            poster_url = None
+            description = None
+            genres = []
+            has_movies = True
+            seasons = [MovieCollection()]
+            country = "Japan"
+            age_rating = None
+            rating = None
+            directors = []
+            actors = []
+            producer = None
+
+            def __init__(self, url, session=None):
+                pass
+
+        with patch("providers.aniworld.AniworldSeries", FakeSeries):
+            item = AniWorldProvider().get_title(
+                "https://aniworld.to/anime/stream/persona-3-the-movie"
+            )
+
+        self.assertEqual(item.media_type, "series")
+        self.assertEqual(item.metadata["movie_collection_count"], 4)
+
     def test_detail_keeps_mixed_series_and_movie_collection_as_series(self):
         class RegularSeason:
             are_movies = False
