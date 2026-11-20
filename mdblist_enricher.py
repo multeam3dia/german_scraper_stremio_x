@@ -228,7 +228,13 @@ def enrich_mdblist_metadata(
         }
 
     init_db()
-    records = get_metadata_candidates(limit=limit, force=True)
+    try:
+        max_enrichments = max(1, min(50000, int(limit)))
+    except (TypeError, ValueError):
+        max_enrichments = 500
+    # Scan the full verified catalogue so fresh cached records at the beginning
+    # do not permanently hide older, not-yet-enriched titles beyond --limit.
+    records = get_metadata_candidates(limit=50000, force=True)
     summary: dict[str, Any] = {
         "scanned": 0,
         "enriched": 0,
@@ -242,6 +248,8 @@ def enrich_mdblist_metadata(
         if not force and _is_cache_fresh(current, cache_days):
             summary["skipped_cached"] += 1
             continue
+        if summary["scanned"] >= max_enrichments:
+            break
         summary["scanned"] += 1
         try:
             result = find_mdblist_metadata(record, fetch_fn=fetch_fn)
