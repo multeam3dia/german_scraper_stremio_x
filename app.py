@@ -461,8 +461,8 @@ def _merge_cached_mdblist_metadata(
 ) -> dict:
     """Fill missing Stremio metadata fields from the local MDBList cache.
 
-    This is a database-only read: Stremio metadata requests never trigger an
-    MDBList API call. Existing TMDB/Cinemeta fields and episode lists win.
+    This merges the persistent MDBList fallback into Stremio metadata.
+    Existing TMDB/Cinemeta fields and episode lists always win.
     """
     meta = response.get("meta") if isinstance(response, dict) else None
     if not isinstance(meta, dict) or not _local_catalog_enabled():
