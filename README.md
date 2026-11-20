@@ -155,6 +155,30 @@ labels such as GerDub and GerSub remain separate and are never exposed as
 canonical genres. Use `--force` to refresh titles that already have TMDB
 metadata.
 
+### MDBList metadata enrichment (supplemental)
+
+MDBList complements TMDB after a title already has a verified IMDb ID. It is
+never used to discover or assign identities. Run:
+
+```bash
+python -m mdblist_enricher --limit 500
+```
+
+The job performs one exact IMDb-ID lookup per verified catalog title (using
+`show` for series and `movie` for films). It stores MDBList ratings, score,
+streaming-provider information, language/country, runtime, certification,
+trailer, artwork and available season/latest/next-episode summaries under the
+separate `mdblist` metadata key. It does not overwrite TMDB data, canonical
+genres, or the IMDb identity. MDBList results are cached in SQLite for seven
+days by default; use `--force` to refresh them early or `--cache-days N` to
+change the cache lifetime.
+
+The Stremio catalog continues to prefer TMDB artwork, descriptions, years and
+genres. An IMDb rating from MDBList is used only when no IMDb rating is already
+available. MDBList's season summaries are not a replacement for TMDB or
+Cinemeta's complete episode metadata. This optional job reuses
+`MDBLIST_API_KEY`; without the key it exits without affecting the catalog.
+
 The crawler and enrichment commands are currently run manually inside the
 application container. A scheduled crawl, availability reconciliation, and
 automatic outbox delivery are not enabled yet.
