@@ -1135,7 +1135,7 @@ class IdentityResolverTests(unittest.TestCase):
                 "provider_title": "Tokyo Godfathers", "year": 2003,
                 "metadata": {
                     "actors": ["Toru Emori", "Aya Okamoto"],
-                    "directors": ["Satoshi Kon"], "producer": "Madhouse",
+                    "directors": ["Satoshi Kon"], "producer": "MADHOUSE Inc.",
                     "country": "Japan",
                 },
             },
