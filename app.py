@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
+from datetime import datetime, timezone
+from threading import Lock
 from scraper import get_movie_streams, get_metadata
 from providers.lazy import (
     get_series_meta, get_series_streams_for_episode,
@@ -17,13 +19,21 @@ from catalog_identity import (
 )
 from aniworld.config import logger
 from mdblist import queue_verified_title
+from mdblist_enricher import (
+    MDBListEnrichmentError,
+    MDBListNotFound,
+    find_mdblist_metadata,
+)
 from mdblist_tracking import (
     get_mdblist_playback,
     get_mdblist_status,
     init_db as init_mdblist_tracking_db,
     scrobble_event as mdblist_scrobble_event,
 )
-from catalog_db import get_catalog_media_types, get_catalog_titles, get_title_metadata, init_db, list_genres
+from catalog_db import (
+    get_catalog_media_types, get_catalog_titles, get_title_metadata,
+    init_db, list_genres, update_title_metadata,
+)
 from playback_events import PlaybackEventError, playback_event_from_payload, stremio_player_event
 from simkl_tracking import (
     SimklError,
@@ -368,6 +378,84 @@ def get_catalog_with_extra(type: str, catalog_id: str, extra: str):
     )
 
 
+_MDBLIST_ON_DEMAND_LOCK = Lock()
+
+
+def _ensure_mdblist_metadata_on_demand(
+    response: dict, media_type: str, imdb_id: str
+) -> dict:
+    """Fetch MDBList once, and only when core metadata is missing.
+
+    The title must already exist in the verified SQLite catalogue. Both found
+    and no-match responses are persisted, so subsequent metadata requests are
+    database-only and never repeat the same MDBList lookup.
+    """
+    meta = response.get("meta") if isinstance(response, dict) else None
+    if not isinstance(meta, dict) or media_type not in {"movie", "series"}:
+        return response
+    # Ratings, artwork backgrounds and optional genre details are nice-to-have.
+    # Avoid spending API calls unless core display metadata is actually missing.
+    if all(meta.get(field) for field in ("poster", "description", "releaseInfo")):
+        return response
+    if not os.getenv("MDBLIST_API_KEY", "").strip():
+        return response
+
+    try:
+        record = get_title_metadata(media_type, imdb_id)
+    except Exception as exc:
+        logger.debug(
+            "Could not inspect MDBList cache for %s %s: %s",
+            media_type, imdb_id, type(exc).__name__,
+        )
+        return response
+    if not isinstance(record, dict):
+        # No verified local identity: never query MDBList by a guessed title.
+        return response
+
+    cached = (record.get("metadata") or {}).get("mdblist")
+    if isinstance(cached, dict) and cached.get("status") in {"found", "no_match"}:
+        return response
+
+    # Serialize first-time lookups and re-read after acquiring the lock. This
+    # prevents parallel Stremio requests from spending multiple API hits.
+    with _MDBLIST_ON_DEMAND_LOCK:
+        try:
+            record = get_title_metadata(media_type, imdb_id)
+            cached = (record.get("metadata") or {}).get("mdblist") if record else None
+            if isinstance(cached, dict) and cached.get("status") in {"found", "no_match"}:
+                return _merge_cached_mdblist_metadata(response, media_type, imdb_id)
+
+            result = find_mdblist_metadata(record)
+            result["fetched_at"] = datetime.now(timezone.utc).isoformat()
+        except MDBListNotFound:
+            result = {
+                "status": "no_match",
+                "fetched_at": datetime.now(timezone.utc).isoformat(),
+            }
+        except MDBListEnrichmentError as exc:
+            logger.warning(
+                "On-demand MDBList lookup failed for %s %s: %s",
+                media_type, imdb_id, str(exc),
+            )
+            return response
+        except Exception as exc:
+            logger.warning(
+                "Unexpected on-demand MDBList error for %s %s: %s",
+                media_type, imdb_id, type(exc).__name__,
+            )
+            return response
+
+        if result.get("status") in {"found", "no_match"}:
+            try:
+                update_title_metadata(media_type, imdb_id, {"mdblist": result})
+            except Exception as exc:
+                logger.warning(
+                    "Could not persist MDBList result for %s %s: %s",
+                    media_type, imdb_id, type(exc).__name__,
+                )
+    return _merge_cached_mdblist_metadata(response, media_type, imdb_id)
+
+
 def _merge_cached_mdblist_metadata(
     response: dict, media_type: str, imdb_id: str
 ) -> dict:
@@ -456,6 +544,7 @@ def get_meta(type: str, id: str):
     if type == "series":
         try:
             response = get_series_meta(imdb_id)
+            response = _ensure_mdblist_metadata_on_demand(response, "series", imdb_id)
             return _merge_cached_mdblist_metadata(response, "series", imdb_id)
         except Exception as exc:
             logger.error(
@@ -466,14 +555,17 @@ def get_meta(type: str, id: str):
             if isinstance(fallback, dict):
                 # Preserve Cinemeta's canonical episodes. A provider catalog or
                 # structure-cache failure must not hide the series episode list.
+                response = {"meta": dict(fallback)}
+                response = _ensure_mdblist_metadata_on_demand(response, "series", imdb_id)
                 return _merge_cached_mdblist_metadata(
-                    {"meta": dict(fallback)}, "series", imdb_id
+                    response, "series", imdb_id
                 )
             return {"meta": None}
 
     if type == "movie":
         meta = get_metadata("movie", imdb_id)
         response = {"meta": meta} if isinstance(meta, dict) else {"meta": None}
+        response = _ensure_mdblist_metadata_on_demand(response, "movie", imdb_id)
         return _merge_cached_mdblist_metadata(response, "movie", imdb_id)
 
     return {"meta": None}
