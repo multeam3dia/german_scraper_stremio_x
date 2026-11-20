@@ -84,7 +84,9 @@ def _normalize(value: Any) -> str:
     value = unicodedata.normalize("NFKD", str(value or "").casefold())
     value = "".join(char for char in value if not unicodedata.combining(char))
     value = value.replace("&", " and ")
-    return " ".join(re.findall(r"[a-z0-9]+", value))
+    # Preserve non-Latin scripts (notably Japanese and Chinese anime titles)
+    # instead of silently deleting them before title comparison.
+    return " ".join(re.findall(r"[^\\W_]+", value, flags=re.UNICODE))
 
 
 def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
