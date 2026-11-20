@@ -97,6 +97,27 @@ class CatalogRouteTests(unittest.TestCase):
         self.assertEqual(manifest["catalogs"][0]["type"], "series")
         self.assertIn("stream", manifest["resources"])
 
+    def test_meta_route_uses_cached_mdblist_fields_without_overwriting_metadata(self):
+        canonical_meta = {
+            "id": "tt1234567",
+            "type": "series",
+            "name": "Canonical series title",
+            "videos": [{
+                "id": "tt1234567:1:1",
+                "title": "Pilot",
+                "season": 1,
+                "episode": 1,
+            }],
+        }
+        with patch("app.get_series_meta", return_value={"meta": canonical_meta}):
+            response = app.get_meta("series", "tt1234567")
+
+        meta = response["meta"]
+        self.assertEqual(meta["name"], "Canonical series title")
+        self.assertEqual(meta["imdbRating"], "8.4")
+        self.assertEqual(meta["description"], "MDBList fallback description")
+        self.assertEqual(meta["videos"], canonical_meta["videos"])
+
     def test_meta_fallback_preserves_canonical_episode_list(self):
         canonical_meta = {
             "id": "tt7654321",
