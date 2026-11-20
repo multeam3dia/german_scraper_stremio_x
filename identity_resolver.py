@@ -254,8 +254,15 @@ def _best_provider_title_match(
     provider_title: str, alternative_titles: list[str], item: dict[str, Any],
     media_type: str,
 ) -> tuple[float, str | None]:
-    """Compare a TMDB candidate against the main title and provider aliases."""
-    titles = [provider_title]
+    """Compare titles while treating a trailing parenthesized year as metadata."""
+    # AniWorld commonly embeds the release year in the display title
+    # (e.g. "Kanon (2006)"). TMDB stores that year separately. Comparing the
+    # raw strings penalizes an otherwise exact title match, so remove only a
+    # terminal four-digit year in parentheses before title scoring.
+    title_for_match = re.sub(
+        r"\\s*[（(](?:19|20)\\d{2}[）)]\\s*$", "", provider_title
+    ).strip()
+    titles = [title_for_match or provider_title]
     titles.extend(str(value) for value in alternative_titles if str(value or "").strip())
     matches = [_best_title_match(title, item, media_type) for title in titles]
     return max(matches, key=lambda result: result[0], default=(0.0, None))
