@@ -840,6 +840,50 @@ def find_tmdb_match(
                             existing.setdefault("_matched_queries", []).append(query)
                     else:
                         anonymous_candidates.append(dict(item))
+        # If ordinary title searches miss the candidate (or return only weak
+        # title matches), use TMDB's year filter as a discovery aid. Search a
+        # small +/-2-year window rather than treating AniWorld's year as exact:
+        # provider dates can be off by a year or two. The year remains a ranking
+        # signal later; it never hard-excludes candidates.
+        best_discovered_title = max(
+            (_provider_title_similarity(provider_title, provider_aliases, item, media_type)
+             for item in list(raw_candidates.values()) + anonymous_candidates),
+            default=0.0,
+        )
+        if provider_year is not None and best_discovered_title < MIN_TITLE_SCORE_WITH_YEAR:
+            year_key = "first_air_date_year" if media_type == "series" else "year"
+            discovery_queries = list(dict.fromkeys(
+                query for query in query_variants
+                if _normalize(query) != _normalize(provider_title)
+            ))[:2]
+            if not discovery_queries:
+                discovery_queries = [provider_title]
+            for year_offset in (0, -1, 1, -2, 2):
+                search_year = provider_year + year_offset
+                for query in discovery_queries[:1]:
+                    response = search_fn(search_path, {
+                        "query": query, year_key: search_year,
+                        "include_adult": "false", "language": "en-US",
+                    })
+                    results = response.get("results")
+                    results = results if isinstance(results, list) else []
+                    search_attempts.append({
+                        "query": query, "language": "en-US",
+                        "year_filter": search_year, "result_count": len(results),
+                    })
+                    for item in results:
+                        if not isinstance(item, dict):
+                            continue
+                        tmdb_id = item.get("id")
+                        if type(tmdb_id) is int and tmdb_id > 0:
+                            existing = raw_candidates.get(tmdb_id)
+                            if existing is None:
+                                raw_candidates[tmdb_id] = dict(item)
+                                raw_candidates[tmdb_id]["_matched_queries"] = [query]
+                            else:
+                                existing.setdefault("_matched_queries", []).append(query)
+                        else:
+                            anonymous_candidates.append(dict(item))
     except (TMDBAPIError, TMDBConfigurationError) as exc:
         return {"status": "error", "reason": str(exc)}
     except Exception as exc:
@@ -1185,14 +1229,20 @@ def find_tmdb_match(
         country_score = scores_for(pair[1]).get("country_score")
         if country_score is not None:
             score += country_score * 0.04
-        # Year decisively separates same-title releases (e.g. Kanon 2002
-        # vs. 2006), but remains a ranking signal rather than a hard filter
-        # because provider dates can be imperfect. The stronger differential
-        # lets a four-year gap clear MIN_MARGIN.
+        # Year is a strong, fault-tolerant ranking signal. Exact matches
+        # receive the largest bonus; +/-1-2 years remain plausible for AniWorld,
+        # while larger gaps progressively lose ground. It is never a hard filter.
         item_year = pair[3]
         if provider_year is not None and item_year is not None:
             delta = abs(provider_year - item_year)
-            score += 0.14 - min(delta, 10) * 0.02
+            year_bonus = {
+                0: 0.20,
+                1: 0.16,
+                2: 0.12,
+                3: 0.05,
+                4: 0.00,
+            }.get(delta, -min(0.15, (delta - 4) * 0.025))
+            score += year_bonus
         return score
 
     candidates.sort(key=adjusted_score, reverse=True)
