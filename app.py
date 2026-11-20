@@ -162,6 +162,8 @@ def _catalog_meta(record: dict) -> dict:
     """Convert one verified SQLite title into a Stremio Meta Preview Object."""
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     tmdb = metadata.get("tmdb") if isinstance(metadata.get("tmdb"), dict) else {}
+    mdblist = metadata.get("mdblist") if isinstance(metadata.get("mdblist"), dict) else {}
+    mdblist_found = mdblist.get("status") == "found"
 
     meta = {
         "id": record["imdb_id"],
@@ -169,15 +171,29 @@ def _catalog_meta(record: dict) -> dict:
         "name": str(tmdb.get("title") or record.get("title") or record["imdb_id"]),
         "posterShape": "poster",
     }
-    poster = tmdb.get("poster_url") or metadata.get("poster_url") or metadata.get("poster")
+    # TMDB remains authoritative. MDBList is a fallback/enrichment source only.
+    poster = (
+        tmdb.get("poster_url") or metadata.get("poster_url") or metadata.get("poster")
+        or (mdblist.get("poster_url") if mdblist_found else None)
+    )
     background = (
         tmdb.get("backdrop_url")
         or metadata.get("backdrop_url")
         or metadata.get("background")
+        or (mdblist.get("backdrop_url") if mdblist_found else None)
     )
-    description = tmdb.get("overview") or metadata.get("description")
-    year = record.get("year") or tmdb.get("year") or metadata.get("release_year")
-    genres = record.get("genres") or tmdb.get("genres") or []
+    description = (
+        tmdb.get("overview") or metadata.get("description")
+        or (mdblist.get("description") if mdblist_found else None)
+    )
+    year = (
+        record.get("year") or tmdb.get("year") or metadata.get("release_year")
+        or (mdblist.get("year") if mdblist_found else None)
+    )
+    genres = (
+        record.get("genres") or tmdb.get("genres")
+        or (mdblist.get("genres") if mdblist_found else []) or []
+    )
 
     if poster:
         meta["poster"] = poster
@@ -188,8 +204,14 @@ def _catalog_meta(record: dict) -> dict:
     if year:
         meta["releaseInfo"] = str(year)[:4]
     if isinstance(genres, list) and genres:
-        meta["genres"] = [str(value) for value in genres if value]
-    imdb_rating = tmdb.get("imdb_rating") or metadata.get("imdb_rating")
+        meta["genres"] = [
+            str(value.get("name") if isinstance(value, dict) else value)
+            for value in genres if value
+        ]
+    imdb_rating = (
+        tmdb.get("imdb_rating") or metadata.get("imdb_rating")
+        or (mdblist.get("imdb_rating") if mdblist_found else None)
+    )
     try:
         if imdb_rating is not None:
             meta["imdbRating"] = str(round(float(imdb_rating), 1))
