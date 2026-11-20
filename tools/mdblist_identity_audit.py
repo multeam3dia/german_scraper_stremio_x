@@ -85,7 +85,12 @@ def _candidate_rows(payload: Any) -> list[dict[str, Any]]:
 
 def _imdb_id(item: dict[str, Any]) -> str | None:
     ids = item.get("ids") if isinstance(item.get("ids"), dict) else {}
-    value = ids.get("imdb") or item.get("imdb_id") or item.get("imdbid") or item.get("imdb")
+    # MDBList search uses ids.imdbid; media detail lookups use ids.imdb.
+    # Accept both documented shapes so search hits are not silently discarded.
+    value = (
+        ids.get("imdb") or ids.get("imdbid") or ids.get("imdb_id")
+        or item.get("imdb_id") or item.get("imdbid") or item.get("imdb")
+    )
     value = str(value or "").strip()
     return value if IMDB_RE.fullmatch(value) else None
 
