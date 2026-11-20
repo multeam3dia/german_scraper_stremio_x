@@ -343,6 +343,116 @@ def _candidate_details(
     return payload if isinstance(payload, dict) else None
 
 
+
+def _candidate_season_episode_titles(
+    item: dict[str, Any], provider_structure: dict[str, Any],
+    search_fn: Callable[..., dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Fetch a small number of TMDB season pages for episode-title corroboration."""
+    tmdb_id = item.get("id")
+    if type(tmdb_id) is not int or tmdb_id <= 0:
+        return {}
+    seasons = provider_structure.get("seasons")
+    if not isinstance(seasons, list):
+        return {}
+    season_numbers = []
+    for season in seasons:
+        if not isinstance(season, dict):
+            continue
+        try:
+            number = int(season.get("season_number"))
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and isinstance(season.get("episodes"), list):
+            season_numbers.append(number)
+    # The first and last numbered seasons give useful coverage without
+    # turning identity resolution into a full-series metadata crawl.
+    season_numbers = list(dict.fromkeys(season_numbers))
+    if len(season_numbers) > 2:
+        season_numbers = [season_numbers[0], season_numbers[-1]]
+    result: dict[str, list[dict[str, Any]]] = {}
+    for number in season_numbers:
+        try:
+            payload = search_fn(
+                f"/tv/{tmdb_id}/season/{number}", {"language": "en-US"}
+            )
+        except Exception:
+            continue
+        rows = payload.get("episodes") if isinstance(payload, dict) else None
+        if isinstance(rows, list):
+            result[str(number)] = [row for row in rows if isinstance(row, dict)]
+    return result
+
+
+def _episode_title_similarity(
+    provider_structure: dict[str, Any],
+    candidate_episode_titles: dict[str, list[dict[str, Any]]] | None,
+) -> float | None:
+    """Compare AniWorld episode titles, tolerating one provider row merging two episodes."""
+    provider_rows = []
+    for season in provider_structure.get("seasons", []):
+        if isinstance(season, dict):
+            for episode in season.get("episodes", []) or []:
+                if isinstance(episode, dict):
+                    names = [
+                        _normalize(episode.get(key))
+                        for key in ("title", "title_original")
+                        if _normalize(episode.get(key))
+                    ]
+                    if names:
+                        provider_rows.append(names)
+    candidate_rows = []
+    for rows in (candidate_episode_titles or {}).values():
+        for episode in rows:
+            names = [
+                _normalize(episode.get(key))
+                for key in ("name", "original_name")
+                if _normalize(episode.get(key))
+            ]
+            if names:
+                candidate_rows.append(names)
+    if len(provider_rows) < 3 or len(candidate_rows) < 3:
+        return None
+
+    def similarity(left: str, right: str) -> float:
+        if left == right:
+            return 1.0
+        return difflib.SequenceMatcher(None, left, right).ratio()
+
+    edges = []
+    for p_index, p_names in enumerate(provider_rows):
+        for c_index, c_names in enumerate(candidate_rows):
+            score = max(
+                (similarity(left, right) for left in p_names for right in c_names),
+                default=0.0,
+            )
+            edges.append((score, p_index, (c_index,)))
+            # AniWorld occasionally merges two consecutive source episodes
+            # into one longer episode; compare against their joined titles.
+            if c_index + 1 < len(candidate_rows):
+                joined = " ".join(candidate_rows[c_index][0:1] + candidate_rows[c_index + 1][0:1])
+                merged_score = max(
+                    (similarity(left, joined) for left in p_names),
+                    default=0.0,
+                )
+                edges.append((merged_score, p_index, (c_index, c_index + 1)))
+    used_provider: set[int] = set()
+    used_candidate: set[int] = set()
+    matched_provider = 0
+    matched_candidate = 0
+    for score, p_index, c_indices in sorted(edges, reverse=True):
+        if score < 0.78 or p_index in used_provider or any(i in used_candidate for i in c_indices):
+            continue
+        used_provider.add(p_index)
+        used_candidate.update(c_indices)
+        matched_provider += 1
+        matched_candidate += len(c_indices)
+    return round(min(
+        matched_provider / len(provider_rows),
+        matched_candidate / len(candidate_rows),
+    ), 4)
+
+
 def _names_from_people(rows: Any, key: str = "name") -> list[str]:
     if not isinstance(rows, list):
         return []
@@ -471,6 +581,7 @@ def _description_similarity(provider_text: str, candidate_text: str) -> float | 
 
 def _structure_comparison(
     provider_structure: dict[str, Any], candidate_details: dict[str, Any] | None,
+    candidate_episode_titles: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Compare provider season/episode counts with TMDB; missing data stays neutral."""
     if not isinstance(provider_structure, dict) or not provider_structure.get("complete"):
@@ -522,9 +633,18 @@ def _structure_comparison(
             )
             mismatch = mismatch or season_detail_mismatch
 
+    episode_title_score = _episode_title_similarity(
+        provider_structure, candidate_episode_titles
+    )
+    count_score = round(max(0.0, 1.0 - episode_ratio * 0.5 - season_delta * 0.05), 4)
+    structure_score = max(
+        count_score,
+        episode_title_score or 0.0,
+    )
     return {
         "status": "mismatch" if mismatch else "match",
-        "score": 0.0 if mismatch else round(max(0.0, 1.0 - episode_ratio * 0.5 - season_delta * 0.05), 4),
+        "score": 0.0 if mismatch else structure_score,
+        "episode_title_score": episode_title_score,
         "mismatch": mismatch,
         "provider": {"season_count": provider_seasons, "episode_count": provider_episodes,
                      "seasons": provider_by_season},
@@ -760,13 +880,32 @@ def find_tmdb_match(
         (media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"))
         or provider_description
     ):
-        for item in preliminary[:10]:
+        for item in preliminary[:5]:
             tmdb_id = item.get("id")
             if type(tmdb_id) is not int or tmdb_id <= 0:
                 continue
             details = _candidate_details(item, media_type, search_fn)
             if media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"):
-                structure_scores[tmdb_id] = _structure_comparison(provider_structure, details)
+                season_titles = {}
+                provider_seasons = provider_structure.get("seasons") or []
+                has_episode_names = any(
+                    isinstance(season, dict) and any(
+                        isinstance(episode, dict) and (
+                            episode.get("title") or episode.get("title_original")
+                        )
+                        for episode in season.get("episodes", []) or []
+                    )
+                    for season in provider_seasons
+                )
+                if has_episode_names and details and not _structure_comparison(
+                    provider_structure, details
+                ).get("mismatch"):
+                    season_titles = _candidate_season_episode_titles(
+                        item, provider_structure, search_fn
+                    )
+                structure_scores[tmdb_id] = _structure_comparison(
+                    provider_structure, details, season_titles
+                )
             overview = str((details or {}).get("overview") or "").strip()
             description_scores[tmdb_id] = _description_similarity(provider_description, overview)
 
@@ -809,10 +948,20 @@ def find_tmdb_match(
         # match may rescue a translated or slightly different title. This is
         # deliberately stricter than year-only matching and still requires
         # the global runner-up margin below.
+        structure = structure_scores.get(item.get("id"), {
+            "status": "not_available", "score": None, "mismatch": False,
+        })
+        structure_supported = (
+            exact_year and title_score >= 0.35
+            and (
+                float(structure.get("episode_title_score") or 0) >= 0.70
+                or float(structure.get("score") or 0) >= 0.95
+            )
+        )
         year_supported = (
             exact_year and title_score >= 0.70
             and any(value >= 0.85 for value in independent_signals)
-        )
+        ) or structure_supported
         # A trailing format label is weaker evidence than a title match. Accept
         # it only when the year agrees and at least one independent metadata
         # signal corroborates it, or when two independent metadata signals do.
@@ -820,9 +969,6 @@ def find_tmdb_match(
             strong_metadata or (exact_year and strong_signal_count >= 1
                                 and (corroboration_score(item) or 0) >= 0.85)
         )
-        structure = structure_scores.get(item.get("id"), {
-            "status": "not_available", "score": None, "mismatch": False,
-        })
         if structure.get("mismatch"):
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
