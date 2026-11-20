@@ -91,6 +91,34 @@ class MDBListEnricherTests(unittest.TestCase):
         self.assertEqual(item["metadata"]["mdblist"]["title"], "MDBList title")
         self.assertEqual(item["metadata"]["mdblist"]["imdb_rating"], 8.1)
 
+        # A second run must reuse the persisted result without contacting MDBList.
+        second = enrich_mdblist_metadata(
+            fetch_fn=lambda path, params: self.fail("unexpected MDBList request"),
+        )
+        self.assertEqual(second["scanned"], 0)
+        self.assertEqual(second["skipped_cached"], 1)
+
+    def test_no_match_result_is_persisted_and_not_retried_by_default(self):
+        calls = []
+
+        def not_found(path, params):
+            calls.append(path)
+            from mdblist_enricher import MDBListNotFound
+            raise MDBListNotFound("not found")
+
+        first = enrich_mdblist_metadata(fetch_fn=not_found)
+        self.assertEqual(first["no_match"], 1)
+        self.assertEqual(len(calls), 1)
+
+        item = catalog_db.get_catalog_titles("series")[0]
+        self.assertEqual(item["metadata"]["mdblist"]["status"], "no_match")
+
+        second = enrich_mdblist_metadata(
+            fetch_fn=lambda path, params: self.fail("no-match result was retried"),
+        )
+        self.assertEqual(second["scanned"], 0)
+        self.assertEqual(second["skipped_cached"], 1)
+
     def test_missing_api_key_disables_optional_enrichment(self):
         previous = os.environ.pop("MDBLIST_API_KEY", None)
         try:
