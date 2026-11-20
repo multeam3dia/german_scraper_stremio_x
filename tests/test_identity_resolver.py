@@ -1219,6 +1219,35 @@ class IdentityResolverTests(unittest.TestCase):
                 self.assertEqual(result["candidate_year"], year)
                 self.assertGreaterEqual(result["margin"], 0.08)
 
+    def test_aniworld_year_window_finds_candidates_with_one_or_two_year_date_drift(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, dict(params)))
+            if path == "/search/tv" and params.get("first_air_date_year") == 2002:
+                return {"results": [{
+                    "id": 2002, "name": "Kanon", "original_name": "Kanon",
+                    "first_air_date": "2002-01-31",
+                }]}
+            if path == "/search/tv" and params.get("first_air_date_year") == 2006:
+                return {"results": [{
+                    "id": 2006, "name": "Kanon", "original_name": "Kanon",
+                    "first_air_date": "2006-10-05",
+                }]}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt0339955" if "/2002/" in path else "tt0409591"}
+            return {}
+
+        result = find_tmdb_match(
+            {"provider": "aniworld", "media_type": "series",
+             "provider_title": "Kanon", "year": 2004},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["diagnostics"]["search"]["tmdb_result_count"], 2)
+        self.assertTrue(any(params.get("first_air_date_year") == 2002 for _, params in calls))
+        self.assertTrue(any(params.get("first_air_date_year") == 2006 for _, params in calls))
+
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
             if path == "/search/tv":
