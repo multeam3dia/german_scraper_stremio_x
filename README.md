@@ -103,12 +103,25 @@ python -m identity_resolver --provider serienstream --limit 500 --apply
 Omit `--provider` to process both providers. The resolver records the TMDB
 candidate and confidence details in title metadata. Search results are compared
 locally rather than filtered by year at the API, so remakes and nearby premiere
-dates remain visible to the resolver. Automatic matching requires a strong
-title match and a compatible release year. A one-year date difference, a
-missing TMDB release year, or multiple similarly scored homonyms remains
-ambiguous for manual review; candidates more than one year away are rejected.
-When the provider year is unavailable, only an exact normalized title can be
-considered, and competing exact-title results remain ambiguous. Re-run the
+dates remain visible to the resolver. Release year is a ranking signal, not a
+hard exclusion rule: an exact year increases confidence, while a larger
+difference lowers the candidate's ranking. This is intentional because provider
+years, especially AniWorld years, can be incomplete or unreliable. A high
+confidence score and a clear margin over competing candidates are still
+required; similarly scored homonyms remain ambiguous for manual review.
+
+For AniWorld, the resolver also handles a possible series/movie type mismatch.
+If the TV search returns no candidates, or all plausible series candidates are
+rejected because their episode structure conflicts with the provider structure,
+it probes TMDB's movie search. It changes the provider entry from series to
+movie only with an exact year, a sufficiently similar title, a high-confidence
+movie match, a clear margin, and at least two independent strong metadata
+signals among actors, director, and studio. Otherwise it leaves the entry
+unresolved for manual review. Production-company legal suffixes such as
+"Inc." are normalized when comparing studios.
+
+When the provider year is unavailable, it cannot satisfy the exact-year
+requirement for an automatic AniWorld media-type correction. Re-run the
 provider crawl later to refresh the full season/episode structure for titles
 that have just been identified.
 
