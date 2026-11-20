@@ -110,20 +110,34 @@ years, especially AniWorld years, can be incomplete or unreliable. A high
 confidence score and a clear margin over competing candidates are still
 required; similarly scored homonyms remain ambiguous for manual review.
 
-For AniWorld, the resolver also handles a possible series/movie type mismatch.
-If the TV search returns no candidates, or all plausible series candidates are
-rejected because their episode structure conflicts with the provider structure,
-it probes TMDB's movie search. It changes the provider entry from series to
-movie only with an exact year, a sufficiently similar title, a high-confidence
-movie match, a clear margin, and at least two independent strong metadata
-signals among actors, director, and studio. Otherwise it leaves the entry
-unresolved for manual review. Production-company legal suffixes such as
-"Inc." are normalized when comparing studios.
+For AniWorld, the resolver uses the provider's original/alternative title
+labels (including Japanese titles) as additional TMDB search queries. Known
+format suffixes such as "SD Theatre" and "Short Animation Series" are also
+removed in a separate search variant; the original provider title is retained.
+Unicode title comparison preserves Japanese and other non-Latin scripts.
 
-When the provider year is unavailable, it cannot satisfy the exact-year
-requirement for an automatic AniWorld media-type correction. Re-run the
-provider crawl later to refresh the full season/episode structure for titles
-that have just been identified.
+AniWorld season pages provide episode counts and episode names without opening
+individual episode pages. When a candidate is uncertain, the resolver compares
+season structure and available episode titles against TMDB. The episode-title
+comparison tolerates a provider row that combines two consecutive episodes.
+Legacy unresolved records are refreshed from the provider before matching when
+their cached evidence lacks episode names or alternative titles. Exact year plus
+one strong independent actor/director/studio signal can support a candidate
+whose title similarity is at least 0.70; the confidence and runner-up margin
+checks still apply. Production-company legal suffixes such as "Inc." are
+normalized when comparing studios.
+
+For a possible AniWorld series/movie type mismatch, the resolver also probes
+TMDB's movie search when the TV search is empty or plausible series candidates
+contradict the provider episode structure. Automatic type correction remains
+conservative and requires an exact year, a sufficiently similar title, a
+high-confidence movie match, a clear margin, and at least two independent
+strong metadata signals among actors, director, and studio.
+
+A page containing multiple independent films (for example, a multi-part movie
+collection) is not assigned one page-level IMDb identity. It remains ambiguous
+until the individual film parts can be represented separately. This avoids
+merging multiple films into one catalog title.
 
 ## TMDB metadata enrichment
 
