@@ -818,11 +818,24 @@ def get_catalog_titles(
     params: list[Any] = [media_type, *provider_params]
     query = str(search or "").strip()
     if query:
+        # Search only title-like fields. Searching the serialized metadata JSON
+        # also matches descriptions, cast names and unrelated prose, producing
+        # false positives (for example a D4DJ result for a Naruto query).
         clauses.append(
-            "(instr(lower(t.title), lower(?)) > 0 "
-            "OR instr(lower(t.metadata_json), lower(?)) > 0)"
+            "("
+            "instr(lower(t.title), lower(?)) > 0 "
+            "OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.title'), '')), lower(?)) > 0 "
+            "OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.original_title'), '')), lower(?)) > 0 "
+            "OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.display_title'), '')), lower(?)) > 0 "
+            "OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.original_title'), '')), lower(?)) > 0 "
+            "OR EXISTS ("
+            "SELECT 1 FROM provider_entries search_pe "
+            "WHERE search_pe.media_type=t.media_type AND search_pe.imdb_id=t.imdb_id "
+            "AND instr(lower(COALESCE(search_pe.provider_title, '')), lower(?)) > 0"
+            ")"
+            ")"
         )
-        params.extend([query[:200], query[:200]])
+        params.extend([query[:200]] * 6)
     selected_genre = str(genre or "").strip()
     if selected_genre:
         clauses.append(
