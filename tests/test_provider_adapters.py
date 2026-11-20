@@ -6,9 +6,33 @@ from unittest.mock import patch
 from providers.aniworld import AniWorldProvider
 from providers.base import ProviderTitle
 from providers.serienstream import SerienstreamProvider
+from aniworld.models.aniworld_to.series import AniworldSeries
 
 
 class AniWorldAdapterTests(unittest.TestCase):
+
+    def test_series_exposes_original_and_alternative_title_attribute(self):
+        html = (
+            '<div class="series-title"><h1 data-alternativetitles="私の百合はお仕事です！, Watashi no Yuri wa Oshigoto desu!, Yuri Is My Job!">'
+            '<span>Yuri Is My Job!</span></h1></div>'
+        )
+
+        class Response:
+            text = html
+
+        class Session:
+            def get(self, url):
+                return Response()
+
+        series = AniworldSeries(
+            "https://aniworld.to/anime/stream/yuri-is-my-job",
+            session=Session(),
+        )
+        self.assertEqual(
+            series.alternative_titles,
+            ["私の百合はお仕事です！", "Watashi no Yuri wa Oshigoto desu!"],
+        )
+
     def test_catalog_references_use_normalized_provider_fields(self):
         provider = AniWorldProvider()
         index_items = [{
