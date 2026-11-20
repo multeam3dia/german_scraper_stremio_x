@@ -1193,6 +1193,32 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertNotIn("/search/movie", calls)
 
+    def test_kanon_year_distinguishes_2002_and_2006_versions(self):
+        candidates = [
+            {"id": 2002, "name": "Kanon", "original_name": "Kanon",
+             "first_air_date": "2002-01-31"},
+            {"id": 2006, "name": "Kanon", "original_name": "Kanon",
+             "first_air_date": "2006-10-05"},
+        ]
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": candidates}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt0409591" if "/2006/" in path else "tt0339955"}
+            return {}
+
+        for year, expected_id in ((2002, 2002), (2006, 2006)):
+            with self.subTest(year=year):
+                result = find_tmdb_match(
+                    {"media_type": "series", "provider_title": "Kanon", "year": year},
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["tmdb_id"], expected_id)
+                self.assertEqual(result["candidate_year"], year)
+                self.assertGreaterEqual(result["margin"], 0.08)
+
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
             if path == "/search/tv":
