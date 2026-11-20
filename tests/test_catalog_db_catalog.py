@@ -56,6 +56,24 @@ class CatalogDatabaseTests(unittest.TestCase):
         self.assertEqual(len(page), 1)
         self.assertIn(page[0]["title"], {"Action Show", "Comedy Show"})
 
+    def test_catalog_search_does_not_match_unrelated_metadata_text(self):
+        catalog_db.record_discovery(
+            "series", "tt3456789", "aniworld", "Naruto Shippuden",
+            metadata={"tmdb": {"title": "Naruto Shippuden"}},
+        )
+        catalog_db.record_discovery(
+            "series", "tt4567890", "aniworld", "D4DJ First Mix",
+            metadata={
+                "tmdb": {
+                    "title": "D4DJ First Mix",
+                    "overview": "A character compares the story to Naruto.",
+                }
+            },
+        )
+
+        results = catalog_db.get_catalog_titles("series", search="Naruto")
+        self.assertEqual([item["title"] for item in results], ["Naruto Shippuden"])
+
     def test_playback_only_discoveries_do_not_activate_or_export_catalog_titles(self):
         catalog_db.record_discovery(
             "movie", "tt1234567", "megakino", "Playback-only Film"
