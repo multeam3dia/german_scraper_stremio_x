@@ -50,6 +50,7 @@ class AniworldSeries:
 
         # Extracted from self.html
         self.__title = None
+        self.__alternative_titles = None
         self.__title_cleaned = None
         self.__description = None
         self.__genres = None
@@ -101,6 +102,12 @@ class AniworldSeries:
         if self.__title is None:
             self.__title = self.__extract_title()
         return self.__title
+
+    @property
+    def alternative_titles(self):
+        if self.__alternative_titles is None:
+            self.__alternative_titles = self.__extract_alternative_titles()
+        return self.__alternative_titles
 
     @property
     def title_cleaned(self):
@@ -234,6 +241,35 @@ class AniworldSeries:
         title = unescape(title)
 
         return title
+
+    def __extract_alternative_titles(self):
+        """Extract AniWorld's original/alternate title labels from the series heading."""
+        html = self._html
+        heading_start = html.find('<div class="series-title">')
+        if heading_start == -1:
+            return []
+        heading_end = html.find("</h1>", heading_start)
+        if heading_end == -1:
+            return []
+        heading = html[heading_start:heading_end]
+        marker = 'data-alternativetitles="'
+        start = heading.find(marker)
+        if start == -1:
+            return []
+        start += len(marker)
+        end = heading.find('"', start)
+        if end == -1:
+            return []
+        raw = unescape(heading[start:end])
+        values = []
+        seen = set()
+        for value in raw.split(","):
+            value = value.strip()
+            normalized = value.casefold()
+            if value and normalized not in seen and normalized != (self.title or "").casefold():
+                seen.add(normalized)
+                values.append(value)
+        return values
 
     def __extract_description(self):
         """
