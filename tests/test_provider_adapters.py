@@ -170,6 +170,7 @@ class AniWorldAdapterTests(unittest.TestCase):
 
         self.assertEqual(item.media_type, "series")
         self.assertEqual(item.metadata["movie_collection_count"], 4)
+        self.assertTrue(item.metadata["multi_movie_collection"])
 
     def test_detail_keeps_mixed_series_and_movie_collection_as_series(self):
         class RegularSeason:
