@@ -155,6 +155,23 @@ labels such as GerDub and GerSub remain separate and are never exposed as
 canonical genres. Use `--force` to refresh titles that already have TMDB
 metadata.
 
+### MDBList coverage audit for the additional AniWorld anime sample
+
+A second, read-only test fixture contains 210 AniWorld anime series with
+user-supplied IMDb identities. To compare MDBList title search and exact-ID
+lookup for series only (two requests per title, approximately 420 requests):
+
+```bash
+python -m tools.mdblist_identity_audit \
+  --fixture tests/fixtures/aniworld_anime_identity_sample.json \
+  --media-types show \
+  --output /app/data/mdblist_anime_identity_audit.json
+```
+
+This is a separate audit from the original 34-title ground-truth fixture. It
+does not write to the production catalogue or alter resolver decisions. Run
+it only when the MDBList daily request budget has enough headroom.
+
 ### MDBList metadata enrichment (supplemental)
 
 MDBList complements TMDB after a title already has a verified IMDb ID. It is
