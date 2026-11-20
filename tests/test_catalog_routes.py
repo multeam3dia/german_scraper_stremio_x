@@ -39,7 +39,12 @@ class CatalogRouteTests(unittest.TestCase):
                     "poster_url": "https://image.tmdb.org/t/p/w500/poster.jpg",
                     "backdrop_url": "https://image.tmdb.org/t/p/w1280/backdrop.jpg",
                     "overview": "TMDB overview",
-                }
+                },
+                "mdblist": {
+                    "status": "found",
+                    "imdb_rating": 8.4,
+                    "description": "MDBList fallback description",
+                },
             },
             genres=["Action"],
         )
@@ -60,6 +65,7 @@ class CatalogRouteTests(unittest.TestCase):
         self.assertEqual(meta["poster"], "https://image.tmdb.org/t/p/w500/poster.jpg")
         self.assertEqual(meta["background"], "https://image.tmdb.org/t/p/w1280/backdrop.jpg")
         self.assertEqual(meta["description"], "TMDB overview")
+        self.assertEqual(meta["imdbRating"], "8.4")
         self.assertEqual(meta["genres"], ["Action"])
 
     def test_path_encoded_extra_arguments_are_parsed(self):
