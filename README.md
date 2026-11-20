@@ -186,9 +186,11 @@ The job performs one exact IMDb-ID lookup per verified catalog title (using
 streaming-provider information, language/country, runtime, certification,
 trailer, artwork and available season/latest/next-episode summaries under the
 separate `mdblist` metadata key. It does not overwrite TMDB data, canonical
-genres, or the IMDb identity. MDBList results are cached in SQLite for seven
-days by default; use `--force` to refresh them early or `--cache-days N` to
-change the cache lifetime.
+genres, or the IMDb identity. Results are stored persistently in SQLite:
+successful lookups and explicit no-match results are not queried again by
+default, even after a container restart. Use `--force` when you deliberately
+want to refresh stored results. The optional `--cache-days N` flag re-enables
+a time-limited cache for a particular run; it is not enabled by default.
 
 The Stremio catalog and IMDb metadata route continue to prefer TMDB/Cinemeta
 artwork, descriptions, years, genres and episode lists. Cached MDBList data
