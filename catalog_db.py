@@ -851,14 +851,32 @@ def get_catalog_titles(
         )
         params.extend([selected_genre, selected_genre])
 
+    order_by = (
+        """
+        CASE
+            WHEN instr(lower(t.title), lower(?)) > 0 THEN 0
+            WHEN instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.title'), '')), lower(?)) > 0
+              OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.original_title'), '')), lower(?)) > 0
+              OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.display_title'), '')), lower(?)) > 0
+              OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.original_title'), '')), lower(?)) > 0
+              OR EXISTS (
+                  SELECT 1 FROM provider_entries rank_pe
+                  WHERE rank_pe.media_type=t.media_type AND rank_pe.imdb_id=t.imdb_id
+                    AND instr(lower(COALESCE(rank_pe.provider_title, '')), lower(?)) > 0
+              ) THEN 1
+            ELSE 2
+        END,
+        """
+        if query else ""
+    )
     with _connect() as db:
         rows = db.execute(
             f"""
             SELECT t.media_type, t.imdb_id, t.title, t.year, t.metadata_json
             FROM titles t
             WHERE {" AND ".join(clauses)}
-            ORDER BY
-                CASE
+            ORDER BY {order_by} t.last_verified_at DESC, t.title COLLATE NOCASE
+            LIMIT ? OFFSET ?""
                     WHEN instr(lower(t.title), lower(?)) > 0 THEN 0
                     WHEN instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.title'), '')), lower(?)) > 0
                       OR instr(lower(COALESCE(json_extract(t.metadata_json, '$.tmdb.original_title'), '')), lower(?)) > 0
