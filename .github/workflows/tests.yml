@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/aniworld-integration
+  pull_request:
+    branches:
+      - feature/aniworld-integration
   workflow_dispatch:
 
 jobs:
