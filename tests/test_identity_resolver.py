@@ -1219,6 +1219,14 @@ class IdentityResolverTests(unittest.TestCase):
                 self.assertEqual(result["candidate_year"], year)
                 self.assertGreaterEqual(result["margin"], 0.08)
 
+    def test_aniworld_parenthesized_year_is_not_counted_as_part_of_title(self):
+        item = {"name": "Kanon", "original_name": "カノン"}
+        score, matched = _best_provider_title_match(
+            "Kanon (2006)", [], item, "series"
+        )
+        self.assertEqual(score, 1.0)
+        self.assertEqual(matched, "Kanon")
+
     def test_aniworld_year_window_finds_candidates_with_one_or_two_year_date_drift(self):
         calls = []
 
@@ -1247,6 +1255,40 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["search"]["tmdb_result_count"], 2)
         self.assertTrue(any(params.get("first_air_date_year") == 2002 for _, params in calls))
         self.assertTrue(any(params.get("first_air_date_year") == 2006 for _, params in calls))
+
+    def test_kanon_aniworld_display_year_selects_matching_tmdb_version(self):
+        candidates = [
+            {"id": 2002, "name": "Kanon", "original_name": "カノン",
+             "first_air_date": "2002-01-31"},
+            {"id": 2006, "name": "Kanon", "original_name": "カノン",
+             "first_air_date": "2006-10-05"},
+        ]
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": candidates}
+            if path == "/tv/2002/credits":
+                return {"cast": [{"name": "A"}], "crew": []}
+            if path == "/tv/2006/credits":
+                return {"cast": [{"name": "A"}], "crew": []}
+            if path == "/tv/2002":
+                return {}
+            if path == "/tv/2006":
+                return {}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt0339955" if "/2002/" in path else "tt0409591"}
+            return {}
+
+        for year, expected_id in ((2002, 2002), (2006, 2006)):
+            with self.subTest(year=year):
+                result = find_tmdb_match(
+                    {"provider": "aniworld", "media_type": "series",
+                     "provider_title": f"Kanon ({year})", "year": year},
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["tmdb_id"], expected_id)
+                self.assertEqual(result["title_score"], 1.0)
 
     def test_year_is_a_bounded_ranking_signal_not_a_hard_filter(self):
         def fake_get(path, params):
