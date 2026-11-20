@@ -68,6 +68,7 @@ class AniWorldAdapterTests(unittest.TestCase):
     def test_detail_classifies_movie_only_structure_as_movie(self):
         class MovieCollection:
             are_movies = True
+            episodes = [object()]
 
         class FakeSeries:
             imdb = None
