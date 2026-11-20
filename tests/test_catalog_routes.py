@@ -118,6 +118,68 @@ class CatalogRouteTests(unittest.TestCase):
         self.assertEqual(meta["description"], "MDBList fallback description")
         self.assertEqual(meta["videos"], canonical_meta["videos"])
 
+    def test_meta_route_fetches_mdblist_on_demand_for_core_metadata_gap(self):
+        catalog_db.record_discovery(
+            "series", "tt7654321", "aniworld", "Missing Metadata Show", year=2022
+        )
+        canonical_meta = {
+            "id": "tt7654321",
+            "type": "series",
+            "name": "Missing Metadata Show",
+            "videos": [],
+        }
+        fetched = {
+            "status": "found",
+            "poster_url": "https://mdblist.example/poster.jpg",
+            "description": "MDBList overview",
+            "year": 2022,
+        }
+        with patch.dict(os.environ, {"MDBLIST_API_KEY": "test-key"}), patch(
+            "app.get_series_meta", return_value={"meta": canonical_meta}
+        ), patch("app.find_mdblist_metadata", return_value=fetched) as lookup:
+            first = app.get_meta("series", "tt7654321")
+            second = app.get_meta("series", "tt7654321")
+
+        lookup.assert_called_once()
+        self.assertEqual(first["meta"]["poster"], fetched["poster_url"])
+        self.assertEqual(first["meta"]["description"], fetched["description"])
+        self.assertEqual(second["meta"]["description"], fetched["description"])
+        stored = catalog_db.get_title_metadata("series", "tt7654321")
+        self.assertEqual(stored["metadata"]["mdblist"]["status"], "found")
+
+    def test_meta_route_persists_mdblist_no_match_and_does_not_retry(self):
+        catalog_db.record_discovery(
+            "movie", "tt7654322", "serienstream", "Missing Movie Metadata", year=2021
+        )
+        with patch.dict(os.environ, {"MDBLIST_API_KEY": "test-key"}), patch(
+            "app.get_metadata",
+            return_value={"id": "tt7654322", "type": "movie", "name": "Example"},
+        ), patch(
+            "app.find_mdblist_metadata", side_effect=app.MDBListNotFound("not found")
+        ) as lookup:
+            app.get_meta("movie", "tt7654322")
+            app.get_meta("movie", "tt7654322")
+
+        lookup.assert_called_once()
+        stored = catalog_db.get_title_metadata("movie", "tt7654322")
+        self.assertEqual(stored["metadata"]["mdblist"]["status"], "no_match")
+
+    def test_meta_route_does_not_query_mdblist_when_core_fields_exist(self):
+        canonical_meta = {
+            "id": "tt1234567",
+            "type": "series",
+            "name": "Complete",
+            "poster": "https://example.org/poster.jpg",
+            "description": "Complete description",
+            "releaseInfo": "2020",
+            "videos": [],
+        }
+        with patch.dict(os.environ, {"MDBLIST_API_KEY": "test-key"}), patch(
+            "app.get_series_meta", return_value={"meta": canonical_meta}
+        ), patch("app.find_mdblist_metadata") as lookup:
+            app.get_meta("series", "tt1234567")
+        lookup.assert_not_called()
+
     def test_meta_fallback_preserves_canonical_episode_list(self):
         canonical_meta = {
             "id": "tt7654321",
