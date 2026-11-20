@@ -121,6 +121,15 @@ class AniWorldProvider(BaseProvider):
                     for season in (series.seasons or [])
                     if bool(getattr(season, "are_movies", False))
                 ),
+                "multi_movie_collection": (
+                    bool(series.seasons)
+                    and all(bool(getattr(season, "are_movies", False))
+                            for season in series.seasons)
+                    and sum(
+                        len(list(getattr(season, "episodes", []) or []))
+                        for season in series.seasons
+                    ) > 1
+                ),
                 "provider_structure": _structure_summary(series),
             },
         )
