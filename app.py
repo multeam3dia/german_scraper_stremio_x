@@ -23,7 +23,7 @@ from mdblist_tracking import (
     init_db as init_mdblist_tracking_db,
     scrobble_event as mdblist_scrobble_event,
 )
-from catalog_db import get_catalog_media_types, get_catalog_titles, init_db, list_genres
+from catalog_db import get_catalog_media_types, get_catalog_titles, get_title_metadata, init_db, list_genres
 from playback_events import PlaybackEventError, playback_event_from_payload, stremio_player_event
 from simkl_tracking import (
     SimklError,
@@ -368,6 +368,56 @@ def get_catalog_with_extra(type: str, catalog_id: str, extra: str):
     )
 
 
+def _merge_cached_mdblist_metadata(
+    response: dict, media_type: str, imdb_id: str
+) -> dict:
+    """Fill missing Stremio metadata fields from the local MDBList cache.
+
+    This is a database-only read: Stremio metadata requests never trigger an
+    MDBList API call. Existing TMDB/Cinemeta fields and episode lists win.
+    """
+    meta = response.get("meta") if isinstance(response, dict) else None
+    if not isinstance(meta, dict):
+        return response
+    try:
+        record = get_title_metadata(media_type, imdb_id)
+    except Exception as exc:
+        logger.debug(
+            "Cached MDBList metadata unavailable for %s %s: %s",
+            media_type, imdb_id, type(exc).__name__,
+        )
+        return response
+    metadata = record.get("metadata") if isinstance(record, dict) else {}
+    mdblist = metadata.get("mdblist") if isinstance(metadata, dict) else None
+    if not isinstance(mdblist, dict) or mdblist.get("status") != "found":
+        return response
+
+    for target, source in (
+        ("poster", "poster_url"),
+        ("background", "backdrop_url"),
+        ("description", "description"),
+        ("releaseInfo", "year"),
+        ("imdbRating", "imdb_rating"),
+        ("genres", "genres"),
+    ):
+        value = mdblist.get(source)
+        if not meta.get(target) and value:
+            if target == "imdbRating":
+                try:
+                    value = str(round(float(value), 1))
+                except (TypeError, ValueError):
+                    continue
+            elif target == "releaseInfo":
+                value = str(value)[:4]
+            elif target == "genres" and isinstance(value, list):
+                value = [
+                    str(item.get("name") if isinstance(item, dict) else item)
+                    for item in value if item
+                ]
+            meta[target] = value
+    return response
+
+
 @app.get("/meta/{type}/{id}.json")
 def get_meta(type: str, id: str):
     """Return metadata for legacy IMDb IDs and canonical GSX IDs."""
@@ -405,7 +455,8 @@ def get_meta(type: str, id: str):
     imdb_id = id.split(":", 1)[0]
     if type == "series":
         try:
-            return get_series_meta(imdb_id)
+            response = get_series_meta(imdb_id)
+            return _merge_cached_mdblist_metadata(response, "series", imdb_id)
         except Exception as exc:
             logger.error(
                 "Series metadata request failed for %s: %s: %s",
@@ -415,12 +466,15 @@ def get_meta(type: str, id: str):
             if isinstance(fallback, dict):
                 # Preserve Cinemeta's canonical episodes. A provider catalog or
                 # structure-cache failure must not hide the series episode list.
-                return {"meta": dict(fallback)}
+                return _merge_cached_mdblist_metadata(
+                    {"meta": dict(fallback)}, "series", imdb_id
+                )
             return {"meta": None}
 
     if type == "movie":
         meta = get_metadata("movie", imdb_id)
-        return {"meta": meta} if isinstance(meta, dict) else {"meta": None}
+        response = {"meta": meta} if isinstance(meta, dict) else {"meta": None}
+        return _merge_cached_mdblist_metadata(response, "movie", imdb_id)
 
     return {"meta": None}
 
