@@ -198,7 +198,6 @@ def run_audit(*, limit: int | None = None, pause: float = 0.15) -> dict[str, Any
                 if "HTTP 429" in str(exc):
                     report["results"].append(result)
                     report["aborted_rate_limit"] = True
-                    report["results"].append(result)
                     report["rate_limit"] = dict(latest_headers)
                     return report
 
