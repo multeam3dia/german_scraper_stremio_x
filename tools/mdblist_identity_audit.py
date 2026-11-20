@@ -134,24 +134,34 @@ def _get_json(path: str, params: dict[str, Any], api_key: str) -> tuple[Any, dic
     return payload, headers
 
 
-def _load_fixture() -> dict[str, Any]:
-    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+def _load_fixture(path: Path = FIXTURE) -> dict[str, Any]:
+    fixture = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(fixture.get("entries"), list):
         raise MDBListAuditError("Ground-truth fixture has no entries array")
     return fixture
 
 
-def run_audit(*, limit: int | None = None, pause: float = 0.15) -> dict[str, Any]:
+def run_audit(
+    *,
+    limit: int | None = None,
+    pause: float = 0.15,
+    fixture_path: Path = FIXTURE,
+    media_types: tuple[str, ...] = MEDIA_TYPES,
+) -> dict[str, Any]:
     api_key = os.getenv("MDBLIST_API_KEY", "").strip()
     if not api_key:
         raise MDBListAuditError("MDBLIST_API_KEY is not configured")
-    fixture = _load_fixture()
+    fixture = _load_fixture(fixture_path)
+    selected_types = tuple(kind for kind in media_types if kind in MEDIA_TYPES)
+    if not selected_types:
+        raise MDBListAuditError("At least one valid media type is required")
     entries = fixture["entries"][:limit] if limit else fixture["entries"]
     report: dict[str, Any] = {
         "audit_version": 1,
         "provider": fixture.get("provider"),
         "fixture_source": fixture.get("source"),
         "entries_scanned": len(entries),
+        "media_types": list(selected_types),
         "requests": 0,
         "rate_limit": {},
         "results": [],
@@ -172,7 +182,8 @@ def run_audit(*, limit: int | None = None, pause: float = 0.15) -> dict[str, Any
 
     for entry in entries:
         title = str(entry.get("title") or "")
-        ids = [value for value in entry.get("imdb_ids", []) if IMDB_RE.fullmatch(str(value))]
+        raw_ids = entry.get("imdb_ids") or ([entry["imdb_id"]] if entry.get("imdb_id") else [])
+        ids = [value for value in raw_ids if IMDB_RE.fullmatch(str(value))]
         result: dict[str, Any] = {
             "title": title,
             "expected_imdb_ids": ids,
@@ -180,7 +191,7 @@ def run_audit(*, limit: int | None = None, pause: float = 0.15) -> dict[str, Any
             "search": {},
             "exact_lookup": {},
         }
-        for media_type in MEDIA_TYPES:
+        for media_type in selected_types:
             try:
                 payload = request(f"/search/{media_type}", {"query": title, "limit": 20})
                 rows = _candidate_rows(payload)
@@ -208,7 +219,7 @@ def run_audit(*, limit: int | None = None, pause: float = 0.15) -> dict[str, Any
 
         for imdb_id in ids:
             result["exact_lookup"][imdb_id] = {}
-            for media_type in MEDIA_TYPES:
+            for media_type in selected_types:
                 try:
                     payload = request(f"/imdb/{media_type}/{quote(str(imdb_id), safe='')}/", {})
                     rows = _candidate_rows(payload)
@@ -272,11 +283,21 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only MDBList identity/metadata coverage audit")
     parser.add_argument("--limit", type=int, default=None, help="Audit only the first N fixture entries")
+    parser.add_argument("--fixture", type=Path, default=FIXTURE, help="Path to an identity fixture JSON file")
+    parser.add_argument(
+        "--media-types", nargs="+", choices=MEDIA_TYPES, default=list(MEDIA_TYPES),
+        help="MDBList media types to query (use only 'show' for a series-only fixture)",
+    )
     parser.add_argument("--pause", type=float, default=0.15, help="Delay between API calls in seconds")
     parser.add_argument("--output", default="data/mdblist_identity_audit.json")
     args = parser.parse_args()
     try:
-        report = run_audit(limit=args.limit, pause=max(0.0, args.pause))
+        report = run_audit(
+            limit=args.limit,
+            pause=max(0.0, args.pause),
+            fixture_path=args.fixture,
+            media_types=tuple(args.media_types),
+        )
     except MDBListAuditError as exc:
         raise SystemExit(str(exc)) from None
     output = Path(args.output)
