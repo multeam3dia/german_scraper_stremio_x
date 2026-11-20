@@ -54,7 +54,7 @@ def similarity(left: str, right: str) -> float:
 def _field_paths(value: Any, prefix: str = "", depth: int = 0) -> set[str]:
     """Collect response field names without retaining personal/account data."""
     paths: set[str] = set()
-    if depth >= 4:
+    if depth >= 8:
         return paths
     if isinstance(value, dict):
         for key, child in value.items():
