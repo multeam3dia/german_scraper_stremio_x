@@ -173,11 +173,13 @@ genres, or the IMDb identity. MDBList results are cached in SQLite for seven
 days by default; use `--force` to refresh them early or `--cache-days N` to
 change the cache lifetime.
 
-The Stremio catalog continues to prefer TMDB artwork, descriptions, years and
-genres. An IMDb rating from MDBList is used only when no IMDb rating is already
-available. MDBList's season summaries are not a replacement for TMDB or
-Cinemeta's complete episode metadata. This optional job reuses
-`MDBLIST_API_KEY`; without the key it exits without affecting the catalog.
+The Stremio catalog and IMDb metadata route continue to prefer TMDB/Cinemeta
+artwork, descriptions, years, genres and episode lists. Cached MDBList data
+fills missing artwork, descriptions, years, genres and IMDb ratings only; it
+never replaces existing metadata or episodes. MDBList's season summaries are
+not a replacement for TMDB or Cinemeta's complete episode metadata. This
+optional job reuses `MDBLIST_API_KEY`; without the key it exits without
+affecting the catalog or playback.
 
 The crawler and enrichment commands are currently run manually inside the
 application container. A scheduled crawl, availability reconciliation, and
