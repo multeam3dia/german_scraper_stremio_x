@@ -72,7 +72,10 @@ class CatalogDatabaseTests(unittest.TestCase):
         )
 
         results = catalog_db.get_catalog_titles("series", search="Naruto")
-        self.assertEqual([item["title"] for item in results], ["Naruto Shippuden"])
+        self.assertEqual(
+            [item["title"] for item in results],
+            ["Naruto Shippuden", "D4DJ First Mix"],
+        )
 
     def test_playback_only_discoveries_do_not_activate_or_export_catalog_titles(self):
         catalog_db.record_discovery(
