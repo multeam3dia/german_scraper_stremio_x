@@ -202,9 +202,20 @@ def _title_similarity(
     return _best_title_match(provider_title, item, media_type)[0]
 
 
-def _search_query_variants(provider_title: str) -> list[str]:
-    """Build a small, conservative set of TMDB search queries."""
+def _search_query_variants(
+    provider_title: str, alternative_titles: list[str] | None = None,
+) -> list[str]:
+    """Build bounded TMDB queries from provider, cleaned and original titles."""
     candidates = [provider_title]
+    # AniWorld format labels are often appended to the actual work title.
+    # Keep the full title first, then try a conservative base-title variant.
+    without_format_suffix = re.sub(
+        r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
+        r"short\s+animation|special\s+episode|special|ova)$",
+        "", provider_title, flags=re.IGNORECASE,
+    ).strip()
+    if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
+        candidates.append(without_format_suffix)
     punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
     punctuation_light = " ".join(punctuation_light.split())
     if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
@@ -215,7 +226,11 @@ def _search_query_variants(provider_title: str) -> list[str]:
         _normalize(value) for value in candidates
     }:
         candidates.append(without_parenthetical)
-    return candidates[:3]
+    for alias in alternative_titles or []:
+        alias = str(alias or "").strip()
+        if alias and _normalize(alias) not in {_normalize(value) for value in candidates}:
+            candidates.append(alias)
+    return candidates[:7]
 
 
 def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
@@ -231,6 +246,26 @@ def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
                 if value:
                     values.append(str(value))
     return list(dict.fromkeys(values))
+
+
+def _best_provider_title_match(
+    provider_title: str, alternative_titles: list[str], item: dict[str, Any],
+    media_type: str,
+) -> tuple[float, str | None]:
+    """Compare a TMDB candidate against the main title and provider aliases."""
+    titles = [provider_title]
+    titles.extend(str(value) for value in alternative_titles if str(value or "").strip())
+    matches = [_best_title_match(title, item, media_type) for title in titles]
+    return max(matches, key=lambda result: result[0], default=(0.0, None))
+
+
+def _provider_title_similarity(
+    provider_title: str, alternative_titles: list[str], item: dict[str, Any],
+    media_type: str,
+) -> float:
+    return _best_provider_title_match(
+        provider_title, alternative_titles, item, media_type
+    )[0]
 
 
 def _normalize_genre(value: Any) -> str:
@@ -580,6 +615,11 @@ def find_tmdb_match(
         return {"status": "no_match", "reason": "Provider title is empty"}
     provider_year = _coerce_year(record.get("year"))
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    provider_aliases = metadata.get("alternative_titles")
+    provider_aliases = (
+        [str(value).strip() for value in provider_aliases if str(value).strip()]
+        if isinstance(provider_aliases, list) else []
+    )
     provider_genres = metadata.get("provider_genres")
     if not isinstance(provider_genres, list):
         provider_genres = []
@@ -606,7 +646,7 @@ def find_tmdb_match(
     # Try the original spelling and at most two conservative query variants.
     # Keep the result language stable; only fall back to English if the German
     # searches return no candidates at all.
-    query_variants = _search_query_variants(provider_title)
+    query_variants = _search_query_variants(provider_title, provider_aliases)
     languages = ["de-DE"]
     try:
         for query in query_variants:
@@ -635,7 +675,7 @@ def find_tmdb_match(
         # also search in English instead of treating any result as a successful
         # search. This is especially important for international anime titles.
         best_german_score = max(
-            (_title_similarity(provider_title, item, media_type)
+            (_provider_title_similarity(provider_title, provider_aliases, item, media_type)
              for item in list(raw_candidates.values()) + anonymous_candidates),
             default=0.0,
         )
@@ -678,14 +718,14 @@ def find_tmdb_match(
     # alternative titles for a bounded shortlist before rejecting candidates.
     preliminary = sorted(
         all_candidates,
-        key=lambda item: _title_similarity(provider_title, item, media_type),
+        key=lambda item: _provider_title_similarity(provider_title, provider_aliases, item, media_type),
         reverse=True,
     )
     for item in preliminary[:10]:
         tmdb_id = item.get("id")
         if type(tmdb_id) is not int or tmdb_id <= 0:
             continue
-        if _title_similarity(provider_title, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
+        if _provider_title_similarity(provider_title, provider_aliases, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
             continue
         try:
             aliases_payload = search_fn(
@@ -710,8 +750,8 @@ def find_tmdb_match(
     provider_description = str(record.get("description") or metadata.get("description") or "").strip()
     structure_scores: dict[int, dict[str, Any]] = {}
     description_scores: dict[int, float | None] = {}
-    best_preliminary_title = _title_similarity(provider_title, preliminary[0], media_type) if preliminary else 0.0
-    second_preliminary_title = _title_similarity(provider_title, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
+    best_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[0], media_type) if preliminary else 0.0
+    second_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
     uncertain_shortlist = (
         best_preliminary_title < 0.99
         or (len(preliminary) > 1 and best_preliminary_title - second_preliminary_title < 0.08)
@@ -751,7 +791,7 @@ def find_tmdb_match(
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
     rejected_diagnostics = []
     for item in preliminary[:10]:
-        title_score, matched_title = _best_title_match(provider_title, item, media_type)
+        title_score, matched_title = _best_provider_title_match(provider_title, provider_aliases, item, media_type)
         independent_signals = corroboration_values(item)
         strong_signal_count = len([value for value in independent_signals if value >= 0.85])
         strong_metadata = (
@@ -765,6 +805,14 @@ def find_tmdb_match(
         suffix_variant = suffix_score >= 0.99
         candidate_year = _year_from_result(item, media_type)
         exact_year = provider_year is not None and candidate_year == provider_year
+        # A reliable exact year plus one strong independent credit/company
+        # match may rescue a translated or slightly different title. This is
+        # deliberately stricter than year-only matching and still requires
+        # the global runner-up margin below.
+        year_supported = (
+            exact_year and title_score >= 0.70
+            and any(value >= 0.85 for value in independent_signals)
+        )
         # A trailing format label is weaker evidence than a title match. Accept
         # it only when the year agrees and at least one independent metadata
         # signal corroborates it, or when two independent metadata signals do.
@@ -785,7 +833,7 @@ def find_tmdb_match(
                 "rejection": "provider_tmdb_episode_structure_mismatch",
             })
             continue
-        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported:
+        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported and not year_supported:
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
@@ -811,10 +859,13 @@ def find_tmdb_match(
             })
             continue
 
-        base_score = _candidate_score(
-            provider_title, provider_year, item, media_type, provider_genres, genre_map
+        base_score = max(
+            _candidate_score(
+                provider_title, provider_year, item, media_type, provider_genres, genre_map
+            ),
+            title_score,
         )
-        if (strong_metadata or suffix_supported) and (
+        if (strong_metadata or suffix_supported or year_supported) and (
             title_score < MIN_TITLE_SCORE_WITH_YEAR or suffix_supported
         ):
             # Metadata-rescued and format-suffix candidates must clear a high
@@ -1000,7 +1051,7 @@ def find_tmdb_match(
                       "tmdb": (item.get("name") if media_type == "series" else item.get("title")) or "",
                       "status": "match" if item_title_score == 1.0 else "partial_match",
                       "score": item_title_score,
-                      "matched_variant": _best_title_match(provider_title, item, media_type)[1]},
+                      "matched_variant": _best_provider_title_match(provider_title, provider_aliases, item, media_type)[1]},
             "original_title": (item.get("original_name") if media_type == "series" else item.get("original_title")),
             "alternative_titles": item.get("_alternative_titles") or [],
             "matched_queries": item.get("_matched_queries") or [],
