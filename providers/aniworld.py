@@ -15,10 +15,22 @@ def _structure_summary(series: AniworldSeries) -> dict:
     seasons = []
     for season in series.seasons or []:
         episodes = list(getattr(season, "episodes", []) or [])
+        episode_rows = []
+        for episode in episodes:
+            episode_rows.append({
+                "episode_number": int(getattr(episode, "episode_number", 0) or 0),
+                # Use only titles parsed from the season page; never trigger
+                # individual episode-page requests during catalog identity checks.
+                "title": getattr(episode, "_AniworldEpisode__title_de", None) or None,
+                "title_original": getattr(episode, "_AniworldEpisode__title_en", None) or None,
+                "is_movie": bool(getattr(episode, "is_movie", False)
+                                 or getattr(season, "are_movies", False)),
+            })
         seasons.append({
             "season_number": int(getattr(season, "season_number", 0) or 0),
             "episode_count": len(episodes),
             "is_movie_collection": bool(getattr(season, "are_movies", False)),
+            "episodes": episode_rows,
         })
     return {
         "season_count": len(seasons),
@@ -90,6 +102,7 @@ class AniWorldProvider(BaseProvider):
             provider_genres=[str(value) for value in (series.genres or [])],
             metadata={
                 "release_year": series.release_year,
+                "alternative_titles": list(getattr(series, "alternative_titles", []) or []),
                 "country": series.country,
                 "age_rating": series.age_rating,
                 "rating": series.rating,
