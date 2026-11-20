@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "source": "User-verified IMDb identities supplied 2026-11-20",
+  "provider": "aniworld",
+  "entries": [
+    {
+      "title": "Yuri Is My Job!",
+      "provider_url": "https://aniworld.to/anime/stream/yuri-is-my-job",
+      "imdb_ids": [
+        "tt20234560"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Yu-Gi-Oh! Zero",
+      "provider_url": "https://aniworld.to/anime/stream/yu-gi-oh-zero",
+      "imdb_ids": [
+        "tt4834194"
+      ],
+      "verified": true,
+      "note": "Episode structure should corroborate the identity"
+    },
+    {
+      "title": "With a Dog and a Cat, Every Day is Fun",
+      "provider_url": "https://aniworld.to/anime/stream/with-a-dog-and-a-cat-every-day-is-fun",
+      "imdb_ids": [
+        "tt13041826"
+      ],
+      "verified": true
+    },
+    {
+      "title": "TwoCar",
+      "provider_url": "https://aniworld.to/anime/stream/twocar",
+      "imdb_ids": [
+        "tt7545002"
+      ],
+      "verified": true
+    },
+    {
+      "title": "The Witch and the Beast",
+      "provider_url": "https://aniworld.to/anime/stream/the-witch-and-the-beast",
+      "imdb_ids": [
+        "tt30089363"
+      ],
+      "verified": true
+    },
+    {
+      "title": "The Tale of the Outcasts",
+      "provider_url": "https://aniworld.to/anime/stream/the-tale-of-outcasts",
+      "imdb_ids": [
+        "tt25814162"
+      ],
+      "verified": true,
+      "note": "Episode titles should help distinguish the match"
+    },
+    {
+      "title": "The Space Between (2012)",
+      "provider_url": "https://aniworld.to/anime/stream/the-space-between-2012",
+      "imdb_ids": [
+        "tt6096648"
+      ],
+      "verified": true,
+      "note": "Japanese original title helped identify the correct 2012 entry"
+    },
+    {
+      "title": "The Space Between (1992)",
+      "provider_url": "https://aniworld.to/anime/stream/the-space-between-1992",
+      "imdb_ids": [
+        "tt14113288"
+      ],
+      "verified": true,
+      "note": "Exact year and episode structure corroborate the 1992 entry"
+    },
+    {
+      "title": "The Legend of Heroes: Trails in the Sky",
+      "provider_url": "https://aniworld.to/anime/stream/the-legend-of-heroes-trails-in-the-sky",
+      "imdb_ids": [
+        "tt15070970"
+      ],
+      "verified": true,
+      "note": "AniWorld merged episodes 1 and 2 into one longer episode"
+    },
+    {
+      "title": "The Disappearance of Nagato Yuki-Chan",
+      "provider_url": "https://aniworld.to/anime/stream/the-disappearance-of-nagato-yuki-chan",
+      "imdb_ids": [
+        "tt4292186"
+      ],
+      "verified": true,
+      "note": "Candidate should have been obvious"
+    },
+    {
+      "title": "Run for Money: The Great Mission",
+      "provider_url": "https://aniworld.to/anime/stream/run-for-money-the-great-mission",
+      "imdb_ids": [
+        "tt32245532"
+      ],
+      "verified": true,
+      "note": "User found it difficult to identify"
+    },
+    {
+      "title": "Reikenzan: Hoshikuzu-tachi no Utage",
+      "provider_url": "https://aniworld.to/anime/stream/reikenzan-hoshikuzu-tachi-no-utage",
+      "imdb_ids": [
+        "tt5330582"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Re:ZERO - Starting Break Time From Zero",
+      "provider_url": "https://aniworld.to/anime/stream/rezero-starting-break-time-from-zero",
+      "imdb_ids": [
+        "tt45912588"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Persona 3: The Movie",
+      "provider_url": "https://aniworld.to/anime/stream/persona-3-the-movie",
+      "imdb_ids": [
+        "tt3198652",
+        "tt3898504",
+        "tt4331400",
+        "tt5463052"
+      ],
+      "verified": true,
+      "note": "Four separate AniWorld film parts, each has its own IMDb identity; do not merge into one title"
+    },
+    {
+      "title": "Outburst Dreamer Boys",
+      "provider_url": "https://aniworld.to/anime/stream/outburst-dreamer-boys",
+      "imdb_ids": [
+        "tt11033998"
+      ],
+      "verified": true,
+      "note": "Direct title search found the identity"
+    },
+    {
+      "title": "Miss Kobayashi's Dragon Maid S Short Animation Series",
+      "provider_url": "https://aniworld.to/anime/stream/miss-kobayashis-dragon-maid-s-short-animation-series",
+      "imdb_ids": [
+        "tt15410586"
+      ],
+      "verified": true,
+      "note": "Only the first episode is confirmed by the user"
+    },
+    {
+      "title": "Mirai",
+      "provider_url": "https://aniworld.to/anime/stream/mirai",
+      "imdb_ids": [
+        "tt6900448"
+      ],
+      "verified": true,
+      "note": "Film; year, director and other metadata match"
+    },
+    {
+      "title": "Loveless: SD Theatre",
+      "provider_url": "https://aniworld.to/anime/stream/loveless-sd-theatre",
+      "imdb_ids": [
+        "tt0816393"
+      ],
+      "verified": true,
+      "note": "The SD Theatre suffix obscures the base title"
+    },
+    {
+      "title": "Les Miserables: Shoujo Cossette",
+      "provider_url": "https://aniworld.to/anime/stream/les-miserables-shoujo-cossette",
+      "imdb_ids": [
+        "tt1203269"
+      ],
+      "verified": true,
+      "note": "Title can be matched unambiguously"
+    },
+    {
+      "title": "Kawagoe Boys Sing",
+      "provider_url": "https://aniworld.to/anime/stream/kawagoe-boys-sing",
+      "imdb_ids": [
+        "tt29908328"
+      ],
+      "verified": true,
+      "note": "Exact title match"
+    },
+    {
+      "title": "Kanon (2006)",
+      "provider_url": "https://aniworld.to/anime/stream/kanon-2006",
+      "imdb_ids": [
+        "tt0928093"
+      ],
+      "verified": true,
+      "note": "Year distinguishes this from the 2002 adaptation"
+    },
+    {
+      "title": "Kanon (2002)",
+      "provider_url": "https://aniworld.to/anime/stream/kanon-2002",
+      "imdb_ids": [
+        "tt1223625"
+      ],
+      "verified": true,
+      "note": "Year distinguishes this from the 2006 adaptation"
+    },
+    {
+      "title": "Hula Fulla Dance",
+      "provider_url": "https://aniworld.to/anime/stream/hula-fulla-dance",
+      "imdb_ids": [
+        "tt13409496"
+      ],
+      "verified": true,
+      "note": "Exact title match"
+    },
+    {
+      "title": "He is my Master",
+      "provider_url": "https://aniworld.to/anime/stream/he-is-my-master",
+      "imdb_ids": [
+        "tt0991051"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Harmonie",
+      "provider_url": "https://aniworld.to/anime/stream/harmonie",
+      "imdb_ids": [
+        "tt3665930"
+      ],
+      "verified": true,
+      "note": "Title and year match"
+    },
+    {
+      "title": "Fool Night",
+      "provider_url": "https://aniworld.to/anime/stream/fool-night",
+      "imdb_ids": [
+        "tt43613803"
+      ],
+      "verified": true,
+      "note": "Title and year match"
+    },
+    {
+      "title": "Flavors of Youth: Love in Shanghai",
+      "provider_url": "https://aniworld.to/anime/stream/flavors-of-youth-love-in-shanghai",
+      "imdb_ids": [
+        "tt8176578"
+      ],
+      "verified": true,
+      "note": "Synopsis, year and title context match despite title variation"
+    },
+    {
+      "title": "Detektei Layton",
+      "provider_url": "https://aniworld.to/anime/stream/detektei-layton",
+      "imdb_ids": [
+        "tt9532342"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Demon Spirit Seed Manual",
+      "provider_url": "https://aniworld.to/anime/stream/demon-spirit-seed-manual",
+      "imdb_ids": [
+        "tt17056176"
+      ],
+      "verified": true
+    },
+    {
+      "title": "Cardcaptors",
+      "provider_url": "https://aniworld.to/anime/stream/cardcaptors",
+      "imdb_ids": [
+        "tt0221735"
+      ],
+      "verified": true,
+      "note": "Special case: user notes multiple IMDb titles may be merged; retain manual-review policy despite this reference"
+    },
+    {
+      "title": "Baggy",
+      "provider_url": "https://aniworld.to/anime/stream/baggy",
+      "imdb_ids": [
+        "tt0497532"
+      ],
+      "verified": true,
+      "note": "Film, not series; title and year match"
+    },
+    {
+      "title": "Bagel Girl",
+      "provider_url": "https://aniworld.to/anime/stream/bagel-girl",
+      "imdb_ids": [
+        "tt19390124"
+      ],
+      "verified": true,
+      "note": "Title and year match"
+    },
+    {
+      "title": "Ane Log: Big Sister Moyako’s Never-ending Monologue",
+      "provider_url": "https://aniworld.to/anime/stream/ane-log-big-sister-moyakos-never-ending-monologue",
+      "imdb_ids": [
+        "tt6548016"
+      ],
+      "verified": true,
+      "note": "Found via the shorter alias 'Ane Log'"
+    },
+    {
+      "title": "Adventures of Maya the Honeybee",
+      "provider_url": "https://aniworld.to/anime/stream/adventures-of-maya-the-honeybee",
+      "imdb_ids": [
+        "tt0133295"
+      ],
+      "verified": true,
+      "note": "Start year and 104 total episodes match"
+    }
+  ]
+}
