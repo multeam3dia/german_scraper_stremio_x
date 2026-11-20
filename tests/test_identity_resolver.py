@@ -1328,5 +1328,30 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["imdb_id"], "tt4834194")
 
 
+    def test_multi_movie_aniworld_collection_is_not_assigned_one_identity(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Persona 3: The Movie", "year": 2013,
+                "metadata": {
+                    "multi_movie_collection": True,
+                    "movie_collection_count": 4,
+                    "provider_structure": {"complete": True, "episode_count": 4},
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertTrue(result["multi_movie_collection"])
+        self.assertIn("multiple independent film parts", result["reason"])
+        self.assertEqual(calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()
