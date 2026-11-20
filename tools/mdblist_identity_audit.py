@@ -170,8 +170,9 @@ def run_audit(
     latest_headers: dict[str, str] = {}
 
     def request(path: str, params: dict[str, Any]) -> Any:
-        payload, headers = _get_json(path, params, api_key)
+        # Count attempts, including 404/429/5xx responses, for honest API-budget reporting.
         report["requests"] += 1
+        payload, headers = _get_json(path, params, api_key)
         for name in ("x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset"):
             if name in headers:
                 latest_headers[name] = headers[name]
