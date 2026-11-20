@@ -1001,6 +1001,34 @@ def update_title_metadata(
     return True
 
 
+
+def get_title_metadata(media_type: str, imdb_id: str) -> dict[str, Any] | None:
+    """Read cached metadata for one already-verified IMDb title."""
+    if media_type not in MEDIA_TYPES:
+        return None
+    imdb_id = str(imdb_id or "").strip()
+    if not IMDB_ID_RE.fullmatch(imdb_id):
+        return None
+    with _connect() as db:
+        row = db.execute(
+            "SELECT title, year, metadata_json FROM titles WHERE media_type=? AND imdb_id=?",
+            (media_type, imdb_id),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        metadata = json.loads(row["metadata_json"] or "{}")
+    except (TypeError, json.JSONDecodeError):
+        metadata = {}
+    return {
+        "media_type": media_type,
+        "imdb_id": imdb_id,
+        "title": row["title"],
+        "year": row["year"],
+        "metadata": metadata if isinstance(metadata, dict) else {},
+    }
+
+
 def get_genre_catalog(media_type: str, genre_slug: str) -> list[dict[str, Any]]:
     """Return active titles for one genre, ready for Stremio catalog mapping."""
     if media_type not in MEDIA_TYPES:
