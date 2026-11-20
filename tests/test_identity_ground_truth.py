@@ -16,10 +16,10 @@ class AniWorldIdentityGroundTruthTests(unittest.TestCase):
         self.assertTrue(all(entry["verified"] for entry in entries))
         self.assertEqual(len({entry["provider_url"] for entry in entries}), 34)
         for entry in entries:
-            self.assertTrue(re.fullmatch(r"https://aniworld\\.to/anime/stream/[a-z0-9-]+", entry["provider_url"]))
+            self.assertTrue(re.fullmatch(r"https://aniworld\.to/anime/stream/[a-z0-9-]+", entry["provider_url"]))
             self.assertTrue(entry["imdb_ids"])
             for imdb_id in entry["imdb_ids"]:
-                self.assertRegex(imdb_id, r"^tt\\d{7,10}$")
+                self.assertRegex(imdb_id, r"^tt\d{7,10}$")
 
     def test_persona_3_collection_keeps_four_distinct_film_identities(self):
         fixture = json.loads(
