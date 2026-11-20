@@ -746,6 +746,21 @@ def find_tmdb_match(
     if not isinstance(provider_genres, list):
         provider_genres = []
     provider = str(record.get("provider") or "")
+    if provider == "aniworld" and metadata.get("multi_movie_collection"):
+        return {
+            "status": "ambiguous",
+            "reason": (
+                "The AniWorld page contains multiple independent film parts; "
+                "one page-level IMDb identity would incorrectly merge them"
+            ),
+            "multi_movie_collection": True,
+            "diagnostics": {
+                "provider_title": provider_title,
+                "provider_year": provider_year,
+                "provider_structure": metadata.get("provider_structure"),
+                "movie_collection_count": metadata.get("movie_collection_count"),
+            },
+        }
     if provider_genres and genre_map is None:
         genre_endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
         try:
