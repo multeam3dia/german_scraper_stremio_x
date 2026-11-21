@@ -303,5 +303,65 @@
       "verified": true,
       "note": "Start year and 104 total episodes match"
     }
-  ]
+  ],
+  "user_audit": {
+    "source": "User-provided audit results, 2026-11-21",
+    "confirmed_matches": [
+      {
+        "provider_title": "Zakuro",
+        "candidate_title": "Otome Yokai Zakuro",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Heidi: Girl of the Alps",
+        "imdb_id": "tt0070968",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Monthly Girls' Nozaki-kun",
+        "imdb_id": "tt3615002",
+        "decision": "corrected_match",
+        "note": "Reject prior TMDB candidate 开画！少女漫 (2025); user supplied IMDb identity."
+      },
+      {
+        "provider_title": "Animal Crossing",
+        "imdb_id": "tt1190545",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Knight Hunters",
+        "imdb_id": "tt0192943",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Kiki’s Delivery Service",
+        "imdb_id": "tt0097814",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "A Condition Called Love",
+        "imdb_id": "tt29899598",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Inu × Boku Secret Service",
+        "imdb_id": "tt2196757",
+        "decision": "confirmed_match"
+      },
+      {
+        "provider_title": "Kiss Him, Not Me!",
+        "imdb_id": "tt5879454",
+        "decision": "confirmed_match"
+      }
+    ],
+    "rejected_candidates": [
+      {
+        "provider_title": "Musasi-no",
+        "rejected_candidate_title": "Urawa no Usagi-chan",
+        "reference_url": "https://www.primevideo.com/detail/0LGOX9HFDYTB3BJZDXGALS4ELR",
+        "decision": "rejected_match",
+        "note": "User indicates candidate appears incorrect; do not automatically link."
+      }
+    ]
+  }
 }
