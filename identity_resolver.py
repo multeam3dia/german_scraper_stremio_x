@@ -546,6 +546,15 @@ def _metadata_signal_scores(
     # AniWorld's 'producer' field is a production studio/company. On
     # SerienStream the same label refers to people, so do not compare it here.
     studio = metadata.get("producer") if provider == "aniworld" else None
+    country = metadata.get("country")
+    # AniWorld occasionally puts a country label into the studio field.
+    # Treat an exact country/studio duplicate as missing studio metadata so it
+    # cannot create a false corroboration mismatch.
+    if (
+        isinstance(studio, str) and isinstance(country, str)
+        and _normalize_company(studio) == _normalize_company(country)
+    ):
+        studio = None
     studios = [studio] if isinstance(studio, str) and studio.strip() else []
 
     scores: dict[str, float | None] = {
