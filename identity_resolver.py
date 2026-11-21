@@ -1358,10 +1358,6 @@ def find_tmdb_match(
         "studio_score": scores_for(best).get("studio_score"),
         "metadata_score": best_metadata_score,
     }
-    if identical_title_year_tie:
-        return {"status": "ambiguous",
-                "reason": "Identical candidate titles require independent metadata beyond year",
-                "diagnostics": diagnostics, **candidate}
     if best_score < MIN_CONFIDENCE:
         return {"status": "ambiguous", "reason": "Best candidate is below confidence threshold",
                 "diagnostics": diagnostics, **candidate}
