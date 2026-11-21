@@ -543,9 +543,16 @@ def _metadata_signal_scores(
     actors = metadata.get("actors")
     actors = actors if isinstance(actors, list) else []
 
-    # AniWorld's 'producer' field is a production studio/company. On
-    # SerienStream the same label refers to people, so do not compare it here.
+    # AniWorld sometimes mislabels production companies as actors (e.g. the
+    # studio name is copied into the actor list). Remove exact company duplicates
+    # from actor evidence; the studio signal is evaluated separately.
     studio = metadata.get("producer") if provider == "aniworld" else None
+    if isinstance(studio, str) and studio.strip():
+        actors = [
+            actor for actor in actors
+            if not isinstance(actor, str)
+            or _normalize_company(actor) != _normalize_company(studio)
+        ]
     country = metadata.get("country")
     # AniWorld occasionally puts a country label into the studio field.
     # Treat an exact country/studio duplicate as missing studio metadata so it
