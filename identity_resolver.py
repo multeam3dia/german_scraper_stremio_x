@@ -260,7 +260,7 @@ def _best_provider_title_match(
     # raw strings penalizes an otherwise exact title match, so remove only a
     # terminal four-digit year in parentheses before title scoring.
     title_for_match = re.sub(
-        r"\s*[（(](?:19|20)\d{2}[）)]\s*$, "", provider_title
+        r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
     ).strip()
     titles = [title_for_match or provider_title]
     titles.extend(str(value) for value in alternative_titles if str(value or "").strip())
