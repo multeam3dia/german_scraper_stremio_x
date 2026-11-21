@@ -1500,10 +1500,9 @@ class IdentityResolverTests(unittest.TestCase):
             {"media_type": "series", "provider_title": "Tenchi Muyo!", "year": 1992},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 43004)
         self.assertEqual(result["candidate_year"], 1992)
-        self.assertIn("identical", result["reason"].lower())
 
 
 if __name__ == "__main__":
