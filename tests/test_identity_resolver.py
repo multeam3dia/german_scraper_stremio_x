@@ -44,6 +44,20 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNone(scores["studio_score"])
         self.assertEqual(scores["country_score"], 1.0)
 
+    def test_aniworld_company_mislabeled_as_actor_is_ignored(self):
+        def fake_get(path, params):
+            if path == "/tv/123/credits":
+                return {"cast": [{"name": "Real Actor"}], "crew": []}
+            return {}
+
+        scores = _metadata_signal_scores(
+            {"id": 123}, "series",
+            {"actors": ["Toei Animation"], "producer": "Toei Animation"},
+            "aniworld", fake_get,
+        )
+        self.assertIsNone(scores["actor_score"])
+        self.assertEqual(scores["studio_score"], 1.0)
+
     def test_exact_title_and_year_returns_imdb_match(self):
         def fake_get(path, params):
             if path == "/search/tv":
