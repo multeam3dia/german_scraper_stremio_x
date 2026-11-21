@@ -1450,13 +1450,13 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
-    def test_tenchi_muyo_exact_year_breaks_same_title_candidate_tie(self):
+    def test_tenchi_muyo_exact_year_breaks_identical_title_tie(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
-                    {"id": 43004, "name": "Tenchi Muyo!", "original_name": "天地無用!",
+                    {"id": 43004, "name": "Tenchi Muyo!", "original_name": "Tenchi Muyo!",
                      "first_air_date": "1992-04-02"},
-                    {"id": 20451, "name": "Tenchi Universe", "original_name": "天地無用! 銀河戦争",
+                    {"id": 20451, "name": "Tenchi Muyo!", "original_name": "Tenchi Muyo!",
                      "first_air_date": "1995-04-02"},
                 ]}
             if path == "/tv/43004/external_ids":
