@@ -265,7 +265,13 @@ def _best_provider_title_match(
     titles = [title_for_match or provider_title]
     titles.extend(str(value) for value in alternative_titles if str(value or "").strip())
     matches = [_best_title_match(title, item, media_type) for title in titles]
-    return max(matches, key=lambda result: result[0], default=(0.0, None))
+    # On equal scores, prefer provider-supplied aliases over the cleaned display
+    # title so the diagnostic records the strongest exact variant (e.g. Japanese).
+    return max(
+        enumerate(matches),
+        key=lambda pair: (pair[1][0], pair[0] > 0),
+        default=(0, (0.0, None)),
+    )[1]
 
 
 def _provider_title_similarity(
