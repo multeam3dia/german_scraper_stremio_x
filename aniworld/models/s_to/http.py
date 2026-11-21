@@ -61,6 +61,10 @@ def sto_get(url, session=None, timeout=10, **kwargs):
             _active_idx = idx
             return resp
         except Exception as exc:
+            # A crawl guard block is a hard stop: do not try another mirror,
+            # because that would turn a block signal into more requests.
+            if getattr(exc, "crawl_blocked", False):
+                raise
             last_err = exc
 
     # Last resort: the raw IP with a Host header.
