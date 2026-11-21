@@ -48,6 +48,8 @@ class IdentityResolverTests(unittest.TestCase):
         def fake_get(path, params):
             if path == "/tv/123/credits":
                 return {"cast": [{"name": "Real Actor"}], "crew": []}
+            if path == "/tv/123":
+                return {"production_companies": [{"name": "Toei Animation"}]}
             return {}
 
         scores = _metadata_signal_scores(
