@@ -8,7 +8,7 @@ import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
-    _episode_title_similarity,
+    _episode_title_similarity, _metadata_signal_scores,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -26,6 +26,23 @@ class IdentityResolverTests(unittest.TestCase):
         else:
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
+
+    def test_aniworld_country_mislabeled_as_studio_is_ignored(self):
+        def fake_get(path, params):
+            if path == "/tv/123":
+                return {
+                    "production_companies": [{"name": "Studio X"}],
+                    "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}],
+                }
+            return {}
+
+        scores = _metadata_signal_scores(
+            {"id": 123}, "series",
+            {"producer": "Japan", "country": "Japan"},
+            "aniworld", fake_get,
+        )
+        self.assertIsNone(scores["studio_score"])
+        self.assertEqual(scores["country_score"], 1.0)
 
     def test_exact_title_and_year_returns_imdb_match(self):
         def fake_get(path, params):
