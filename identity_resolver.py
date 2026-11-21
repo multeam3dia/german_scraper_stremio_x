@@ -1283,41 +1283,6 @@ def find_tmdb_match(
     # adjusted_score already includes the bounded metadata tie-breaker.
     # Do not add metadata or genre a second time to the candidate margin.
     best_metadata_score = corroboration_score(best)
-    # Identical canonical titles can represent separate adaptations/seasons.
-    # When the only meaningful discriminator is the provider year, keep the
-    # identity unresolved until independent metadata or structure corroborates it.
-    identical_title_year_tie = False
-    if len(candidates) > 1:
-        first_title = _normalize(
-            (best.get("name") if media_type == "series" else best.get("title")) or ""
-        )
-        second = candidates[1][1]
-        second_title = _normalize(
-            (second.get("name") if media_type == "series" else second.get("title")) or ""
-        )
-        second_exact = candidates[1][2] == 1.0
-        best_exact = title_score == 1.0
-        best_structure = structure_scores.get(best.get("id"), {})
-        second_structure = structure_scores.get(second.get("id"), {})
-        independent_support = (
-            (best_metadata_score is not None and best_metadata_score >= 0.85)
-            or float(best_structure.get("score") or 0) >= 0.95
-            or float(best_structure.get("episode_title_score") or 0) >= 0.70
-        )
-        independent_runner_support = (
-            (corroboration_score(second) is not None and corroboration_score(second) >= 0.85)
-            or float(second_structure.get("score") or 0) >= 0.95
-            or float(second_structure.get("episode_title_score") or 0) >= 0.70
-        )
-        identical_title_year_tie = (
-            first_title and first_title == second_title
-            and best_exact and second_exact
-            and provider_year is not None
-            and candidate_year is not None
-            and _year_from_result(second, media_type) != provider_year
-            and not independent_support
-            and not independent_runner_support
-        )
     margin = round(margin, 4)
     candidate_diagnostics = []
     for _, item, item_title_score, item_year, item_genre_score in candidates[:10]:
