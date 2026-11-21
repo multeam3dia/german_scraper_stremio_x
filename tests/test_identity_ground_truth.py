@@ -36,7 +36,7 @@ class AniWorldIdentityGroundTruthTests(unittest.TestCase):
         self.assertEqual(by_title["Monthly Girls' Nozaki-kun"]["imdb_id"], "tt3615002")
         for entry in matches:
             if "imdb_id" in entry:
-                self.assertRegex(entry["imdb_id"], r"^tt\\d{7,10}$")
+                self.assertRegex(entry["imdb_id"], r"^tt\d{7,10}$")
 
     def test_user_audit_records_rejected_candidate(self):
         fixture = json.loads(
