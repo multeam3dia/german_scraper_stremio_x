@@ -1450,5 +1450,28 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+    def test_tenchi_muyo_exact_year_breaks_same_title_candidate_tie(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 43004, "name": "Tenchi Muyo!", "original_name": "天地無用!",
+                     "first_air_date": "1992-04-02"},
+                    {"id": 20451, "name": "Tenchi Universe", "original_name": "天地無用! 銀河戦争",
+                     "first_air_date": "1995-04-02"},
+                ]}
+            if path == "/tv/43004/external_ids":
+                return {"imdb_id": "tt0105865"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Tenchi Muyo!", "year": 1992},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 43004)
+        self.assertEqual(result["candidate_year"], 1992)
+        self.assertGreaterEqual(result["margin"], 0.08)
+
+
 if __name__ == "__main__":
     unittest.main()
