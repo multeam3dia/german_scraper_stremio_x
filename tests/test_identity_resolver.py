@@ -56,7 +56,7 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 902)
-        self.assertIn(("/search/tv", {"query": "Page Two Rescue", "page": 2}), calls)
+        self.assertTrue(any(\n            path == "/search/tv" and params.get("query") == "Page Two Rescue"\n            and params.get("page") == 2 for path, params in calls\n        ))
 
     def test_same_person_actor_and_director_counts_as_one_signal(self):
         values = _independent_corroboration_values(
