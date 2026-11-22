@@ -178,7 +178,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 101)
         self.assertEqual(result["candidate_year"], 2011)
-        self.assertGreaterEqual(result["margin"], MIN_MARGIN)
+        self.assertGreaterEqual(result["margin"], 0.08)
 
     def test_similarly_scored_remakes_are_ambiguous(self):
         def fake_get(path, params):
