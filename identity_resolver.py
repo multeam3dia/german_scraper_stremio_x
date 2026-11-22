@@ -1039,9 +1039,23 @@ def find_tmdb_match(
 
     # TMDB's main/original title may not match the provider label. Check
     # alternative titles for a bounded shortlist before rejecting candidates.
+    # Title scoring repeatedly normalizes the same candidate variants. Cache per
+    # candidate object for this resolution only; alternative titles are complete
+    # before this point and candidates are not mutated during scoring.
+    title_similarity_cache: dict[int, float] = {}
+
+    def cached_title_similarity(item: dict[str, Any]) -> float:
+        key = id(item)
+        if key not in title_similarity_cache:
+            title_similarity_cache[key] = _provider_title_similarity(
+                provider_title, provider_aliases, item, media_type
+            )
+        return title_similarity_cache[key]
+
+
     preliminary = sorted(
         all_candidates,
-        key=lambda item: _provider_title_similarity(provider_title, provider_aliases, item, media_type),
+        key=lambda item: cached_title_similarity(item),
         reverse=True,
     )
     initial_title_scores = [
