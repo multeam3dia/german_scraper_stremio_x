@@ -1869,23 +1869,37 @@ class IdentityResolverTests(unittest.TestCase):
                      "first_air_date": "2021-01-01"},
                 ]}
             if path in ("/tv/88021", "/tv/88022"):
-                return {"production_companies": [{"name": "Studio X"}],
-                        "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}]}
+                return {
+                    "production_companies": [{"name": "Studio X"}],
+                    "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}],
+                }
             return {}
 
-        find_tmdb_match(
-            {"media_type": "series", "provider": "aniworld",
-             "provider_title": "Close Match", "year": 2020,
-             "metadata": {"producer": "Studio X", "country": "Japan",
-                         "provider_structure": {"complete": True, "season_count": 1,
-                                             "episode_count": 12,
-                                             "seasons": [{"season_number": 1,
-                                                         "episode_count": 12,
-                                                         "episodes": [{"title": "Ep One"},
-                                                                     {"title": "Ep Two"},
-                                                                     {"title": "Ep Three"}]}]}},
-            search_fn=fake_get,
-        )
+        record = {
+            "media_type": "series",
+            "provider": "aniworld",
+            "provider_title": "Close Match",
+            "year": 2020,
+            "metadata": {
+                "producer": "Studio X",
+                "country": "Japan",
+                "provider_structure": {
+                    "complete": True,
+                    "season_count": 1,
+                    "episode_count": 12,
+                    "seasons": [{
+                        "season_number": 1,
+                        "episode_count": 12,
+                        "episodes": [
+                            {"title": "Ep One"},
+                            {"title": "Ep Two"},
+                            {"title": "Ep Three"},
+                        ],
+                    }],
+                },
+            },
+        }
+        find_tmdb_match(record, search_fn=fake_get)
         self.assertEqual(calls.count(("/tv/88021", {"language": "de-DE"})), 1)
         self.assertEqual(calls.count(("/tv/88022", {"language": "de-DE"})), 1)
 
