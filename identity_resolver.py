@@ -403,6 +403,25 @@ def _description_similarity(provider_text: str, candidate_text: str) -> float | 
     return round(len(left & right) / min(len(left), len(right)), 4)
 
 
+def _episode_title_similarity(provider_titles: list[str], candidate_titles: list[str]) -> float | None:
+    """Return normalized best-match overlap for episode titles, tolerant of bundling."""
+    left = [_normalize(value) for value in provider_titles if _normalize(value)]
+    right = [_normalize(value) for value in candidate_titles if _normalize(value)]
+    if not left or not right:
+        return None
+    # Each provider episode/bundle may match any TMDB episode title. This is
+    # intentionally one-way: provider catalogs may omit episodes, so absence is
+    # not treated as negative evidence.
+    scores = []
+    for provider_title in left:
+        scores.append(max(
+            1.0 if provider_title == candidate_title else
+            difflib.SequenceMatcher(None, provider_title, candidate_title).ratio()
+            for candidate_title in right
+        ))
+    return round(sum(scores) / len(scores), 4)
+
+
 def _episode_count_bundle(provider_count: int, tmdb_count: int) -> int | None:
     """Detect consistent 2:1 provider/TMDB episode bundling."""
     if provider_count < 1 or tmdb_count < 1:
