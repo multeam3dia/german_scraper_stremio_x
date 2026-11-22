@@ -930,6 +930,13 @@ def find_tmdb_match(
                         existing.setdefault("_matched_queries", []).append(query)
                 else:
                     anonymous_candidates.append(dict(item))
+        # Re-evaluate after page two: it may have supplied a strong exact
+        # match, making the English fallback unnecessary.
+        best_german_score = max(
+            (_provider_title_similarity(provider_title, provider_aliases, item, media_type)
+             for item in list(raw_candidates.values()) + anonymous_candidates),
+            default=0.0,
+        )
         if best_german_score < MIN_TITLE_SCORE_WITH_YEAR:
             languages.append("en-US")
             for query in query_variants:
