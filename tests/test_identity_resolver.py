@@ -7,7 +7,7 @@ import unittest
 import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
-    _episode_title_similarity, _candidate_episode_titles, _genre_similarity,
+    _episode_title_similarity, _episode_title_comparison, _candidate_episode_titles, _genre_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -1024,6 +1024,16 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertIsNone(result["score"])
         self.assertEqual(calls, [])
+
+    def test_episode_title_comparison_exposes_best_pairs(self):
+        result = _episode_title_comparison(
+            ["Episode Alpha", "Episode Beta"],
+            ["Episode Alpha", "Episode Gamma"],
+        )
+        self.assertEqual(result["score"], 0.75)
+        self.assertEqual(result["matches"][0]["tmdb_title"], "Episode Alpha")
+        self.assertEqual(result["matches"][0]["score"], 1.0)
+        self.assertEqual(result["matches"][1]["tmdb_title"], "Episode Alpha")
 
     def test_episode_title_similarity_matches_provider_bundles_to_any_episode(self):
         score = _episode_title_similarity(
