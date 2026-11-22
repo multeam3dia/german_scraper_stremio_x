@@ -610,6 +610,40 @@ def _metadata_signal_scores(
     return scores
 
 
+def _independent_corroboration_values(
+    signals: dict[str, float | None], provider_metadata: dict[str, Any],
+) -> list[float]:
+    """Return corroboration scores without counting one person twice across roles."""
+    values = []
+    actor_score = signals.get("actor_score")
+    director_score = signals.get("director_score")
+    actors = provider_metadata.get("actors")
+    directors = provider_metadata.get("directors")
+    actors = actors if isinstance(actors, list) else []
+    directors = directors if isinstance(directors, list) else []
+    actor_names = {_normalize(name) for name in actors if _normalize(name)}
+    director_names = {_normalize(name) for name in directors if _normalize(name)}
+    shared_people = actor_names & director_names
+
+    if actor_score is not None:
+        values.append(actor_score)
+    if director_score is not None:
+        # Actor/director evidence is not independent when a person appears
+        # in both provider lists; retain only the stronger role score.
+        if shared_people:
+            if actor_score is None:
+                values.append(director_score)
+            elif director_score > actor_score:
+                values[values.index(actor_score)] = director_score
+        else:
+            values.append(director_score)
+
+    studio_score = signals.get("studio_score")
+    if studio_score is not None:
+        values.append(studio_score)
+    return values
+
+
 def _description_similarity(provider_text: str, candidate_text: str) -> float | None:
     """Weak same-language synopsis overlap; never used to reject a candidate."""
     stop = {
@@ -1020,12 +1054,8 @@ def find_tmdb_match(
     def corroboration_values(item: dict[str, Any]) -> list[float]:
         signals = scores_for(item)
         # Genres are useful for ranking, but not strong enough to independently
-        # rescue a weak title match. Require two separate people/studio signals.
-        return [
-            value for key, value in signals.items()
-            if key in {"actor_score", "director_score", "studio_score"}
-            and value is not None
-        ]
+        # rescue a weak title match. Actor/director overlaps are deduplicated.
+        return _independent_corroboration_values(signals, metadata)
 
     def corroboration_score(item: dict[str, Any]) -> float | None:
         values = corroboration_values(item)
