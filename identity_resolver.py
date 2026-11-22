@@ -473,9 +473,17 @@ def _episode_title_similarity(
             # AniWorld occasionally merges two consecutive source episodes
             # into one longer episode; compare against their joined titles.
             if c_index + 1 < len(candidate_rows):
-                joined = " ".join(candidate_rows[c_index][0:1] + candidate_rows[c_index + 1][0:1])
+                joined_variants = [
+                    " ".join((left, right))
+                    for left in candidate_rows[c_index]
+                    for right in candidate_rows[c_index + 1]
+                ]
                 merged_score = max(
-                    (similarity(left, joined) for left in p_names),
+                    (
+                        similarity(provider_name, joined)
+                        for provider_name in p_names
+                        for joined in joined_variants
+                    ),
                     default=0.0,
                 )
                 edges.append((merged_score, p_index, (c_index, c_index + 1)))
