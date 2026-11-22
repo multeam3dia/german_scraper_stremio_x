@@ -1,7 +1,9 @@
 """Tests for confidence-aware TMDB identity matching."""
 
+import json
 import os
 import tempfile
+from pathlib import Path
 import unittest
 
 import catalog_db
@@ -25,6 +27,18 @@ class IdentityResolverTests(unittest.TestCase):
         else:
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
+
+    def test_manual_benchmark_fixture_has_40_cases_and_valid_imdb_ids(self):
+        fixture_path = Path(__file__).parent / "fixtures" / "resolver_manual_benchmark.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        cases = fixture["cases"]
+        self.assertEqual(len(cases), 40)
+        self.assertEqual([case["case"] for case in cases], list(range(1, 41)))
+        for case in cases:
+            for imdb_id in case["imdb_ids"]:
+                self.assertRegex(imdb_id, r"^tt\\d{7,10}$")
+        self.assertEqual(cases[10]["imdb_ids"], [])
+        self.assertEqual(cases[10]["case"], 11)
 
     def test_exact_title_and_year_returns_imdb_match(self):
         def fake_get(path, params):
