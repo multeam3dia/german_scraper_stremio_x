@@ -983,7 +983,38 @@ class IdentityResolverTests(unittest.TestCase):
             "provider_tmdb_episode_structure_mismatch",
         )
         self.assertIn("/tv/341826", calls)
-        self.assertIn("/tv/341826/season/1", calls)
+
+    def test_episode_titles_are_fetched_for_uncertain_candidate_shortlist(self):
+        calls = []
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 880, "name": "Twin Show", "original_name": "Twin Show",
+                     "first_air_date": "2020-01-01"},
+                    {"id": 881, "name": "Twin Show", "original_name": "Twin Show",
+                     "first_air_date": "2020-01-01"},
+                ]}
+            if path in {"/tv/880", "/tv/881"}:
+                return {"number_of_seasons": 1, "number_of_episodes": 2,
+                        "seasons": [{"season_number": 1, "episode_count": 2}]}
+            if path in {"/tv/880/season/1", "/tv/881/season/1"}:
+                return {"episodes": [{"name": "Evidence episode one"}, {"name": "Evidence episode two"}]}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt1234567"}
+            return {}
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Twin Show", "year": 2020,
+             "metadata": {"provider_structure": {
+                "complete": True, "season_count": 1, "episode_count": 2,
+                "seasons": [{"season_number": 1, "episode_count": 2,
+                            "episode_titles": [{"titles": ["Evidence episode one"]},
+                                              {"titles": ["Evidence episode two"]}]}]}}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertIn("/tv/880/season/1", calls)
+        self.assertIn("/tv/881/season/1", calls)
 
     def test_structure_check_is_not_fetched_for_clear_exact_match(self):
         calls = []
