@@ -1041,7 +1041,7 @@ def find_tmdb_match(
     # A unique near-exact title can be resolved without credits/company API
     # calls, while weak or close candidates still get the bounded shortlist.
     metadata_scores: dict[int, dict[str, float | None]] = {}
-    if uncertain_shortlist:
+    if uncertain_shortlist or media_type == "movie":
         for item in preliminary[:10]:
             tmdb_id = item.get("id")
             if type(tmdb_id) is int and tmdb_id > 0:
