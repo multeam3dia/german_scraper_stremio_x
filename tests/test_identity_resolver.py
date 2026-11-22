@@ -104,7 +104,7 @@ class IdentityResolverTests(unittest.TestCase):
             search_fn=fake_get,
         )
         self.assertEqual(result["status"], "matched")
-        self.assertTrue(result["short_title_safeguard"]["supported")
+        self.assertTrue(result["short_title_safeguard"]["supported"])
 
     def test_aniworld_country_mislabeled_as_studio_is_ignored(self):
         def fake_get(path, params):
