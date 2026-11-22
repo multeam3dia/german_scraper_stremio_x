@@ -1059,7 +1059,7 @@ def find_tmdb_match(
         reverse=True,
     )
     initial_title_scores = [
-        _provider_title_similarity(provider_title, provider_aliases, item, media_type)
+        cached_title_similarity(item)
         for item in preliminary
     ]
     initial_best = initial_title_scores[0] if initial_title_scores else 0.0
@@ -1093,8 +1093,10 @@ def find_tmdb_match(
             except Exception as exc:
                 item["_alternative_titles_error"] = type(exc).__name__
 
-    best_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[0], media_type) if preliminary else 0.0
-    second_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
+    # Alternative titles may have been added above; invalidate initial-order scores.
+    title_similarity_cache.clear()
+    best_preliminary_title = cached_title_similarity(preliminary[0]) if preliminary else 0.0
+    second_preliminary_title = cached_title_similarity(preliminary[1]) if len(preliminary) > 1 else 0.0
     uncertain_shortlist = (
         best_preliminary_title < 0.99
         or (len(preliminary) > 1 and best_preliminary_title - second_preliminary_title < 0.08)
