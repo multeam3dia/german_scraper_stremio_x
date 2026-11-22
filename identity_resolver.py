@@ -497,7 +497,8 @@ def _company_similarity(
     provider_set = {
         _normalize_company(value) for value in provider_companies
         if _normalize_company(value)
-    }    candidate_set = {
+    }
+    candidate_set = {
         _normalize_company(value) for value in candidate_companies
         if _normalize_company(value)
     }
