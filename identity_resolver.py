@@ -988,7 +988,7 @@ def find_tmdb_match(
         key=lambda item: _provider_title_similarity(provider_title, provider_aliases, item, media_type),
         reverse=True,
     )
-    for item in preliminary[:10]:
+    for item in preliminary[:20]:
         tmdb_id = item.get("id")
         if type(tmdb_id) is not int or tmdb_id <= 0:
             continue
