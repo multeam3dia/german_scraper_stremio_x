@@ -946,6 +946,28 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+    def test_page_two_exact_match_prevents_unnecessary_english_fallback(self):
+        calls = []
+
+        def fake_get(path, params):
+            if path != "/search/tv":
+                return {"imdb_id": "tt1234567"}
+            calls.append((params.get("language"), params.get("page", 1)))
+            if params.get("language") == "de-DE" and params.get("page", 1) == 1:
+                return {"results": [{"id": 610, "name": "Unrelated Show",
+                                     "original_name": "Unrelated Show"}]}
+            if params.get("language") == "de-DE" and params.get("page") == 2:
+                return {"results": [{"id": 611, "name": "Yuri Is My Job!",
+                                     "original_name": "私の百合はお仕事です！"}]}
+            return {"results": []}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Yuri Is My Job!"},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["tmdb_id"], 611)
+        self.assertNotIn(("en-US", 1), calls)
+
     def test_english_fallback_runs_when_german_results_are_irrelevant(self):
         calls = []
 
