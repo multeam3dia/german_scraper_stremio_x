@@ -1709,6 +1709,26 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(variants[0], "Loveless: SD Theatre")
         self.assertIn("Loveless", variants)
 
+    def test_merged_episode_title_comparison_uses_candidate_language_variants(self):
+        provider_structure = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"episode_number": 1, "title": "Der erste Teil / Der zweite Teil"},
+                    {"episode_number": 2, "title": "Der dritte Teil"},
+                    {"episode_number": 3, "title": "Der vierte Teil"},
+                ],
+            }],
+        }
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "First Part", "original_name": "Der erste Teil"},
+            {"episode_number": 2, "name": "Second Part", "original_name": "Der zweite Teil"},
+            {"episode_number": 3, "name": "Third Part", "original_name": "Der dritte Teil"},
+            {"episode_number": 4, "name": "Fourth Part", "original_name": "Der vierte Teil"},
+        ]}
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertGreaterEqual(score, 0.99)
+
     def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
         provider_structure = {
             "seasons": [{
