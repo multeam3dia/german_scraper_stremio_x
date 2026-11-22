@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import copy
 import difflib
+from functools import lru_cache
 import json
 import logging
 import os
@@ -81,13 +82,18 @@ class TMDBAPIError(RuntimeError):
     """TMDB could not return a valid response."""
 
 
-def _normalize(value: Any) -> str:
-    value = unicodedata.normalize("NFKD", str(value or "").casefold())
+@lru_cache(maxsize=16384)
+def _normalize_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value.casefold())
     value = "".join(char for char in value if not unicodedata.combining(char))
     value = value.replace("&", " and ")
     # Preserve non-Latin scripts (notably Japanese and Chinese anime titles)
     # instead of silently deleting them before title comparison.
     return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
+
+
+def _normalize(value: Any) -> str:
+    return _normalize_text(str(value or ""))
 
 
 def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
