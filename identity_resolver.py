@@ -1030,27 +1030,29 @@ def find_tmdb_match(
         except Exception as exc:
             item["_alternative_titles_error"] = type(exc).__name__
 
-    # Fetch corroborating metadata for a bounded shortlist BEFORE applying the
-    # title threshold. This lets independent provider metadata rescue translated
-    # or abbreviated titles without lowering the global title threshold.
-    metadata_scores: dict[int, dict[str, float | None]] = {}
-    for item in preliminary[:10]:
-        tmdb_id = item.get("id")
-        if type(tmdb_id) is int and tmdb_id > 0:
-            metadata_scores[tmdb_id] = _metadata_signal_scores(
-                item, media_type, metadata, provider, search_fn
-            )
-
-    provider_structure = metadata.get("provider_structure")
-    provider_description = str(record.get("description") or metadata.get("description") or "").strip()
-    structure_scores: dict[int, dict[str, Any]] = {}
-    description_scores: dict[int, float | None] = {}
     best_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[0], media_type) if preliminary else 0.0
     second_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
     uncertain_shortlist = (
         best_preliminary_title < 0.99
         or (len(preliminary) > 1 and best_preliminary_title - second_preliminary_title < 0.08)
     )
+
+    # Fetch corroborating metadata only when the title evidence is uncertain.
+    # A unique near-exact title can be resolved without credits/company API
+    # calls, while weak or close candidates still get the bounded shortlist.
+    metadata_scores: dict[int, dict[str, float | None]] = {}
+    if uncertain_shortlist:
+        for item in preliminary[:10]:
+            tmdb_id = item.get("id")
+            if type(tmdb_id) is int and tmdb_id > 0:
+                metadata_scores[tmdb_id] = _metadata_signal_scores(
+                    item, media_type, metadata, provider, search_fn
+                )
+
+    provider_structure = metadata.get("provider_structure")
+    provider_description = str(record.get("description") or metadata.get("description") or "").strip()
+    structure_scores: dict[int, dict[str, Any]] = {}
+    description_scores: dict[int, float | None] = {}
     if uncertain_shortlist and (
         (media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"))
         or provider_description
