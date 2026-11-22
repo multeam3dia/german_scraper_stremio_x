@@ -1099,7 +1099,8 @@ def find_tmdb_match(
             tmdb_id = item.get("id")
             if type(tmdb_id) is not int or tmdb_id <= 0:
                 continue
-            if _provider_title_similarity(provider_title, provider_aliases, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
+            # The initial ranking already computed this title score.
+            if cached_title_similarity(item) >= MIN_TITLE_SCORE_WITH_YEAR:
                 continue
             try:
                 aliases_payload = search_fn(
