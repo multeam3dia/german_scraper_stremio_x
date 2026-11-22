@@ -95,7 +95,7 @@ def _normalize_text(value: str) -> str:
 @lru_cache(maxsize=32768)
 def _similarity_ratio(left: str, right: str) -> float:
     """Cache repeated directional SequenceMatcher comparisons."""
-    return _similarity_ratio(left, right)
+    return difflib.SequenceMatcher(None, left, right).ratio()
 
 
 def _normalize(value: Any) -> str:
