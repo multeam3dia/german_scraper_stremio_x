@@ -1824,6 +1824,23 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+    def test_empty_provider_people_skip_credits_request(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            return {}
+
+        signals = _metadata_signal_scores(
+            {"id": 99123}, "series",
+            {"actors": ["", "  "], "directors": ["", None]},
+            "aniworld", fake_get,
+        )
+
+        self.assertIsNone(signals["actor_score"])
+        self.assertIsNone(signals["director_score"])
+        self.assertEqual(calls, [])
+
     def test_exact_title_match_skips_unnecessary_metadata_fetches(self):
         calls = []
 
