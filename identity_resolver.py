@@ -1516,7 +1516,7 @@ def resolve_unresolved_titles(
         if uncertain and (not has_structure or not has_episode_titles or not has_alternative_titles):
             enriched = _refresh_provider_evidence(record)
             enriched_metadata = enriched.get("metadata") if isinstance(enriched.get("metadata"), dict) else {}
-            if enriched_metadata.get("provider_structure") or enriched.get("description"):
+            if (enriched_metadata.get("provider_structure") or enriched_metadata.get("alternative_titles") or enriched.get("description")):
                 record = enriched
                 result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
         correction = result.get("media_type_correction")
