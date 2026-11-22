@@ -453,31 +453,39 @@ def _candidate_episode_titles(
             str(episode.get("name") or "").strip()
             for episode in episodes if isinstance(episode, dict) and episode.get("name")
         )
+    comparison = _episode_title_comparison(provider_titles, candidate_titles)
     return {
-        "score": _episode_title_similarity(provider_titles, candidate_titles),
+        "score": comparison["score"],
+        "matches": comparison["matches"],
         "provider_titles": provider_titles,
         "candidate_titles": candidate_titles,
         "seasons_checked": checked,
     }
 
 
-def _episode_title_similarity(provider_titles: list[str], candidate_titles: list[str]) -> float | None:
-    """Return normalized best-match overlap for episode titles, tolerant of bundling."""
-    left = [_normalize(value) for value in provider_titles if _normalize(value)]
-    right = [_normalize(value) for value in candidate_titles if _normalize(value)]
+def _episode_title_comparison(provider_titles: list[str], candidate_titles: list[str]) -> dict[str, Any]:
+    """Return one-way similarity plus per-provider best matching TMDB episode title."""
+    left = [(str(raw), _normalize(raw)) for raw in provider_titles if _normalize(raw)]
+    right = [(str(raw), _normalize(raw)) for raw in candidate_titles if _normalize(raw)]
     if not left or not right:
-        return None
-    # Each provider episode/bundle may match any TMDB episode title. This is
-    # intentionally one-way: provider catalogs may omit episodes, so absence is
-    # not treated as negative evidence.
+        return {"score": None, "matches": []}
+    matches = []
     scores = []
-    for provider_title in left:
-        scores.append(max(
-            1.0 if provider_title == candidate_title else
-            difflib.SequenceMatcher(None, provider_title, candidate_title).ratio()
-            for candidate_title in right
-        ))
-    return round(sum(scores) / len(scores), 4)
+    for raw_provider, provider_title in left:
+        best_raw, best_normalized = max(
+            right,
+            key=lambda pair: 1.0 if provider_title == pair[1] else
+                difflib.SequenceMatcher(None, provider_title, pair[1]).ratio(),
+        )
+        score = 1.0 if provider_title == best_normalized else difflib.SequenceMatcher(None, provider_title, best_normalized).ratio()
+        scores.append(score)
+        matches.append({"provider_title": raw_provider, "tmdb_title": best_raw, "score": round(score, 4)})
+    return {"score": round(sum(scores) / len(scores), 4), "matches": matches}
+
+
+def _episode_title_similarity(provider_titles: list[str], candidate_titles: list[str]) -> float | None:
+    """Backward-compatible scalar helper."""
+    return _episode_title_comparison(provider_titles, candidate_titles)["score"]
 
 
 def _episode_count_bundle(provider_count: int, tmdb_count: int) -> int | None:
@@ -1100,7 +1108,7 @@ def find_tmdb_match(
                 "status": "not_available", "score": None, "mismatch": False,
             }),
             "episode_titles": episode_title_scores.get(item.get("id"), {
-                "score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
+                "score": None, "matches": [], "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
             }),
             "description": {"provider_available": bool(provider_description),
                            "similarity": description_scores.get(item.get("id")),
