@@ -429,7 +429,7 @@ def _episode_title_similarity(
     # Ignore boilerplate episode labels: they are not independent identity evidence.
     generic_title = re.compile(
         r"^(?:episode|episod|ep|part|chapter|chap|ova|special|season|"
-        r"series|s)\\s*\\d*$|^\\d+$"
+        r"series|s)\s*\d*$|^\d+$"
     )
     provider_rows = [
         [name for name in names if not generic_title.fullmatch(name)]
