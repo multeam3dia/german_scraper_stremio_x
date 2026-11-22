@@ -7,7 +7,7 @@ import unittest
 import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
-    _episode_title_similarity, _genre_similarity,
+    _episode_title_similarity, _candidate_episode_titles, _genre_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
