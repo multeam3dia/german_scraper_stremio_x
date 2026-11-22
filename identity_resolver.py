@@ -1034,7 +1034,7 @@ def find_tmdb_match(
     # title threshold. This lets independent provider metadata rescue translated
     # or abbreviated titles without lowering the global title threshold.
     metadata_scores: dict[int, dict[str, float | None]] = {}
-    for item in preliminary[:5]:
+    for item in preliminary[:10]:
         tmdb_id = item.get("id")
         if type(tmdb_id) is int and tmdb_id > 0:
             metadata_scores[tmdb_id] = _metadata_signal_scores(
