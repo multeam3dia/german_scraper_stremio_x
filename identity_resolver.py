@@ -1197,11 +1197,12 @@ def find_tmdb_match(
     for item in preliminary[:20]:
         title_score, matched_title = cached_title_match(item)
         independent_signals = corroboration_values(item)
-        strong_signal_count = len([value for value in independent_signals if value >= 0.85])
+        strong_signal_count = sum(value >= 0.85 for value in independent_signals)
+        independent_average = corroboration_score(item)
         strong_metadata = (
             strong_signal_count >= 2
-            and corroboration_score(item) is not None
-            and corroboration_score(item) >= 0.85
+            and independent_average is not None
+            and independent_average >= 0.85
         )
         suffix_score, suffix_title, suffix_kind = _format_suffix_match(
             provider_title, item, media_type
@@ -1231,7 +1232,7 @@ def find_tmdb_match(
         # signal corroborates it, or when two independent metadata signals do.
         suffix_supported = suffix_variant and (
             strong_metadata or (exact_year and strong_signal_count >= 1
-                                and (corroboration_score(item) or 0) >= 0.85)
+                                and (independent_average or 0) >= 0.85)
         )
         if structure.get("mismatch"):
             rejected_diagnostics.append({
