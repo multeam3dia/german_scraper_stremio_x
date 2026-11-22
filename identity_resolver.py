@@ -827,11 +827,12 @@ def find_tmdb_match(
     # candidates need details both for metadata corroboration and structure
     # checks; keep the cache local to avoid stale cross-title evidence.
     single_request_cache: dict[str, dict[str, Any]] = {}
+    raw_search_fn = search_fn
 
     def cached_search(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         key = json.dumps([path, params or {}], sort_keys=True, ensure_ascii=False, default=str)
         if key not in single_request_cache:
-            single_request_cache[key] = search_fn(path, params)
+            single_request_cache[key] = raw_search_fn(path, params)
         return copy.deepcopy(single_request_cache[key])
 
     search_fn = cached_search
