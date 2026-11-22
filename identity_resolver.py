@@ -1069,15 +1069,15 @@ def find_tmdb_match(
         return cached_title_match(item)[0]
 
 
-    preliminary = sorted(
-        all_candidates,
-        key=lambda item: cached_title_similarity(item),
-        reverse=True,
-    )
-    initial_title_scores = [
-        cached_title_similarity(item)
-        for item in preliminary
+    # Evaluate each candidate title once while ordering the initial shortlist.
+    # Reuse these scores below instead of running the same cached lookup again.
+    scored_candidates = [
+        (item, cached_title_similarity(item))
+        for item in all_candidates
     ]
+    scored_candidates.sort(key=lambda pair: pair[1], reverse=True)
+    preliminary = [item for item, _score in scored_candidates]
+    initial_title_scores = [score for _item, score in scored_candidates]
     initial_best = initial_title_scores[0] if initial_title_scores else 0.0
     initial_second = initial_title_scores[1] if len(initial_title_scores) > 1 else 0.0
     exact_leader_year = _year_from_result(preliminary[0], media_type) if preliminary else None
