@@ -1678,7 +1678,7 @@ def resolve_unresolved_titles(
             enriched_metadata = enriched.get("metadata") if isinstance(enriched.get("metadata"), dict) else {}
             if (enriched_metadata.get("provider_structure") or enriched_metadata.get("alternative_titles") or enriched.get("description")):
                 record = enriched
-                result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+                result = find_tmdb_match(record, search_fn=cached_search, genre_map=genre_map)
         correction = result.get("media_type_correction")
         if isinstance(correction, dict) and correction.get("to") in {"movie", "series"}:
             record = dict(record)
