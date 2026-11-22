@@ -1071,7 +1071,7 @@ def find_tmdb_match(
 
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
     rejected_diagnostics = []
-    for item in preliminary[:10]:
+    for item in preliminary[:20]:
         title_score, matched_title = _best_provider_title_match(provider_title, provider_aliases, item, media_type)
         independent_signals = corroboration_values(item)
         strong_signal_count = len([value for value in independent_signals if value >= 0.85])
