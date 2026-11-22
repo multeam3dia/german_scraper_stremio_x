@@ -29,6 +29,35 @@ class IdentityResolverTests(unittest.TestCase):
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
 
+    def test_search_second_page_can_recover_exact_title_candidate(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, dict(params)))
+            if path == "/search/tv":
+                if params.get("page") == 2:
+                    return {"results": [{
+                        "id": 902, "name": "Page Two Rescue",
+                        "original_name": "Page Two Rescue",
+                        "first_air_date": "2021-01-01",
+                    }]}
+                return {"results": [{
+                    "id": 901, "name": "Unrelated Popular Result",
+                    "original_name": "Unrelated Popular Result",
+                    "first_air_date": "2019-01-01",
+                }]}
+            if path == "/tv/902/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Page Two Rescue", "year": 2021},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 902)
+        self.assertIn(("/search/tv", {"query": "Page Two Rescue", "page": 2}), calls)
+
     def test_same_person_actor_and_director_counts_as_one_signal(self):
         values = _independent_corroboration_values(
             {"actor_score": 1.0, "director_score": 1.0, "studio_score": None},
