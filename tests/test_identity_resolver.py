@@ -1777,5 +1777,37 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+    def test_exact_title_match_skips_unnecessary_metadata_fetches(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 88001, "name": "Exact Match Series",
+                    "original_name": "Exact Match Series", "first_air_date": "2020-01-01",
+                }]}
+            if path == "/tv/88001/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series", "provider": "aniworld",
+                "provider_title": "Exact Match Series", "year": 2020,
+                "metadata": {
+                    "actors": ["Actor One"], "directors": ["Director One"],
+                    "producer": "Studio One", "country": "Japan",
+                },
+            },
+            search_fn=fake_get,
+        )
+
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 88001)
+        self.assertFalse(any(path.endswith("/credits") for path in calls))
+        self.assertFalse(any(path == "/tv/88001" for path in calls))
+
+
 if __name__ == "__main__":
     unittest.main()
