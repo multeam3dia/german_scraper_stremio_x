@@ -36,7 +36,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual([case["case"] for case in cases], list(range(1, 41)))
         for case in cases:
             for imdb_id in case["imdb_ids"]:
-                self.assertRegex(imdb_id, r"^tt\\d{7,10}$")
+                self.assertRegex(imdb_id, r"^tt\d{7,10}$")
         self.assertEqual(cases[10]["imdb_ids"], [])
         self.assertEqual(cases[10]["case"], 11)
 
