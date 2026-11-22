@@ -1072,6 +1072,14 @@ def find_tmdb_match(
     candidate_diagnostics = []
     for _, item, item_title_score, item_year, item_genre_score in candidates[:10]:
         signals = scores_for(item)
+        episode_title_info = episode_title_scores.get(item.get("id"), {
+            "score": None, "matches": [], "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
+        })
+        episode_title_score = episode_title_info.get("score")
+        episode_title_bonus = (
+            min(0.06, max(0.0, episode_title_score - 0.50) * 0.12)
+            if episode_title_score is not None else 0.0
+        )
         candidate_diagnostics.append({
             "tmdb_id": item.get("id"),
             "title": {"provider": provider_title,
@@ -1107,14 +1115,7 @@ def find_tmdb_match(
             "structure": structure_scores.get(item.get("id"), {
                 "status": "not_available", "score": None, "mismatch": False,
             }),
-            "episode_titles": {
-                **episode_title_scores.get(item.get("id"), {
-                    "score": None, "matches": [], "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
-                }),
-                "ranking_bonus": (
-                    min(0.06, max(0.0, (episode_title_scores.get(item.get("id")) or {}).get("score", 0.0) - 0.50) * 0.12)
-                    if (episode_title_scores.get(item.get("id")) or {}).get("score") is not None else 0.0
-            },
+            "episode_titles": {**episode_title_info, "ranking_bonus": episode_title_bonus},
             "description": {"provider_available": bool(provider_description),
                            "similarity": description_scores.get(item.get("id")),
                            "status": "not_available" if description_scores.get(item.get("id")) is None else "weak_support"},
