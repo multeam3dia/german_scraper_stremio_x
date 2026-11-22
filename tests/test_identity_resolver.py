@@ -10,6 +10,7 @@ from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores,
+    _independent_corroboration_values,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -27,6 +28,35 @@ class IdentityResolverTests(unittest.TestCase):
         else:
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
+
+    def test_same_person_actor_and_director_counts_as_one_signal(self):
+        values = _independent_corroboration_values(
+            {"actor_score": 1.0, "director_score": 1.0, "studio_score": None},
+            {"actors": ["Person A"], "directors": ["Person A"]},
+        )
+        self.assertEqual(values, [1.0])
+
+    def test_distinct_actor_and_director_count_as_two_signals(self):
+        values = _independent_corroboration_values(
+            {"actor_score": 0.9, "director_score": 0.95, "studio_score": None},
+            {"actors": ["Actor A"], "directors": ["Director B"]},
+        )
+        self.assertEqual(values, [0.9, 0.95])
+
+    def test_shared_person_overlap_keeps_stronger_role_score(self):
+        values = _independent_corroboration_values(
+            {"actor_score": 0.88, "director_score": 0.94, "studio_score": 0.91},
+            {"actors": ["Person A", "Actor B"], "directors": ["Person A"]},
+        )
+        self.assertEqual(values, [0.94, 0.91])
+
+    def test_missing_people_signals_are_not_counted(self):
+        values = _independent_corroboration_values(
+            {"actor_score": None, "director_score": None, "studio_score": None},
+            {"actors": [], "directors": []},
+        )
+        self.assertEqual(values, [])
+
 
     def test_aniworld_country_mislabeled_as_studio_is_ignored(self):
         def fake_get(path, params):
