@@ -1016,19 +1016,32 @@ def find_tmdb_match(
         key=lambda item: _provider_title_similarity(provider_title, provider_aliases, item, media_type),
         reverse=True,
     )
-    for item in preliminary[:20]:
-        tmdb_id = item.get("id")
-        if type(tmdb_id) is not int or tmdb_id <= 0:
-            continue
-        if _provider_title_similarity(provider_title, provider_aliases, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
-            continue
-        try:
-            aliases_payload = search_fn(
-                f"/{endpoint_type}/{tmdb_id}/alternative_titles", {}
-            )
-            item["_alternative_titles"] = _alternative_title_values(aliases_payload)
-        except Exception as exc:
-            item["_alternative_titles_error"] = type(exc).__name__
+    initial_title_scores = [
+        _provider_title_similarity(provider_title, provider_aliases, item, media_type)
+        for item in preliminary
+    ]
+    initial_best = initial_title_scores[0] if initial_title_scores else 0.0
+    initial_second = initial_title_scores[1] if len(initial_title_scores) > 1 else 0.0
+    clear_exact_leader = (
+        initial_best >= 0.99
+        and (len(initial_title_scores) == 1 or initial_best - initial_second >= 0.08)
+    )
+    # When a unique exact title already leads, alternative-title calls for
+    # weaker candidates cannot improve the decision and only add API traffic.
+    if not clear_exact_leader:
+        for item in preliminary[:20]:
+            tmdb_id = item.get("id")
+            if type(tmdb_id) is not int or tmdb_id <= 0:
+                continue
+            if _provider_title_similarity(provider_title, provider_aliases, item, media_type) >= MIN_TITLE_SCORE_WITH_YEAR:
+                continue
+            try:
+                aliases_payload = search_fn(
+                    f"/{endpoint_type}/{tmdb_id}/alternative_titles", {}
+                )
+                item["_alternative_titles"] = _alternative_title_values(aliases_payload)
+            except Exception as exc:
+                item["_alternative_titles_error"] = type(exc).__name__
 
     best_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[0], media_type) if preliminary else 0.0
     second_preliminary_title = _provider_title_similarity(provider_title, provider_aliases, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
