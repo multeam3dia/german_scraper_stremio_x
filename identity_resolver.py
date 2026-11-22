@@ -1138,14 +1138,26 @@ def find_tmdb_match(
         tmdb_id = item.get("id")
         return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
 
+    corroboration_cache: dict[int, tuple[list[float], float | None]] = {}
+
     def corroboration_values(item: dict[str, Any]) -> list[float]:
+        tmdb_id = item.get("id")
+        if type(tmdb_id) is int and tmdb_id in corroboration_cache:
+            return corroboration_cache[tmdb_id][0]
         signals = scores_for(item)
         # Genres are useful for ranking, but not strong enough to independently
         # rescue a weak title match. Actor/director overlaps are deduplicated.
-        return _independent_corroboration_values(signals, metadata)
+        values = _independent_corroboration_values(signals, metadata)
+        average = round(sum(values) / len(values), 4) if values else None
+        if type(tmdb_id) is int:
+            corroboration_cache[tmdb_id] = (values, average)
+        return values
 
     def corroboration_score(item: dict[str, Any]) -> float | None:
         values = corroboration_values(item)
+        tmdb_id = item.get("id")
+        if type(tmdb_id) is int and tmdb_id in corroboration_cache:
+            return corroboration_cache[tmdb_id][1]
         return round(sum(values) / len(values), 4) if values else None
 
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
