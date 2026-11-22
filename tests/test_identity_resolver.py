@@ -65,23 +65,23 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(_is_short_ambiguous_title("The Dark"))
         self.assertFalse(_is_short_ambiguous_title("Attack on Titan"))
 
-    def test_short_exact_title_without_independent_evidence_stays_ambiguous(self):
+    def test_short_title_collision_without_independent_evidence_stays_ambiguous(self):
         def fake_get(path, params):
             if path == "/search/tv":
-                return {"results": [{
-                    "id": 777, "name": "Dark", "original_name": "Dark",
-                    "first_air_date": "2017-01-01",
-                }]}
-            if path == "/tv/777/external_ids":
-                return {"imdb_id": "tt5753856"}
+                return {"results": [
+                    {"id": 777, "name": "Dark", "original_name": "Dark",
+                     "first_air_date": "2017-01-01"},
+                    {"id": 779, "name": "Dark", "original_name": "Dark",
+                     "first_air_date": "2020-01-01"},
+                ]}
             return {}
 
         result = find_tmdb_match(
-            {"media_type": "series", "provider_title": "Dark", "year": 2017},
+            {"media_type": "series", "provider_title": "Dark", "year": None},
             search_fn=fake_get,
         )
         self.assertEqual(result["status"], "ambiguous")
-        self.assertIn("Short single-word title", result["reason"])
+        self.assertIn("Short single-word title collision", result["reason"])
         self.assertTrue(result["short_title_safeguard"]["applied"])
         self.assertFalse(result["short_title_safeguard"]["supported"])
 
