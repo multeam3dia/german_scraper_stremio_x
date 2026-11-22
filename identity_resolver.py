@@ -555,9 +555,15 @@ def _metadata_signal_scores(
 ) -> dict[str, float | None]:
     """Compare optional provider credits/studio against TMDB, without penalizing gaps."""
     directors = metadata.get("directors")
-    directors = directors if isinstance(directors, list) else []
+    directors = (
+        [str(value).strip() for value in directors if str(value).strip()]
+        if isinstance(directors, list) else []
+    )
     actors = metadata.get("actors")
-    actors = actors if isinstance(actors, list) else []
+    actors = (
+        [str(value).strip() for value in actors if str(value).strip()]
+        if isinstance(actors, list) else []
+    )
 
     # AniWorld sometimes mislabels production companies as actors (e.g. the
     # studio name is copied into the actor list). Remove exact company duplicates
