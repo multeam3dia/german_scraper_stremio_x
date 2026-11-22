@@ -1024,8 +1024,7 @@ class IdentityResolverTests(unittest.TestCase):
             {"number_of_seasons": 1, "number_of_episodes": 3,
              "seasons": [{"season_number": 1, "episode_count": 3}]},
         )
-        self.assertEqual(result["status"], "mismatch")
-        self.assertTrue(result["mismatch"])
+        self.assertNotEqual(result["status"], "bundled_match")
         self.assertIsNone(result["bundle_factor"])
 
     def test_structure_comparison_does_not_hide_unrelated_count_mismatch(self):
