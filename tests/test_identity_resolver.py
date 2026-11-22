@@ -1036,6 +1036,14 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["matches"][1]["tmdb_title"], "Episode Alpha")
         self.assertEqual(result["matches"][1]["score"], 0.72)
 
+    def test_episode_title_variants_count_as_one_episode(self):
+        result = _episode_title_comparison(
+            [["German Episode Name", "English Episode Name"], ["Next Episode"]],
+            ["English Episode Name", "Next Episode", "Unrelated"],
+        )
+        self.assertEqual(result["score"], 1.0)
+        self.assertEqual(len(result["matches"]), 2)
+
     def test_episode_title_similarity_matches_provider_bundles_to_any_episode(self):
         score = _episode_title_similarity(
             ["The Fate of Particular Adventurers", "I Got a Girlfriend!"],
