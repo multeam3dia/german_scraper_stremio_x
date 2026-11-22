@@ -556,12 +556,12 @@ def _metadata_signal_scores(
     """Compare optional provider credits/studio against TMDB, without penalizing gaps."""
     directors = metadata.get("directors")
     directors = (
-        [str(value).strip() for value in directors if str(value).strip()]
+        [str(value).strip() for value in directors if value is not None and str(value).strip()]
         if isinstance(directors, list) else []
     )
     actors = metadata.get("actors")
     actors = (
-        [str(value).strip() for value in actors if str(value).strip()]
+        [str(value).strip() for value in actors if value is not None and str(value).strip()]
         if isinstance(actors, list) else []
     )
 
