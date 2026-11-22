@@ -158,6 +158,28 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 0.94)
         self.assertEqual(result["candidate_year"], 2017)
 
+    def test_exact_year_resolves_same_title_candidates_at_margin_boundary(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 101, "name": "The Bridge", "original_name": "The Bridge",
+                     "first_air_date": "2011-01-01"},
+                    {"id": 102, "name": "The Bridge", "original_name": "The Bridge",
+                     "first_air_date": "2013-01-01"},
+                ]}
+            if path == "/tv/101/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "The Bridge", "year": 2011},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 101)
+        self.assertEqual(result["candidate_year"], 2011)
+        self.assertGreaterEqual(result["margin"], MIN_MARGIN)
+
     def test_similarly_scored_remakes_are_ambiguous(self):
         def fake_get(path, params):
             if path == "/search/tv":
