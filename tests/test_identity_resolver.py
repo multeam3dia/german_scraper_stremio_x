@@ -1821,6 +1821,37 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["candidate_year"], 1992)
 
 
+    def test_episode_title_comparison_does_not_cross_match_different_seasons(self):
+        provider_structure = {
+            "seasons": [
+                {"season_number": 1, "episodes": [
+                    {"episode_number": 1, "title": "Season One Alpha"},
+                    {"episode_number": 2, "title": "Season One Beta"},
+                    {"episode_number": 3, "title": "Season One Gamma"},
+                ]},
+                {"season_number": 2, "episodes": [
+                    {"episode_number": 1, "title": "Season Two Alpha"},
+                    {"episode_number": 2, "title": "Season Two Beta"},
+                    {"episode_number": 3, "title": "Season Two Gamma"},
+                ]},
+            ],
+        }
+        candidate_titles = {
+            "1": [
+                {"episode_number": 1, "name": "Unrelated One"},
+                {"episode_number": 2, "name": "Unrelated Two"},
+                {"episode_number": 3, "name": "Unrelated Three"},
+            ],
+            "2": [
+                {"episode_number": 1, "name": "Season One Alpha"},
+                {"episode_number": 2, "name": "Season One Beta"},
+                {"episode_number": 3, "name": "Season One Gamma"},
+            ],
+        }
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertIsNotNone(score)
+        self.assertLess(score, 0.70)
+
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
         provider_structure = {
             "seasons": [{
