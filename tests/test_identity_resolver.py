@@ -1850,7 +1850,7 @@ class IdentityResolverTests(unittest.TestCase):
         }
         score = _episode_title_similarity(provider_structure, candidate_titles)
         self.assertIsNotNone(score)
-        self.assertLess(score, 0.70)
+        self.assertEqual(score, 0.0)
 
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
         provider_structure = {
