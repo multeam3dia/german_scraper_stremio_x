@@ -1,0 +1,326 @@
+{
+  "benchmark_name": "Manual resolver benchmark",
+  "version": 1,
+  "source": "User-reviewed unresolved AniWorld resolver cases from the Nov 2026 review",
+  "cases": [
+    {
+      "case": 1,
+      "imdb_ids": [
+        "tt20234560"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 2,
+      "imdb_ids": [
+        "tt13041826"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 3,
+      "imdb_ids": [
+        "tt3565112",
+        "tt3565136",
+        "tt3565148",
+        "tt3565158",
+        "tt3565160",
+        "tt3565164"
+      ],
+      "type": "series",
+      "notes": "Individual episode IMDb IDs"
+    },
+    {
+      "case": 4,
+      "imdb_ids": [
+        "tt30089363"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 5,
+      "imdb_ids": [
+        "tt25814162"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 6,
+      "imdb_ids": [
+        "tt15070970"
+      ],
+      "type": "unknown",
+      "notes": "Provider lists one episode but title indicates bundled episodes"
+    },
+    {
+      "case": 7,
+      "imdb_ids": [
+        "tt14228078"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 8,
+      "imdb_ids": [
+        "tt4292186"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 9,
+      "imdb_ids": [
+        "tt0105559"
+      ],
+      "type": "unknown",
+      "notes": "Match supported by episode titles"
+    },
+    {
+      "case": 10,
+      "imdb_ids": [
+        "tt5330582"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 11,
+      "imdb_ids": [],
+      "type": "unknown",
+      "notes": "Still unresolved"
+    },
+    {
+      "case": 12,
+      "imdb_ids": [],
+      "type": "series",
+      "notes": "Per-episode IMDb IDs researched earlier; exact IDs not present in current benchmark notes"
+    },
+    {
+      "case": 13,
+      "imdb_ids": [
+        "tt11033998"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 14,
+      "imdb_ids": [],
+      "type": "series",
+      "notes": "Individual episode IMDb entries; exact IDs not present in current benchmark notes"
+    },
+    {
+      "case": 15,
+      "imdb_ids": [
+        "tt6900448"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 16,
+      "imdb_ids": [
+        "tt6336356"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 17,
+      "imdb_ids": [
+        "tt0816393"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 18,
+      "imdb_ids": [
+        "tt0168283"
+      ],
+      "type": "unknown",
+      "notes": "Alternative title visible on cover"
+    },
+    {
+      "case": 19,
+      "imdb_ids": [
+        "tt1203269"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 20,
+      "imdb_ids": [
+        "tt15286358"
+      ],
+      "type": "movie",
+      "notes": "Film; AniWorld year differs by one"
+    },
+    {
+      "case": 21,
+      "imdb_ids": [
+        "tt7456468"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 22,
+      "imdb_ids": [
+        "tt0193253"
+      ],
+      "type": "movie",
+      "notes": "Film; year differs by one, director matches"
+    },
+    {
+      "case": 23,
+      "imdb_ids": [
+        "tt13409496"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 24,
+      "imdb_ids": [
+        "tt8839614"
+      ],
+      "type": "unknown",
+      "notes": "AniWorld episode structure may be incomplete"
+    },
+    {
+      "case": 25,
+      "imdb_ids": [
+        "tt0991051"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 26,
+      "imdb_ids": [
+        "tt3665930"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 27,
+      "imdb_ids": [
+        "tt43613803"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 28,
+      "imdb_ids": [
+        "tt8176578"
+      ],
+      "type": "movie",
+      "notes": "Film; description supports identification"
+    },
+    {
+      "case": 29,
+      "imdb_ids": [
+        "tt8092118"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 30,
+      "imdb_ids": [
+        "tt9532342"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 31,
+      "imdb_ids": [
+        "tt17056176"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 32,
+      "imdb_ids": [
+        "tt0288933"
+      ],
+      "type": "unknown",
+      "notes": "Year and episode count match"
+    },
+    {
+      "case": 33,
+      "imdb_ids": [
+        "tt0221735"
+      ],
+      "type": "unknown",
+      "notes": "Start year fits; episode titles match early episodes"
+    },
+    {
+      "case": 34,
+      "imdb_ids": [
+        "tt18554728"
+      ],
+      "type": "unknown",
+      "notes": "Title/year match; provider seems to bundle two episodes"
+    },
+    {
+      "case": 35,
+      "imdb_ids": [
+        "tt11916718"
+      ],
+      "type": "unknown",
+      "notes": "Title/year match; episode names partly match; provider bundles episodes"
+    },
+    {
+      "case": 36,
+      "imdb_ids": [
+        "tt16344002"
+      ],
+      "type": "unknown",
+      "notes": "Title/year/episode count match"
+    },
+    {
+      "case": 37,
+      "imdb_ids": [
+        "tt0497532"
+      ],
+      "type": "movie",
+      "notes": "Film"
+    },
+    {
+      "case": 38,
+      "imdb_ids": [
+        "tt19390124"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 39,
+      "imdb_ids": [
+        "tt6548016"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    },
+    {
+      "case": 40,
+      "imdb_ids": [
+        "tt0133295"
+      ],
+      "type": "unknown",
+      "notes": "Manual match"
+    }
+  ]
+}
