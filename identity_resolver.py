@@ -414,8 +414,7 @@ def _candidate_episode_titles(
     provider_seasons = provider_structure.get("seasons") if isinstance(provider_structure, dict) else []
     if not isinstance(provider_seasons, list):
         provider_seasons = []
-    provider_titles = []
-    season_numbers = []
+    season_title_map = {}
     for season in provider_seasons:
         if not isinstance(season, dict):
             continue
@@ -434,11 +433,11 @@ def _candidate_episode_titles(
             if isinstance(values, list):
                 season_titles.extend(str(value) for value in values if value)
         if season_titles:
-            season_numbers.append(number)
-            provider_titles.extend(season_titles)
+            season_title_map[number] = season_titles
+    season_numbers = sorted(season_title_map)[:max_seasons]
+    provider_titles = [title for number in season_numbers for title in season_title_map[number]]
     if not provider_titles:
         return {"score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": []}
-    season_numbers = season_numbers[:max_seasons]
     candidate_titles = []
     checked = []
     for number in season_numbers:
