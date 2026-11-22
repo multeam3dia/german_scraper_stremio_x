@@ -299,6 +299,31 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(summary["matched"], 1)
         self.assertEqual(summary["results"][0]["status"], "matched")
 
+    def test_batch_cache_reuses_duplicate_tmdb_search_requests(self):
+        catalog_db.record_unresolved_title(
+            "aniworld", "https://aniworld.to/anime/stream/example-one",
+            "Example Anime", "series", year=2024,
+        )
+        catalog_db.record_unresolved_title(
+            "serienstream", "https://serienstream.to/serie/example-one",
+            "Example Anime", "series", year=2024,
+        )
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, dict(params or {})))
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 555, "name": "Example Anime", "original_name": "Example Anime",
+                     "first_air_date": "2024-01-01"}
+                ]}
+            return {}
+
+        summary = resolve_unresolved_titles(apply=False, search_fn=fake_get)
+        self.assertEqual(summary["scanned"], 2)
+        search_calls = [call for call in calls if call[0] == "/search/tv"]
+        self.assertEqual(len(search_calls), 1)
+
     def test_dry_run_does_not_admit_title_to_catalog(self):
         catalog_db.record_unresolved_title(
             "serienstream", "https://serienstream.to/serie/dark", "Dark",
