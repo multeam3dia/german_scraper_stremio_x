@@ -1809,5 +1809,30 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(any(path == "/tv/88001" for path in calls))
 
 
+    def test_clear_exact_leader_skips_weak_runner_alternative_title_fetch(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 88011, "name": "Exact Match Series", "original_name": "Exact Match Series",
+                     "first_air_date": "2020-01-01"},
+                    {"id": 88012, "name": "Unrelated Candidate", "original_name": "Unrelated Candidate",
+                     "first_air_date": "2019-01-01"},
+                ]}
+            if path == "/tv/88011/external_ids":
+                return {"imdb_id": "tt1234568"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider": "aniworld",
+             "provider_title": "Exact Match Series", "year": 2020},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertNotIn("/tv/88012/alternative_titles", calls)
+
+
 if __name__ == "__main__":
     unittest.main()
