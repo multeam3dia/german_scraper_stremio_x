@@ -688,6 +688,37 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, ["/search/tv", "/tv/53/external_ids"])
 
 
+    def test_alternative_title_shortlist_expands_beyond_initial_ten(self):
+        candidates = [
+            {"id": 200 + i, "name": f"Alias Rescue Candidate {i}",
+             "original_name": f"Alias Rescue Candidate {i}",
+             "first_air_date": f"{2000 + i}-01-01"}
+            for i in range(1, 11)
+        ]
+        candidates.append({
+            "id": 999, "name": "完全に別のタイトル",
+            "original_name": "完全に別のタイトル", "first_air_date": "2020-01-01",
+        })
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": candidates}
+            if path == "/tv/999/alternative_titles":
+                return {"results": [{"title": "Alias Rescue Show"}]}
+            if path == "/tv/999/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Alias Rescue Show", "year": 2020},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 999)
+        self.assertIn("/tv/999/alternative_titles", calls)
+
     def test_yugioh_zero_matches_tmdb_alternative_title(self):
         calls = []
 
