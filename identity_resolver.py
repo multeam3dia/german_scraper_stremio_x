@@ -822,6 +822,19 @@ def find_tmdb_match(
     provider_title = str(record.get("provider_title") or "").strip()
     if not provider_title:
         return {"status": "no_match", "reason": "Provider title is empty"}
+
+    # Memoize identical TMDB requests for this one title resolution. Some
+    # candidates need details both for metadata corroboration and structure
+    # checks; keep the cache local to avoid stale cross-title evidence.
+    single_request_cache: dict[str, dict[str, Any]] = {}
+
+    def cached_search(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        key = json.dumps([path, params or {}], sort_keys=True, ensure_ascii=False, default=str)
+        if key not in single_request_cache:
+            single_request_cache[key] = search_fn(path, params)
+        return copy.deepcopy(single_request_cache[key])
+
+    search_fn = cached_search
     provider_year = _coerce_year(record.get("year"))
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     provider_aliases = metadata.get("alternative_titles")
