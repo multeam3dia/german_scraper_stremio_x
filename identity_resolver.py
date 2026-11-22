@@ -1022,8 +1022,16 @@ def find_tmdb_match(
     ]
     initial_best = initial_title_scores[0] if initial_title_scores else 0.0
     initial_second = initial_title_scores[1] if len(initial_title_scores) > 1 else 0.0
+    exact_leader_year = _year_from_result(preliminary[0], media_type) if preliminary else None
+    requested_year = _coerce_year(record.get("year"))
+    exact_leader_year_compatible = (
+        requested_year is None
+        or exact_leader_year is None
+        or abs(exact_leader_year - requested_year) <= 1
+    )
     clear_exact_leader = (
         initial_best >= 0.99
+        and exact_leader_year_compatible
         and (len(initial_title_scores) == 1 or initial_best - initial_second >= 0.08)
     )
     # When a unique exact title already leads, alternative-title calls for
