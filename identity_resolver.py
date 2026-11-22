@@ -403,15 +403,25 @@ def _description_similarity(provider_text: str, candidate_text: str) -> float | 
     return round(len(left & right) / min(len(left), len(right)), 4)
 
 
+def _episode_count_bundle(provider_count: int, tmdb_count: int) -> int | None:
+    """Detect consistent 2:1 provider/TMDB episode bundling."""
+    if provider_count < 1 or tmdb_count < 1:
+        return None
+    if abs(provider_count * 2 - tmdb_count) <= max(2, int(tmdb_count * 0.15)):
+        return 2
+    if abs(tmdb_count * 2 - provider_count) <= max(2, int(provider_count * 0.15)):
+        return 2
+    return None
+
+
 def _structure_comparison(
     provider_structure: dict[str, Any], candidate_details: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Compare provider season/episode counts with TMDB; missing data stays neutral."""
+    """Compare season/episode counts, allowing consistent episode bundling."""
     if not isinstance(provider_structure, dict) or not provider_structure.get("complete"):
         return {"status": "not_available", "score": None, "mismatch": False}
     if not isinstance(candidate_details, dict):
         return {"status": "not_available", "score": None, "mismatch": False}
-
     try:
         provider_episodes = int(provider_structure.get("episode_count"))
         provider_seasons = int(provider_structure.get("season_count"))
@@ -425,55 +435,60 @@ def _structure_comparison(
     episode_delta = abs(provider_episodes - tmdb_episodes)
     episode_ratio = episode_delta / max(provider_episodes, tmdb_episodes)
     season_delta = abs(provider_seasons - tmdb_seasons)
-    # A large episode-count contradiction is strong negative evidence. A small
-    # discrepancy is common for specials, split cours and provider numbering.
-    episode_mismatch = episode_delta >= max(5, int(max(provider_episodes, tmdb_episodes) * 0.25))
-    season_mismatch = season_delta >= 2 and min(provider_seasons, tmdb_seasons) >= 2
-    mismatch = episode_mismatch or season_mismatch
-
+    mismatch = (
+        episode_delta >= max(5, int(max(provider_episodes, tmdb_episodes) * 0.25))
+        or (season_delta >= 2 and min(provider_seasons, tmdb_seasons) >= 2)
+    )
     provider_by_season = {
         str(item.get("season_number")): int(item.get("episode_count", 0))
         for item in provider_structure.get("seasons", [])
         if isinstance(item, dict) and item.get("season_number") is not None
     }
     tmdb_by_season = candidate_details.get("seasons")
-    season_comparable = isinstance(tmdb_by_season, list) and bool(provider_by_season)
+    tmdb_map = {
+        str(item.get("season_number")): int(item.get("episode_count", 0))
+        for item in tmdb_by_season
+        if isinstance(item, dict) and item.get("season_number") is not None
+        and int(item.get("season_number", 0)) > 0
+    } if isinstance(tmdb_by_season, list) else {}
+    shared = set(provider_by_season) & set(tmdb_map)
     season_detail_mismatch = False
-    if season_comparable:
-        tmdb_map = {
-            str(item.get("season_number")): int(item.get("episode_count", 0))
-            for item in tmdb_by_season
-            if isinstance(item, dict) and item.get("season_number") is not None
-            and int(item.get("season_number", 0)) > 0
-        }
-        shared = set(provider_by_season) & set(tmdb_map)
-        if shared:
-            season_detail_mismatch = any(
-                abs(provider_by_season[key] - tmdb_map[key]) >= max(
-                    5, int(max(provider_by_season[key], tmdb_map[key]) * 0.35)
-                )
-                for key in shared
+    if isinstance(tmdb_by_season, list) and provider_by_season and shared:
+        season_detail_mismatch = any(
+            abs(provider_by_season[key] - tmdb_map[key]) >= max(
+                5, int(max(provider_by_season[key], tmdb_map[key]) * 0.35)
             )
-            mismatch = mismatch or season_detail_mismatch
+            for key in shared
+        )
+        mismatch = mismatch or season_detail_mismatch
 
+    # Bundling is only accepted when overall counts are close to 2:1 and
+    # season counts agree. If season-level counts exist, >=75% must support it.
+    bundle_factor = None
+    if _episode_count_bundle(provider_episodes, tmdb_episodes) and provider_seasons == tmdb_seasons:
+        season_checks = [
+            _episode_count_bundle(provider_by_season[key], tmdb_map[key])
+            for key in shared
+            if provider_by_season[key] > 0 and tmdb_map[key] > 0
+        ]
+        if not season_checks or sum(value == 2 for value in season_checks) / len(season_checks) >= 0.75:
+            bundle_factor = 2
+            mismatch = False
+            season_detail_mismatch = False
+
+    status = "bundled_match" if bundle_factor else ("mismatch" if mismatch else "match")
+    score = 0.75 if bundle_factor else (
+        0.0 if mismatch else round(max(0.0, 1.0 - episode_ratio * 0.5 - season_delta * 0.05), 4)
+    )
     return {
-        "status": "mismatch" if mismatch else "match",
-        "score": 0.0 if mismatch else round(max(0.0, 1.0 - episode_ratio * 0.5 - season_delta * 0.05), 4),
-        "mismatch": mismatch,
+        "status": status, "score": score, "mismatch": mismatch,
         "provider": {"season_count": provider_seasons, "episode_count": provider_episodes,
                      "seasons": provider_by_season},
         "tmdb": {"season_count": tmdb_seasons, "episode_count": tmdb_episodes,
-                 "seasons": {
-                     str(item.get("season_number")): int(item.get("episode_count", 0))
-                     for item in tmdb_by_season
-                     if isinstance(item, dict) and item.get("season_number") is not None
-                     and int(item.get("season_number", 0)) > 0
-                 } if isinstance(tmdb_by_season, list) else {}},
-        "episode_delta": episode_delta,
-        "season_delta": season_delta,
-        "season_detail_mismatch": season_detail_mismatch,
+                 "seasons": tmdb_map},
+        "episode_delta": episode_delta, "season_delta": season_delta,
+        "season_detail_mismatch": season_detail_mismatch, "bundle_factor": bundle_factor,
     }
-
 
 def _candidate_score(
     provider_title: str, provider_year: int | None,
