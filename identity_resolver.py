@@ -8,6 +8,7 @@ required for a confident canonical TMDB identity.
 from __future__ import annotations
 
 import argparse
+import copy
 import difflib
 import json
 import logging
@@ -1580,6 +1581,19 @@ def resolve_unresolved_titles(
     # (for example sequel/season pages sharing a franchise-level external ID).
     evaluated: list[tuple[dict[str, Any], dict[str, Any]]] = []
     genre_maps: dict[str, dict[int, str]] = {}
+    # Cache identical TMDB requests for this batch only. This safely avoids
+    # repeated search/details/credits calls for duplicate provider entries while
+    # keeping each resolver invocation isolated and returning independent objects.
+    request_cache: dict[str, dict[str, Any]] = {}
+
+    def cached_search(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        cache_key = json.dumps(
+            [path, params or {}], sort_keys=True, ensure_ascii=False, default=str
+        )
+        if cache_key not in request_cache:
+            request_cache[cache_key] = search_fn(path, params)
+        return copy.deepcopy(request_cache[cache_key])
+
     for record in records:
         metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
         has_provider_genres = (
@@ -1592,7 +1606,7 @@ def resolve_unresolved_titles(
             if media_type not in genre_maps:
                 endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
                 try:
-                    payload = search_fn(endpoint, {"language": "de-DE"})
+                    payload = cached_search(endpoint, {"language": "de-DE"})
                     genre_maps[media_type] = {
                         int(item["id"]): str(item["name"])
                         for item in payload.get("genres", [])
@@ -1601,7 +1615,7 @@ def resolve_unresolved_titles(
                 except Exception:
                     genre_maps[media_type] = {}
             genre_map = genre_maps[media_type]
-        result = find_tmdb_match(record, search_fn=search_fn, genre_map=genre_map)
+        result = find_tmdb_match(record, search_fn=cached_search, genre_map=genre_map)
         provider_structure = metadata.get("provider_structure")
         has_structure = (
             isinstance(provider_structure, dict)
