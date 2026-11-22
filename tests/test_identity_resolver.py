@@ -1013,8 +1013,25 @@ class IdentityResolverTests(unittest.TestCase):
             search_fn=fake_get,
         )
         self.assertEqual(result["status"], "ambiguous")
+        self.assertIn("/tv/880", calls)
+        self.assertIn("/tv/881", calls)
+
+    def test_episode_title_helper_fetches_season_titles(self):
+        calls = []
+        from identity_resolver import _candidate_episode_titles
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/tv/880/season/1":
+                return {"episodes": [{"name": "Evidence episode one"}, {"name": "Evidence episode two"}]}
+            return {}
+        info = _candidate_episode_titles(
+            {"id": 880},
+            {"seasons": [{"season_number": 1, "episode_titles": [
+                {"titles": ["Evidence episode one"]}, {"titles": ["Evidence episode two"]}]}]},
+            fake_get,
+        )
         self.assertIn("/tv/880/season/1", calls)
-        self.assertIn("/tv/881/season/1", calls)
+        self.assertEqual(info["score"], 1.0)
 
     def test_structure_check_is_not_fetched_for_clear_exact_match(self):
         calls = []
