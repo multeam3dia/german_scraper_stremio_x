@@ -415,6 +415,7 @@ def _candidate_episode_titles(
     if not isinstance(provider_seasons, list):
         provider_seasons = []
     season_title_map = {}
+    season_episode_map = {}
     for season in provider_seasons:
         if not isinstance(season, dict):
             continue
@@ -425,17 +426,23 @@ def _candidate_episode_titles(
         titles = season.get("episode_titles") or []
         if not isinstance(titles, list):
             continue
+        season_groups = []
         season_titles = []
         for episode in titles:
             if not isinstance(episode, dict):
                 continue
             values = episode.get("titles") or []
             if isinstance(values, list):
-                season_titles.extend(str(value) for value in values if value)
+                variants = list(dict.fromkeys(str(value).strip() for value in values if value and _normalize(str(value))))
+                if variants:
+                    season_groups.append(variants)
+                    season_titles.extend(variants)
         if season_titles:
             season_title_map[number] = season_titles
+            season_episode_map[number] = season_groups
     season_numbers = sorted(season_title_map)[:max_seasons]
     provider_titles = [title for number in season_numbers for title in season_title_map[number]]
+    provider_episode_groups = [group for number in season_numbers for group in season_episode_map[number]]
     if not provider_titles:
         return {"score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": []}
     candidate_titles = []
@@ -453,7 +460,7 @@ def _candidate_episode_titles(
             str(episode.get("name") or "").strip()
             for episode in episodes if isinstance(episode, dict) and episode.get("name")
         )
-    comparison = _episode_title_comparison(provider_titles, candidate_titles)
+    comparison = _episode_title_comparison(provider_episode_groups, candidate_titles)
     return {
         "score": comparison["score"],
         "matches": comparison["matches"],
@@ -463,20 +470,28 @@ def _candidate_episode_titles(
     }
 
 
-def _episode_title_comparison(provider_titles: list[str], candidate_titles: list[str]) -> dict[str, Any]:
-    """Return one-way similarity plus per-provider best matching TMDB episode title."""
-    left = [(str(raw), _normalize(raw)) for raw in provider_titles if _normalize(raw)]
+def _episode_title_comparison(provider_titles: list[str] | list[list[str]], candidate_titles: list[str]) -> dict[str, Any]:
+    """Compare episode groups; language variants are alternatives, not extra episodes."""
+    left_groups = []
+    for entry in provider_titles:
+        variants = entry if isinstance(entry, list) else [entry]
+        normalized = [(str(raw), _normalize(str(raw))) for raw in variants if _normalize(str(raw))]
+        if normalized:
+            left_groups.append(normalized)
     right = [(str(raw), _normalize(raw)) for raw in candidate_titles if _normalize(raw)]
-    if not left or not right:
+    if not left_groups or not right:
         return {"score": None, "matches": []}
     matches = []
     scores = []
-    for raw_provider, provider_title in left:
-        best_raw, best_normalized = max(
-            right,
-            key=lambda pair: 1.0 if provider_title == pair[1] else
-                difflib.SequenceMatcher(None, provider_title, pair[1]).ratio(),
+    for variants in left_groups:
+        best = max(
+            ((raw_provider, raw_tmdb, normalized_provider, normalized_tmdb)
+             for raw_provider, normalized_provider in variants
+             for raw_tmdb, normalized_tmdb in right),
+            key=lambda pair: 1.0 if pair[2] == pair[3] else
+                difflib.SequenceMatcher(None, pair[2], pair[3]).ratio(),
         )
+        raw_provider, best_raw, provider_title, best_normalized = best
         score = 1.0 if provider_title == best_normalized else difflib.SequenceMatcher(None, provider_title, best_normalized).ratio()
         scores.append(score)
         matches.append({"provider_title": raw_provider, "tmdb_title": best_raw, "score": round(score, 4)})
