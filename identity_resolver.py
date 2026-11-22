@@ -1042,15 +1042,19 @@ def find_tmdb_match(
     # Title scoring repeatedly normalizes the same candidate variants. Cache per
     # candidate object for this resolution only; alternative titles are complete
     # before this point and candidates are not mutated during scoring.
-    title_similarity_cache: dict[int, float] = {}
+    title_match_cache: dict[int, tuple[float, str | None]] = {}
 
-    def cached_title_similarity(item: dict[str, Any]) -> float:
+    def cached_title_match(item: dict[str, Any]) -> tuple[float, str | None]:
         key = id(item)
-        if key not in title_similarity_cache:
-            title_similarity_cache[key] = _provider_title_similarity(
+        if key not in title_match_cache:
+            title_match_cache[key] = _best_provider_title_match(
                 provider_title, provider_aliases, item, media_type
             )
-        return title_similarity_cache[key]
+        return title_match_cache[key]
+
+
+    def cached_title_similarity(item: dict[str, Any]) -> float:
+        return cached_title_match(item)[0]
 
 
     preliminary = sorted(
@@ -1094,7 +1098,7 @@ def find_tmdb_match(
                 item["_alternative_titles_error"] = type(exc).__name__
 
     # Alternative titles may have been added above; invalidate initial-order scores.
-    title_similarity_cache.clear()
+    title_match_cache.clear()
     best_preliminary_title = cached_title_similarity(preliminary[0]) if preliminary else 0.0
     second_preliminary_title = cached_title_similarity(preliminary[1]) if len(preliminary) > 1 else 0.0
     uncertain_shortlist = (
