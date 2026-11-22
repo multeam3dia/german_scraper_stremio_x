@@ -1107,9 +1107,14 @@ def find_tmdb_match(
             "structure": structure_scores.get(item.get("id"), {
                 "status": "not_available", "score": None, "mismatch": False,
             }),
-            "episode_titles": episode_title_scores.get(item.get("id"), {
-                "score": None, "matches": [], "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
-            }),
+            "episode_titles": {
+                **episode_title_scores.get(item.get("id"), {
+                    "score": None, "matches": [], "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
+                }),
+                "ranking_bonus": (
+                    min(0.06, max(0.0, (episode_title_scores.get(item.get("id")) or {}).get("score", 0.0) - 0.50) * 0.12)
+                    if (episode_title_scores.get(item.get("id")) or {}).get("score") is not None else 0.0
+            },
             "description": {"provider_available": bool(provider_description),
                            "similarity": description_scores.get(item.get("id")),
                            "status": "not_available" if description_scores.get(item.get("id")) is None else "weak_support"},
