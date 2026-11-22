@@ -1017,6 +1017,17 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "bundled_match")
         self.assertFalse(result["mismatch"])
 
+    def test_structure_comparison_rejects_small_false_bundle_ratio(self):
+        result = _structure_comparison(
+            {"complete": True, "season_count": 1, "episode_count": 1,
+             "seasons": [{"season_number": 1, "episode_count": 1}]},
+            {"number_of_seasons": 1, "number_of_episodes": 3,
+             "seasons": [{"season_number": 1, "episode_count": 3}]},
+        )
+        self.assertEqual(result["status"], "mismatch")
+        self.assertTrue(result["mismatch"])
+        self.assertIsNone(result["bundle_factor"])
+
     def test_structure_comparison_does_not_hide_unrelated_count_mismatch(self):
         result = _structure_comparison(
             {"complete": True, "season_count": 1, "episode_count": 10,
