@@ -962,6 +962,8 @@ class IdentityResolverTests(unittest.TestCase):
             if path == "/tv/341826":
                 return {"number_of_seasons": 1, "number_of_episodes": 12,
                         "seasons": [{"season_number": 1, "episode_count": 12}]}
+            if path == "/tv/341826/season/1":
+                return {"episodes": [{"name": "Provider episode evidence"}]}
             return {}
 
         result = find_tmdb_match(
@@ -969,7 +971,8 @@ class IdentityResolverTests(unittest.TestCase):
                 "media_type": "series", "provider_title": "Animal Crossing", "year": 2006,
                 "metadata": {"provider_structure": {
                     "complete": True, "season_count": 1, "episode_count": 1,
-                    "seasons": [{"season_number": 1, "episode_count": 1}],
+                    "seasons": [{"season_number": 1, "episode_count": 1,
+                                 "episode_titles": [{"titles": ["Provider episode evidence"]}]}],
                 }},
             },
             search_fn=fake_get,
@@ -980,6 +983,7 @@ class IdentityResolverTests(unittest.TestCase):
             "provider_tmdb_episode_structure_mismatch",
         )
         self.assertIn("/tv/341826", calls)
+        self.assertIn("/tv/341826/season/1", calls)
 
     def test_structure_check_is_not_fetched_for_clear_exact_match(self):
         calls = []
