@@ -829,6 +829,37 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
+    def test_episode_counts_alone_do_not_rescue_weak_title_match(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 209, "name": "Otome Yokai Zakuro",
+                    "original_name": "おとめ妖怪 ざくろ",
+                    "first_air_date": "2010-10-01",
+                }]}
+            if path == "/tv/209":
+                return {
+                    "number_of_seasons": 1, "number_of_episodes": 13,
+                    "seasons": [{"season_number": 1, "episode_count": 13}],
+                }
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream",
+                "media_type": "series",
+                "provider_title": "Zakuro",
+                "year": 2010,
+                "metadata": {"provider_structure": {
+                    "complete": True, "season_count": 1, "episode_count": 13,
+                    "seasons": [{"season_number": 1, "episode_count": 13}],
+                }},
+            },
+            search_fn=fake_get,
+        )
+        self.assertNotEqual(result["status"], "matched")
+        self.assertNotEqual(result["status"], "identified")
+
     def test_weak_title_can_be_rescued_by_two_independent_metadata_signals(self):
         calls = []
 
