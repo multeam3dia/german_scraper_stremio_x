@@ -1183,7 +1183,7 @@ def find_tmdb_match(
     candidates: list[tuple[float, dict[str, Any], float, int | None, float | None]] = []
     rejected_diagnostics = []
     for item in preliminary[:20]:
-        title_score, matched_title = _best_provider_title_match(provider_title, provider_aliases, item, media_type)
+        title_score, matched_title = cached_title_match(item)
         independent_signals = corroboration_values(item)
         strong_signal_count = len([value for value in independent_signals if value >= 0.85])
         strong_metadata = (
@@ -1455,7 +1455,7 @@ def find_tmdb_match(
                       "tmdb": (item.get("name") if media_type == "series" else item.get("title")) or "",
                       "status": "match" if item_title_score == 1.0 else "partial_match",
                       "score": item_title_score,
-                      "matched_variant": _best_provider_title_match(provider_title, provider_aliases, item, media_type)[1]},
+                      "matched_variant": cached_title_match(item)[1]},
             "original_title": (item.get("original_name") if media_type == "series" else item.get("original_title")),
             "alternative_titles": item.get("_alternative_titles") or [],
             "matched_queries": item.get("_matched_queries") or [],
