@@ -993,6 +993,41 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotIn("/tv/810", calls)
 
     
+    def test_structure_comparison_accepts_two_to_one_episode_bundling(self):
+        result = _structure_comparison(
+            {"complete": True, "season_count": 2, "episode_count": 24,
+             "seasons": [{"season_number": 1, "episode_count": 12},
+                         {"season_number": 2, "episode_count": 12}]},
+            {"number_of_seasons": 2, "number_of_episodes": 48,
+             "seasons": [{"season_number": 1, "episode_count": 24},
+                         {"season_number": 2, "episode_count": 24}]},
+        )
+        self.assertEqual(result["status"], "bundled_match")
+        self.assertFalse(result["mismatch"])
+        self.assertEqual(result["bundle_factor"], 2)
+        self.assertEqual(result["score"], 0.75)
+
+    def test_structure_comparison_accepts_reverse_two_to_one_bundling(self):
+        result = _structure_comparison(
+            {"complete": True, "season_count": 1, "episode_count": 24,
+             "seasons": [{"season_number": 1, "episode_count": 24}]},
+            {"number_of_seasons": 1, "number_of_episodes": 12,
+             "seasons": [{"season_number": 1, "episode_count": 12}]},
+        )
+        self.assertEqual(result["status"], "bundled_match")
+        self.assertFalse(result["mismatch"])
+
+    def test_structure_comparison_does_not_hide_unrelated_count_mismatch(self):
+        result = _structure_comparison(
+            {"complete": True, "season_count": 1, "episode_count": 10,
+             "seasons": [{"season_number": 1, "episode_count": 10}]},
+            {"number_of_seasons": 1, "number_of_episodes": 16,
+             "seasons": [{"season_number": 1, "episode_count": 16}]},
+        )
+        self.assertEqual(result["status"], "mismatch")
+        self.assertTrue(result["mismatch"])
+        self.assertIsNone(result["bundle_factor"])
+
     def test_structure_diagnostics_include_tmdb_per_season_counts(self):
         result = _structure_comparison(
             {"complete": True, "season_count": 1, "episode_count": 1,
