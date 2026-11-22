@@ -497,8 +497,7 @@ def _company_similarity(
     provider_set = {
         _normalize_company(value) for value in provider_companies
         if _normalize_company(value)
-    }
-    candidate_set = {
+    }    candidate_set = {
         _normalize_company(value) for value in candidate_companies
         if _normalize_company(value)
     }
@@ -998,7 +997,6 @@ def find_tmdb_match(
                 )
             overview = str((details or {}).get("overview") or "").strip()
             description_scores[tmdb_id] = _description_similarity(provider_description, overview)
-
     def scores_for(item: dict[str, Any]) -> dict[str, float | None]:
         tmdb_id = item.get("id")
         return metadata_scores.get(tmdb_id, {}) if type(tmdb_id) is int else {}
@@ -1045,7 +1043,6 @@ def find_tmdb_match(
             exact_year and title_score >= 0.35
             and (
                 float(structure.get("episode_title_score") or 0) >= 0.70
-                or float(structure.get("score") or 0) >= 0.95
             )
         )
         year_supported = (
