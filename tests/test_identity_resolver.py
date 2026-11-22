@@ -1019,6 +1019,37 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "matched")
         self.assertNotEqual(result["status"], "identified")
 
+
+    def test_candidate_outside_metadata_shortlist_can_be_rescued_by_credits(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 410, "name": "Zakuro Special 1", "original_name": "Zakuro Special 1", "first_air_date": "2024-01-01"},
+                    {"id": 411, "name": "Zakuro Special 2", "original_name": "Zakuro Special 2", "first_air_date": "2024-01-01"},
+                    {"id": 412, "name": "Zakuro Special 3", "original_name": "Zakuro Special 3", "first_air_date": "2024-01-01"},
+                    {"id": 413, "name": "Zakuro Special 4", "original_name": "Zakuro Special 4", "first_air_date": "2024-01-01"},
+                    {"id": 414, "name": "Zakuro Special 5", "original_name": "Zakuro Special 5", "first_air_date": "2024-01-01"},
+                    {"id": 415, "name": "Otome Yokai Zakuro", "original_name": "おとめ妖怪 ざくろ", "first_air_date": "2010-10-01"},
+                ]}
+            if path == "/tv/415/credits":
+                return {"cast": [{"name": "Actor One"}], "crew": [{"name": "Director One", "job": "Director"}]}
+            if path == "/tv/415/external_ids":
+                return {"imdb_id": "tt1738078"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream", "media_type": "series",
+                "provider_title": "Zakuro", "year": 2010,
+                "metadata": {"actors": ["Actor One"], "directors": ["Director One"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 415)
+        self.assertEqual(result["actor_score"], 1.0)
+        self.assertEqual(result["director_score"], 1.0)
+
     def test_weak_title_can_be_rescued_by_two_independent_metadata_signals(self):
         calls = []
 
