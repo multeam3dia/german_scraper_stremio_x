@@ -10,7 +10,7 @@ from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores,
-    _independent_corroboration_values,
+    _independent_corroboration_values, _is_short_ambiguous_title,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -57,6 +57,54 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(values, [])
 
+
+    def test_short_single_word_titles_are_flagged(self):
+        for title in ("Air", "One", "Dark", "Orange"):
+            with self.subTest(title=title):
+                self.assertTrue(_is_short_ambiguous_title(title))
+        self.assertFalse(_is_short_ambiguous_title("The Dark"))
+        self.assertFalse(_is_short_ambiguous_title("Attack on Titan"))
+
+    def test_short_exact_title_without_independent_evidence_stays_ambiguous(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 777, "name": "Dark", "original_name": "Dark",
+                    "first_air_date": "2017-01-01",
+                }]}
+            if path == "/tv/777/external_ids":
+                return {"imdb_id": "tt5753856"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Dark", "year": 2017},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertIn("Short single-word title", result["reason"])
+        self.assertTrue(result["short_title_safeguard"]["applied"])
+        self.assertFalse(result["short_title_safeguard"]["supported"])
+
+    def test_short_exact_title_with_year_and_strong_credit_can_match(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 778, "name": "Dark", "original_name": "Dark",
+                    "first_air_date": "2017-01-01",
+                }]}
+            if path == "/tv/778/credits":
+                return {"cast": [{"name": "Actor A"}], "crew": []}
+            if path == "/tv/778/external_ids":
+                return {"imdb_id": "tt5753856"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Dark", "year": 2017,
+             "metadata": {"actors": ["Actor A"]}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertTrue(result["short_title_safeguard"]["supported")
 
     def test_aniworld_country_mislabeled_as_studio_is_ignored(self):
         def fake_get(path, params):
