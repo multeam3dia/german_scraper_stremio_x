@@ -92,6 +92,12 @@ def _normalize_text(value: str) -> str:
     return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
 
 
+@lru_cache(maxsize=32768)
+def _similarity_ratio(left: str, right: str) -> float:
+    """Cache repeated directional SequenceMatcher comparisons."""
+    return _similarity_ratio(left, right)
+
+
 def _normalize(value: Any) -> str:
     return _normalize_text(str(value or ""))
 
@@ -159,7 +165,7 @@ def _best_title_match(
         return 0.0, None
     raw, normalized = max(
         variants,
-        key=lambda pair: 1.0 if source == pair[1] else difflib.SequenceMatcher(None, source, pair[1]).ratio(),
+        key=lambda pair: 1.0 if source == pair[1] else _similarity_ratio(source, pair[1]),
     )
     # Ignore spacing differences as well: AniWorld occasionally concatenates
     # words (for example "TwoCar" vs. TMDB's "Two Car").
@@ -167,7 +173,7 @@ def _best_title_match(
     compact_variant = normalized.replace(" ", "")
     score = (
         1.0 if source == normalized or compact_source == compact_variant
-        else difflib.SequenceMatcher(None, source, normalized).ratio()
+        else _similarity_ratio(source, normalized)
     )
     return round(score, 4), raw
 
