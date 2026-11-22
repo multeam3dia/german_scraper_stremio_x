@@ -11,14 +11,26 @@ from .base import BaseProvider, ProviderEpisode, ProviderSeason, ProviderTitle
 
 
 def _structure_summary(series: AniworldSeries) -> dict:
-    """Summarize parsed season pages without fetching individual episode pages."""
+    """Summarize parsed season pages and titles without fetching episode pages."""
     seasons = []
     for season in series.seasons or []:
         episodes = list(getattr(season, "episodes", []) or [])
+        season_number = int(getattr(season, "season_number", 0) or 0)
+        episode_titles = []
+        for episode in episodes:
+            title_de = getattr(episode, "_AniworldEpisode__title_de", None)
+            title_en = getattr(episode, "_AniworldEpisode__title_en", None)
+            titles = [str(value).strip() for value in (title_de, title_en) if value]
+            if titles:
+                episode_titles.append({
+                    "episode_number": int(getattr(episode, "episode_number", 0) or 0),
+                    "titles": list(dict.fromkeys(titles)),
+                })
         seasons.append({
-            "season_number": int(getattr(season, "season_number", 0) or 0),
+            "season_number": season_number,
             "episode_count": len(episodes),
             "is_movie_collection": bool(getattr(season, "are_movies", False)),
+            "episode_titles": episode_titles,
         })
     return {
         "season_count": len(seasons),
