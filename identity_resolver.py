@@ -416,91 +416,98 @@ def _episode_title_similarity(
     provider_structure: dict[str, Any],
     candidate_episode_titles: dict[str, list[dict[str, Any]]] | None,
 ) -> float | None:
-    """Compare AniWorld episode titles, tolerating one provider row merging two episodes."""
-    provider_rows = []
-    for season in provider_structure.get("seasons", []):
-        if isinstance(season, dict):
-            for episode in season.get("episodes", []) or []:
-                if isinstance(episode, dict):
-                    names = [
-                        _normalize(episode.get(key))
-                        for key in ("title", "title_original")
-                        if _normalize(episode.get(key))
-                    ]
-                    if names:
-                        provider_rows.append(names)
-    candidate_rows = []
-    for rows in (candidate_episode_titles or {}).values():
-        for episode in rows:
-            names = [
-                _normalize(episode.get(key))
-                for key in ("name", "original_name")
-                if _normalize(episode.get(key))
-            ]
-            if names:
-                candidate_rows.append(names)
-    # Ignore boilerplate episode labels: they are not independent identity evidence.
+    """Compare episode titles season-by-season, tolerating merged source episodes."""
+    if not isinstance(candidate_episode_titles, dict):
+        return None
+
     generic_title = re.compile(
         r"^(?:episode|episod|ep|part|chapter|chap|ova|special|season|"
         r"series|s)\s*\d*$|^\d+$"
     )
-    provider_rows = [
-        [name for name in names if not generic_title.fullmatch(name)]
-        for names in provider_rows
-    ]
-    provider_rows = [names for names in provider_rows if names]
-    candidate_rows = [
-        [name for name in names if not generic_title.fullmatch(name)]
-        for names in candidate_rows
-    ]
-    candidate_rows = [names for names in candidate_rows if names]
-    if len(provider_rows) < 3 or len(candidate_rows) < 3:
-        return None
+
+    def clean_rows(rows: Any, provider_side: bool) -> list[list[str]]:
+        result = []
+        for episode in rows or []:
+            if not isinstance(episode, dict):
+                continue
+            keys = ("title", "title_original") if provider_side else ("name", "original_name")
+            names = [
+                _normalize(episode.get(key))
+                for key in keys
+                if _normalize(episode.get(key))
+            ]
+            names = [name for name in names if not generic_title.fullmatch(name)]
+            if names:
+                result.append(names)
+        return result
 
     def similarity(left: str, right: str) -> float:
         if left == right:
             return 1.0
         return difflib.SequenceMatcher(None, left, right).ratio()
 
-    edges = []
-    for p_index, p_names in enumerate(provider_rows):
-        for c_index, c_names in enumerate(candidate_rows):
-            score = max(
-                (similarity(left, right) for left in p_names for right in c_names),
-                default=0.0,
-            )
-            edges.append((score, p_index, (c_index,)))
-            # AniWorld occasionally merges two consecutive source episodes
-            # into one longer episode; compare against their joined titles.
-            if c_index + 1 < len(candidate_rows):
-                joined_variants = [
-                    " ".join((left, right))
-                    for left in candidate_rows[c_index]
-                    for right in candidate_rows[c_index + 1]
-                ]
-                merged_score = max(
-                    (
-                        similarity(provider_name, joined)
-                        for provider_name in p_names
-                        for joined in joined_variants
-                    ),
+    total_provider = 0
+    total_candidate = 0
+    total_matched_provider = 0
+    total_matched_candidate = 0
+
+    for season in provider_structure.get("seasons", []):
+        if not isinstance(season, dict):
+            continue
+        season_number = season.get("season_number")
+        try:
+            season_key = str(int(season_number))
+        except (TypeError, ValueError):
+            continue
+        provider_rows = clean_rows(season.get("episodes"), True)
+        candidate_rows = clean_rows(candidate_episode_titles.get(season_key), False)
+        if not provider_rows or not candidate_rows:
+            continue
+        total_provider += len(provider_rows)
+        total_candidate += len(candidate_rows)
+
+        edges = []
+        for p_index, p_names in enumerate(provider_rows):
+            for c_index, c_names in enumerate(candidate_rows):
+                score = max(
+                    (similarity(left, right) for left in p_names for right in c_names),
                     default=0.0,
                 )
-                edges.append((merged_score, p_index, (c_index, c_index + 1)))
-    used_provider: set[int] = set()
-    used_candidate: set[int] = set()
-    matched_provider = 0
-    matched_candidate = 0
-    for score, p_index, c_indices in sorted(edges, reverse=True):
-        if score < 0.78 or p_index in used_provider or any(i in used_candidate for i in c_indices):
-            continue
-        used_provider.add(p_index)
-        used_candidate.update(c_indices)
-        matched_provider += 1
-        matched_candidate += len(c_indices)
+                edges.append((score, p_index, (c_index,)))
+                if c_index + 1 < len(candidate_rows):
+                    joined_variants = [
+                        " ".join((left, right))
+                        for left in c_names
+                        for right in candidate_rows[c_index + 1]
+                    ]
+                    merged_score = max(
+                        (similarity(provider_name, joined)
+                         for provider_name in p_names for joined in joined_variants),
+                        default=0.0,
+                    )
+                    edges.append((merged_score, p_index, (c_index, c_index + 1)))
+
+        used_provider: set[int] = set()
+        used_candidate: set[int] = set()
+        matched_provider = 0
+        matched_candidate = 0
+        for score, p_index, c_indices in sorted(edges, reverse=True):
+            if score < 0.78 or p_index in used_provider or any(
+                index in used_candidate for index in c_indices
+            ):
+                continue
+            used_provider.add(p_index)
+            used_candidate.update(c_indices)
+            matched_provider += 1
+            matched_candidate += len(c_indices)
+        total_matched_provider += matched_provider
+        total_matched_candidate += matched_candidate
+
+    if min(total_provider, total_candidate) < 3:
+        return None
     return round(min(
-        matched_provider / len(provider_rows),
-        matched_candidate / len(candidate_rows),
+        total_matched_provider / total_provider,
+        total_matched_candidate / total_candidate,
     ), 4)
 
 
