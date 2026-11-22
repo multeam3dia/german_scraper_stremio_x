@@ -403,6 +403,65 @@ def _description_similarity(provider_text: str, candidate_text: str) -> float | 
     return round(len(left & right) / min(len(left), len(right)), 4)
 
 
+def _candidate_episode_titles(
+    item: dict[str, Any], provider_structure: dict[str, Any],
+    search_fn: Callable[..., dict[str, Any]], max_seasons: int = 5,
+) -> dict[str, Any]:
+    """Fetch a bounded set of TMDB season titles and compare against provider evidence."""
+    tmdb_id = item.get("id")
+    if type(tmdb_id) is not int or tmdb_id <= 0:
+        return {"score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": []}
+    provider_seasons = provider_structure.get("seasons") if isinstance(provider_structure, dict) else []
+    if not isinstance(provider_seasons, list):
+        provider_seasons = []
+    provider_titles = []
+    season_numbers = []
+    for season in provider_seasons:
+        if not isinstance(season, dict):
+            continue
+        try:
+            number = int(season.get("season_number"))
+        except (TypeError, ValueError):
+            continue
+        titles = season.get("episode_titles") or []
+        if not isinstance(titles, list):
+            continue
+        season_titles = []
+        for episode in titles:
+            if not isinstance(episode, dict):
+                continue
+            values = episode.get("titles") or []
+            if isinstance(values, list):
+                season_titles.extend(str(value) for value in values if value)
+        if season_titles:
+            season_numbers.append(number)
+            provider_titles.extend(season_titles)
+    if not provider_titles:
+        return {"score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": []}
+    season_numbers = season_numbers[:max_seasons]
+    candidate_titles = []
+    checked = []
+    for number in season_numbers:
+        try:
+            payload = search_fn(f"/tv/{tmdb_id}/season/{number}", {"language": "de-DE"})
+        except Exception:
+            continue
+        episodes = payload.get("episodes") if isinstance(payload, dict) else []
+        if not isinstance(episodes, list):
+            continue
+        checked.append(number)
+        candidate_titles.extend(
+            str(episode.get("name") or "").strip()
+            for episode in episodes if isinstance(episode, dict) and episode.get("name")
+        )
+    return {
+        "score": _episode_title_similarity(provider_titles, candidate_titles),
+        "provider_titles": provider_titles,
+        "candidate_titles": candidate_titles,
+        "seasons_checked": checked,
+    }
+
+
 def _episode_title_similarity(provider_titles: list[str], candidate_titles: list[str]) -> float | None:
     """Return normalized best-match overlap for episode titles, tolerant of bundling."""
     left = [_normalize(value) for value in provider_titles if _normalize(value)]
@@ -712,6 +771,7 @@ def find_tmdb_match(
     provider_structure = metadata.get("provider_structure")
     provider_description = str(record.get("description") or metadata.get("description") or "").strip()
     structure_scores: dict[int, dict[str, Any]] = {}
+    episode_title_scores: dict[int, dict[str, Any]] = {}
     description_scores: dict[int, float | None] = {}
     best_preliminary_title = _title_similarity(provider_title, preliminary[0], media_type) if preliminary else 0.0
     second_preliminary_title = _title_similarity(provider_title, preliminary[1], media_type) if len(preliminary) > 1 else 0.0
@@ -730,6 +790,10 @@ def find_tmdb_match(
             details = _candidate_details(item, media_type, search_fn)
             if media_type == "series" and isinstance(provider_structure, dict) and provider_structure.get("complete"):
                 structure_scores[tmdb_id] = _structure_comparison(provider_structure, details)
+                if isinstance(provider_structure.get("seasons"), list):
+                    episode_title_scores[tmdb_id] = _candidate_episode_titles(
+                        item, provider_structure, search_fn
+                    )
             overview = str((details or {}).get("overview") or "").strip()
             description_scores[tmdb_id] = _description_similarity(provider_description, overview)
 
@@ -963,6 +1027,10 @@ def find_tmdb_match(
         description_score = description_scores.get(pair[1].get("id"))
         if description_score is not None:
             score += min(0.03, max(0.0, description_score - 0.25) * 0.04)
+        episode_title_score = (episode_title_scores.get(pair[1].get("id")) or {}).get("score")
+        # Episode names are corroborative only, not sufficient for a match.
+        if episode_title_score is not None:
+            score += min(0.06, max(0.0, episode_title_score - 0.50) * 0.12)
         # A positive genre overlap is a separate, weak ranking signal. A
         # mismatch remains neutral, but a full match must be strong enough to
         # distinguish otherwise identical title/year candidates.
@@ -1031,6 +1099,9 @@ def find_tmdb_match(
                                   ("match" if signals["country_score"] >= 0.5 else "mismatch")},
             "structure": structure_scores.get(item.get("id"), {
                 "status": "not_available", "score": None, "mismatch": False,
+            }),
+            "episode_titles": episode_title_scores.get(item.get("id"), {
+                "score": None, "provider_titles": [], "candidate_titles": [], "seasons_checked": [],
             }),
             "description": {"provider_available": bool(provider_description),
                            "similarity": description_scores.get(item.get("id")),
