@@ -1033,7 +1033,8 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["score"], 0.86)
         self.assertEqual(result["matches"][0]["tmdb_title"], "Episode Alpha")
         self.assertEqual(result["matches"][0]["score"], 1.0)
-        self.assertEqual(result["matches"][1]["tmdb_title"], "Episode Alpha")\n        self.assertEqual(result["matches"][1]["score"], 0.72)
+        self.assertEqual(result["matches"][1]["tmdb_title"], "Episode Alpha")
+        self.assertEqual(result["matches"][1]["score"], 0.72
 
     def test_episode_title_similarity_matches_provider_bundles_to_any_episode(self):
         score = _episode_title_similarity(
