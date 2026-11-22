@@ -993,6 +993,38 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotIn("/tv/810", calls)
 
     
+    def test_candidate_episode_titles_fetches_provider_seasons_and_scores(self):
+        calls = []
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/tv/77/season/1":
+                return {"episodes": [{"name": "Episode Alpha"}, {"name": "Episode Beta"}]}
+            if path == "/tv/77/season/2":
+                return {"episodes": [{"name": "Episode Gamma"}]}
+            return {}
+        result = _candidate_episode_titles(
+            {"id": 77},
+            {"seasons": [
+                {"season_number": 1, "episode_titles": [{"titles": ["Episode Alpha"]}, {"titles": ["Episode Beta"]}]},
+                {"season_number": 2, "episode_titles": [{"titles": ["Episode Gamma"]}]},
+            ]},
+            fake_get,
+        )
+        self.assertEqual(result["score"], 1.0)
+        self.assertEqual(result["seasons_checked"], [1, 2])
+        self.assertEqual(calls, ["/tv/77/season/1", "/tv/77/season/2"])
+
+    def test_candidate_episode_titles_skips_when_provider_titles_missing(self):
+        calls = []
+        def fake_get(path, params):
+            calls.append(path)
+            return {}
+        result = _candidate_episode_titles(
+            {"id": 77}, {"seasons": [{"season_number": 1, "episode_titles": []}]}, fake_get
+        )
+        self.assertIsNone(result["score"])
+        self.assertEqual(calls, [])
+
     def test_episode_title_similarity_matches_provider_bundles_to_any_episode(self):
         score = _episode_title_similarity(
             ["The Fate of Particular Adventurers", "I Got a Girlfriend!"],
