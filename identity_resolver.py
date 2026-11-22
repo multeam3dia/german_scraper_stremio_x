@@ -1409,6 +1409,23 @@ def find_tmdb_match(
         "studio_score": scores_for(best).get("studio_score"),
         "metadata_score": best_metadata_score,
     }
+    if _is_short_ambiguous_title(provider_title) and len(candidates) > 1:
+        # For colliding short titles, an exact year is sufficient to distinguish
+        # editions; without it, keep the result manual. Independent credits are
+        # helpful but should not be mandatory when the year resolves the collision.
+        short_title_supported = provider_year is not None and candidate_year == provider_year
+        candidate["short_title_safeguard"] = {
+            "applied": True,
+            "supported": short_title_supported,
+            "requires": "exact year when short-title candidates collide",
+        }
+        if not short_title_supported:
+            return {
+                "status": "ambiguous",
+                "reason": "Short single-word title collision requires exact year",
+                "diagnostics": diagnostics,
+                **candidate,
+            }
     if best_score < MIN_CONFIDENCE:
         return {"status": "ambiguous", "reason": "Best candidate is below confidence threshold",
                 "diagnostics": diagnostics, **candidate}
@@ -1418,25 +1435,6 @@ def find_tmdb_match(
     if type(best.get("id")) is not int or best["id"] <= 0:
         return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID",
                 "diagnostics": diagnostics, **candidate}
-    if _is_short_ambiguous_title(provider_title) and len(candidates) > 1:
-        # A short title alone is not a problem when TMDB returned a single
-        # viable candidate. Apply the extra safeguard only to actual collisions.
-        short_title_supported = (
-            provider_year is not None and candidate_year == provider_year
-            and any(value >= 0.85 for value in corroboration_values(best))
-        )
-        candidate["short_title_safeguard"] = {
-            "applied": True,
-            "supported": short_title_supported,
-            "requires": "exact year plus one strong independent metadata signal when candidates collide",
-        }
-        if not short_title_supported:
-            return {
-                "status": "ambiguous",
-                "reason": "Short single-word title collision requires exact year and independent corroboration",
-                "diagnostics": diagnostics,
-                **candidate,
-            }
 
     try:
         external = search_fn(f"/{endpoint_type}/{best['id']}/external_ids", {})
