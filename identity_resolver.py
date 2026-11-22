@@ -1418,7 +1418,9 @@ def find_tmdb_match(
     if type(best.get("id")) is not int or best["id"] <= 0:
         return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID",
                 "diagnostics": diagnostics, **candidate}
-    if _is_short_ambiguous_title(provider_title):
+    if _is_short_ambiguous_title(provider_title) and len(candidates) > 1:
+        # A short title alone is not a problem when TMDB returned a single
+        # viable candidate. Apply the extra safeguard only to actual collisions.
         short_title_supported = (
             provider_year is not None and candidate_year == provider_year
             and any(value >= 0.85 for value in corroboration_values(best))
@@ -1426,12 +1428,12 @@ def find_tmdb_match(
         candidate["short_title_safeguard"] = {
             "applied": True,
             "supported": short_title_supported,
-            "requires": "exact year plus one strong independent metadata signal",
+            "requires": "exact year plus one strong independent metadata signal when candidates collide",
         }
         if not short_title_supported:
             return {
                 "status": "ambiguous",
-                "reason": "Short single-word title requires exact year and independent corroboration",
+                "reason": "Short single-word title collision requires exact year and independent corroboration",
                 "diagnostics": diagnostics,
                 **candidate,
             }
