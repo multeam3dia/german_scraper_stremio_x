@@ -1015,6 +1015,8 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "ambiguous")
         self.assertIn("/tv/880", calls)
         self.assertIn("/tv/881", calls)
+        self.assertIn("/tv/880/season/1", calls)
+        self.assertIn("/tv/881/season/1", calls)
 
     def test_episode_title_helper_fetches_season_titles(self):
         calls = []
