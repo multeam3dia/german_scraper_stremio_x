@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/aniworld-integration
+      - feature/refine-crawl-resolver
   workflow_dispatch:
 
 jobs:
