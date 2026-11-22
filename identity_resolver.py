@@ -741,6 +741,14 @@ def _structure_comparison(
     }
 
 
+def _is_short_ambiguous_title(value: str) -> bool:
+    normalized = _normalize(value)
+    words = normalized.split()
+    # Short, single-word titles are common collisions; even exact matches
+    # need year plus independent metadata before automatic identity assignment.
+    return len(words) == 1 and len(normalized) <= 6
+
+
 def _candidate_score(
     provider_title: str, provider_year: int | None,
     item: dict[str, Any], media_type: str,
@@ -1410,6 +1418,23 @@ def find_tmdb_match(
     if type(best.get("id")) is not int or best["id"] <= 0:
         return {"status": "ambiguous", "reason": "TMDB candidate has no numeric ID",
                 "diagnostics": diagnostics, **candidate}
+    if _is_short_ambiguous_title(provider_title):
+        short_title_supported = (
+            provider_year is not None and candidate_year == provider_year
+            and any(value >= 0.85 for value in corroboration_values(best))
+        )
+        candidate["short_title_safeguard"] = {
+            "applied": True,
+            "supported": short_title_supported,
+            "requires": "exact year plus one strong independent metadata signal",
+        }
+        if not short_title_supported:
+            return {
+                "status": "ambiguous",
+                "reason": "Short single-word title requires exact year and independent corroboration",
+                "diagnostics": diagnostics,
+                **candidate,
+            }
 
     try:
         external = search_fn(f"/{endpoint_type}/{best['id']}/external_ids", {})
