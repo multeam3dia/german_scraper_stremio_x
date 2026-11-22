@@ -7,7 +7,7 @@ import unittest
 import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
-    _genre_similarity,
+    _episode_title_similarity, _genre_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -993,6 +993,24 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotIn("/tv/810", calls)
 
     
+    def test_episode_title_similarity_matches_provider_bundles_to_any_episode(self):
+        score = _episode_title_similarity(
+            ["The Fate of Particular Adventurers", "I Got a Girlfriend!"],
+            ["The Fate of Particular Adventurers", "A New Threat", "I Got a Girlfriend!"],
+        )
+        self.assertEqual(score, 1.0)
+
+    def test_episode_title_similarity_handles_english_and_german_variants(self):
+        score = _episode_title_similarity(
+            ["Das Schicksal der Abenteurer"],
+            ["The Fate of Particular Adventurers"],
+        )
+        self.assertGreater(score, 0.0)
+        self.assertLess(score, 1.0)
+
+    def test_episode_title_similarity_is_unavailable_without_titles(self):
+        self.assertIsNone(_episode_title_similarity([], ["Episode 1"]))
+
     def test_structure_comparison_accepts_two_to_one_episode_bundling(self):
         result = _structure_comparison(
             {"complete": True, "season_count": 2, "episode_count": 24,
