@@ -1719,6 +1719,36 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(variants[0], "Loveless: SD Theatre")
         self.assertIn("Loveless", variants)
 
+    def test_episode_title_score_is_invariant_to_german_english_variant_order(self):
+        provider_structure = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"title": "Der Anfang", "title_original": "The Beginning"},
+                    {"title": "Die Reise", "title_original": "The Journey"},
+                    {"title": "Das Ende", "title_original": "The End"},
+                ],
+            }],
+        }
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "The Beginning", "original_name": "Der Anfang"},
+            {"episode_number": 2, "name": "The Journey", "original_name": "Die Reise"},
+            {"episode_number": 3, "name": "The End", "original_name": "Das Ende"},
+        ]}
+        baseline = _episode_title_similarity(provider_structure, candidate_titles)
+        # Swapping which language is listed first must not change the score:
+        # all cross-language title variants are compared, not positional pairs.
+        swapped_provider = copy.deepcopy(provider_structure)
+        for episode in swapped_provider["seasons"][0]["episodes"]:
+            episode["title"], episode["title_original"] = episode["title_original"], episode["title"]
+        swapped_candidate = {"1": [
+            {**episode, "name": episode["original_name"], "original_name": episode["name"]}
+            for episode in candidate_titles["1"]
+        ]}
+        swapped = _episode_title_similarity(swapped_provider, swapped_candidate)
+        self.assertEqual(baseline, 1.0)
+        self.assertEqual(swapped, baseline)
+
     def test_merged_episode_title_comparison_uses_candidate_language_variants(self):
         provider_structure = {
             "seasons": [{
