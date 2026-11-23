@@ -1125,8 +1125,11 @@ def find_tmdb_match(
             except Exception as exc:
                 item["_alternative_titles_error"] = type(exc).__name__
 
-    # Alternative titles may have been added above; invalidate initial-order scores.
+    # Alternative titles may have changed candidate relevance. Re-rank before
+    # bounded metadata/structure checks so alias-rescued candidates are not
+    # excluded by their initial title position.
     title_match_cache.clear()
+    preliminary.sort(key=cached_title_similarity, reverse=True)
     best_preliminary_title = cached_title_similarity(preliminary[0]) if preliminary else 0.0
     second_preliminary_title = cached_title_similarity(preliminary[1]) if len(preliminary) > 1 else 0.0
     uncertain_shortlist = (
