@@ -163,7 +163,8 @@ class MDBListIdentityAuditTests(unittest.TestCase):
                     "provider_title": entry["title"], "year": expected_year,
                 }, search_fn=fake_get)
                 self.assertEqual(result["status"], "matched", entry["title"])
-                self.assertEqual(result["imdb_id"], expected_id, entry["title"]
+                self.assertEqual(result["imdb_id"], expected_id, entry["title"])
+
     def test_uploaded_anime_sample_fixture_has_210_unique_series_identities(self):
         fixture_path = (
             Path(__file__).resolve().parent
