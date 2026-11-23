@@ -1830,9 +1830,9 @@ class IdentityResolverTests(unittest.TestCase):
                     {"episode_number": 3, "title": "Season One Gamma"},
                 ]},
                 {"season_number": 2, "episodes": [
-                    {"episode_number": 1, "title": "Season Two Alpha"},
-                    {"episode_number": 2, "title": "Season Two Beta"},
-                    {"episode_number": 3, "title": "Season Two Gamma"},
+                    {"episode_number": 1, "title": "Other Arc Delta"},
+                    {"episode_number": 2, "title": "Other Arc Epsilon"},
+                    {"episode_number": 3, "title": "Other Arc Zeta"},
                 ]},
             ],
         }
