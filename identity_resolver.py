@@ -497,8 +497,8 @@ def _episode_title_similarity(
             ):
                 continue
             used_provider.add(p_index)
-            used_candidate.update(c_indices)            matched_provider += 1
-            matched_candidate += len(c_indices)
+            used_candidate.update(c_indices)
+            matched_provider += 1            matched_candidate += len(c_indices)
         total_matched_provider += matched_provider
         total_matched_candidate += matched_candidate
 
@@ -997,8 +997,7 @@ def find_tmdb_match(
                 })
                 for item in results:
                     if not isinstance(item, dict):                        continue
-                    tmdb_id = item.get("id")
-                    if type(tmdb_id) is int and tmdb_id > 0:
+                    tmdb_id = item.get("id")                    if type(tmdb_id) is int and tmdb_id > 0:
                         existing = raw_candidates.get(tmdb_id)
                         if existing is None:
                             raw_candidates[tmdb_id] = dict(item)
@@ -1497,8 +1496,7 @@ def find_tmdb_match(
             "actors": {"provider": metadata.get("actors") or [], "score": signals.get("actor_score"),
                        "status": "not_available" if signals.get("actor_score") is None else                                 ("match" if signals["actor_score"] >= 0.5 else "mismatch")},
             "directors": {"provider": metadata.get("directors") or [], "score": signals.get("director_score"),
-                          "status": "not_available" if signals.get("director_score") is None else
-                                    ("match" if signals["director_score"] >= 0.5 else "mismatch")},
+                          "status": "not_available" if signals.get("director_score") is None else                                    ("match" if signals["director_score"] >= 0.5 else "mismatch")},
             "studio": {"provider": metadata.get("producer") if provider == "aniworld" else None,
                        "score": signals.get("studio_score"),
                        "status": "not_available" if signals.get("studio_score") is None else
