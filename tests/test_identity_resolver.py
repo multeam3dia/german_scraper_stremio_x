@@ -2097,6 +2097,7 @@ class IdentityResolverTests(unittest.TestCase):
             search_fn=fake_get,
         )
         self.assertIn("/tv/1006", calls, "Alias-promoted candidate should receive structure validation")
+        self.assertIn("/tv/1006/season/1", calls, "Alias-promoted candidate should receive episode-title corroboration")
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 1006)
 
