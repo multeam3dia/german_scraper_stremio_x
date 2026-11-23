@@ -1,5 +1,6 @@
 """Offline tests for the read-only MDBList identity audit."""
 import json
+import re
 import os
 import tempfile
 import unittest
