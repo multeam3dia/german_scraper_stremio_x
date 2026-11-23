@@ -87,8 +87,9 @@ class MDBListIdentityAuditTests(unittest.TestCase):
             candidate_id = 90000 + index
             year_match = re.search(r"\b(?:19|20)\d{2}\b", title)
             candidate_year = year_match.group(0) if year_match else "2018"
+            candidate_title = re.sub(r"\\s*[（(](?:19|20)\\d{2}[）)]\\s*$", "", title).strip()
 
-            def fake_get(path, params, *, _title=title, _candidate_id=candidate_id,
+            def fake_get(path, params, *, _title=candidate_title, _candidate_id=candidate_id,
                          _media_type=media_type, _year=candidate_year, _imdb=expected_ids[0]):
                 if path.startswith("/search/"):
                     name_key = "name" if _media_type == "series" else "title"
