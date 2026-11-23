@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from identity_resolver import find_tmdb_match
 from tools.mdblist_identity_audit import (
     run_audit,
     _candidate_rows,
@@ -59,6 +60,66 @@ class MDBListIdentityAuditTests(unittest.TestCase):
             for imdb_id in all_ids
         ))
         self.assertEqual(len({entry["provider_url"] for entry in entries}), 34)
+
+    def test_verified_ground_truth_smoke_benchmark_with_synthetic_tmdb(self):
+        """Smoke-test resolver decisions against verified IDs using synthetic TMDB payloads.
+
+        This checks the resolver's decision path, not real TMDB search recall.
+        Special multi-title pages intentionally remain manual-review/ambiguous.
+        """
+        fixture_path = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "aniworld_identity_ground_truth.json"
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        manual_review_titles = {"Persona 3: The Movie", "Cardcaptors"}
+        movie_titles = {"Mirai", "Baggy"}
+        passed = 0
+        manual_review = 0
+
+        for index, entry in enumerate(fixture["entries"]):
+            title = entry["title"]
+            expected_ids = entry["imdb_ids"]
+            is_manual = title in manual_review_titles
+            media_type = "movie" if title in movie_titles else "series"
+            candidate_id = 90000 + index
+            year_match = re.search(r"\b(?:19|20)\d{2}\b", title)
+            candidate_year = year_match.group(0) if year_match else "2018"
+
+            def fake_get(path, params, *, _title=title, _candidate_id=candidate_id,
+                         _media_type=media_type, _year=candidate_year, _imdb=expected_ids[0]):
+                if path.startswith("/search/"):
+                    name_key = "name" if _media_type == "series" else "title"
+                    original_key = "original_name" if _media_type == "series" else "original_title"
+                    date_key = "first_air_date" if _media_type == "series" else "release_date"
+                    return {"results": [{
+                        "id": _candidate_id, name_key: _title, original_key: _title,
+                        date_key: f"{_year}-01-01",
+                    }]}
+                if path.endswith("/external_ids"):
+                    return {"imdb_id": _imdb}
+                return {}
+
+            record = {
+                "provider": "aniworld",
+                "provider_title": title,
+                "media_type": media_type,
+                "year": int(candidate_year) if year_match else None,
+                "metadata": {"multi_movie_collection": is_manual},
+            }
+            result = find_tmdb_match(record, search_fn=fake_get)
+            if is_manual:
+                self.assertEqual(result["status"], "ambiguous", title)
+                self.assertTrue(result.get("multi_movie_collection"), title)
+                manual_review += 1
+            else:
+                self.assertEqual(result["status"], "matched", title)
+                self.assertEqual(result["imdb_id"], expected_ids[0], title)
+                passed += 1
+
+        self.assertEqual(passed, 32)
+        self.assertEqual(manual_review, 2)
 
     def test_uploaded_anime_sample_fixture_has_210_unique_series_identities(self):
         fixture_path = (
