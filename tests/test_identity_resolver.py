@@ -1035,7 +1035,7 @@ class IdentityResolverTests(unittest.TestCase):
 
 
 
-    def test_episode_counts_alone_do_not_rescue_weak_title_match(self):
+    def test_episode_titles_alone_do_not_rescue_weak_title_match(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
@@ -1048,6 +1048,12 @@ class IdentityResolverTests(unittest.TestCase):
                     "number_of_seasons": 1, "number_of_episodes": 13,
                     "seasons": [{"season_number": 1, "episode_count": 13}],
                 }
+            if path == "/tv/209/season/1":
+                return {"episodes": [
+                    {"episode_number": 1, "name": "The First Meeting"},
+                    {"episode_number": 2, "name": "The Strange Visitor"},
+                    {"episode_number": 3, "name": "A Hidden Secret"},
+                ]}
             return {}
 
         result = find_tmdb_match(
@@ -1058,7 +1064,11 @@ class IdentityResolverTests(unittest.TestCase):
                 "year": 2010,
                 "metadata": {"provider_structure": {
                     "complete": True, "season_count": 1, "episode_count": 13,
-                    "seasons": [{"season_number": 1, "episode_count": 13}],
+                    "seasons": [{"season_number": 1, "episode_count": 13, "episodes": [
+                        {"episode_number": 1, "title": "The First Meeting"},
+                        {"episode_number": 2, "title": "The Strange Visitor"},
+                        {"episode_number": 3, "title": "A Hidden Secret"},
+                    ]}],
                 }},
             },
             search_fn=fake_get,
