@@ -9,7 +9,7 @@ import catalog_db
 from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
-    _episode_title_similarity, _metadata_signal_scores,
+    _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
@@ -2026,6 +2026,29 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "matched")
         self.assertNotIn("/tv/88012/alternative_titles", calls)
 
+
+    def test_episode_title_fetch_uses_first_and_last_seasons_only(self):
+        calls = []
+        provider_structure = {
+            "complete": True,
+            "season_count": 4,
+            "episode_count": 40,
+            "seasons": [
+                {"season_number": n, "episode_count": 10, "episodes": [{"title": f"Episode {n}"}]}
+                for n in range(1, 5)
+            ],
+        }
+
+        def fake_get(path, params):
+            calls.append(path)
+            season_number = int(path.rsplit("/", 1)[-1])
+            return {"episodes": [{"name": f"Season {season_number} Episode"}]}
+
+        result = _candidate_season_episode_titles(
+            {"id": 12345}, provider_structure, fake_get
+        )
+        self.assertEqual(calls, ["/tv/12345/season/1", "/tv/12345/season/4"])
+        self.assertEqual(set(result), {"1", "4"})
 
 if __name__ == "__main__":
     unittest.main()
