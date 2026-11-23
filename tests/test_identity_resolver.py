@@ -1738,9 +1738,15 @@ class IdentityResolverTests(unittest.TestCase):
         baseline = _episode_title_similarity(provider_structure, candidate_titles)
         # Swapping which language is listed first must not change the score:
         # all cross-language title variants are compared, not positional pairs.
-        swapped_provider = copy.deepcopy(provider_structure)
-        for episode in swapped_provider["seasons"][0]["episodes"]:
-            episode["title"], episode["title_original"] = episode["title_original"], episode["title"]
+        swapped_provider = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"title": episode["title_original"], "title_original": episode["title"]}
+                    for episode in provider_structure["seasons"][0]["episodes"]
+                ],
+            }],
+        }
         swapped_candidate = {"1": [
             {**episode, "name": episode["original_name"], "original_name": episode["name"]}
             for episode in candidate_titles["1"]
