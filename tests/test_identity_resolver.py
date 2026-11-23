@@ -1852,6 +1852,27 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNotNone(score)
         self.assertEqual(score, 0.0)
 
+    def test_german_generic_episode_titles_do_not_provide_identity_evidence(self):
+        provider_structure = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"episode_number": 1, "title": "Folge 1"},
+                    {"episode_number": 2, "title": "Folge 2"},
+                    {"episode_number": 3, "title": "Folge 3"},
+                    {"episode_number": 4, "title": "Folge 4"},
+                ],
+            }],
+        }
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "Folge 1"},
+            {"episode_number": 2, "name": "Folge 2"},
+            {"episode_number": 3, "name": "Folge 3"},
+            {"episode_number": 4, "name": "Folge 4"},
+        ]}
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertIsNone(score)
+
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
         provider_structure = {
             "seasons": [{
