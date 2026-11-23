@@ -123,6 +123,47 @@ class MDBListIdentityAuditTests(unittest.TestCase):
         self.assertEqual(passed, 32)
         self.assertEqual(manual_review, 2)
 
+    def test_verified_year_collision_pairs_resolve_to_the_expected_version(self):
+        """Replay the known Kanon and Space Between year collisions with synthetic TMDB."""
+        fixture_path = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "aniworld_identity_ground_truth.json"
+        )
+        entries = json.loads(fixture_path.read_text(encoding="utf-8"))["entries"]
+        collision_groups = [
+            ("Kanon (2002)", "Kanon (2006)"),
+            ("The Space Between (1992)", "The Space Between (2012)"),
+        ]
+        for older_title, newer_title in collision_groups:
+            pair = [next(entry for entry in entries if entry["title"] == title)
+                    for title in (older_title, newer_title)]
+            years = [int(re.search(r"\b(?:19|20)\d{2}\b", entry["title"]).group(0))
+                     for entry in pair]
+            base_title = re.sub(r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", older_title)
+            candidate_rows = [
+                {"id": 88001, "name": base_title, "original_name": base_title,
+                 "first_air_date": f"{years[0]}-01-01"},
+                {"id": 88002, "name": base_title, "original_name": base_title,
+                 "first_air_date": f"{years[1]}-01-01"},
+            ]
+            ids_by_candidate = {88001: pair[0]["imdb_ids"][0], 88002: pair[1]["imdb_ids"][0]}
+
+            for entry, expected_year, expected_id in zip(pair, years, [ids_by_candidate[88001], ids_by_candidate[88002]]):
+                def fake_get(path, params):
+                    if path == "/search/tv":
+                        return {"results": candidate_rows}
+                    if path.endswith("/external_ids"):
+                        tmdb_id = int(path.split("/")[2])
+                        return {"imdb_id": ids_by_candidate[tmdb_id]}
+                    return {}
+
+                result = find_tmdb_match({
+                    "provider": "aniworld", "media_type": "series",
+                    "provider_title": entry["title"], "year": expected_year,
+                }, search_fn=fake_get)
+                self.assertEqual(result["status"], "matched", entry["title"])
+                self.assertEqual(result["imdb_id"], expected_id, entry["title"]
     def test_uploaded_anime_sample_fixture_has_210_unique_series_identities(self):
         fixture_path = (
             Path(__file__).resolve().parent
