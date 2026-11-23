@@ -2053,12 +2053,12 @@ class IdentityResolverTests(unittest.TestCase):
     def test_alias_rescued_candidate_is_promoted_before_structure_shortlist(self):
         calls = []
         candidates = [
-            {"id": 1001, "name": "Weak Candidate A", "original_name": "Weak Candidate A", "first_air_date": "2019-01-01"},
-            {"id": 1002, "name": "Weak Candidate B", "original_name": "Weak Candidate B", "first_air_date": "2018-01-01"},
-            {"id": 1003, "name": "Weak Candidate C", "original_name": "Weak Candidate C", "first_air_date": "2017-01-01"},
-            {"id": 1004, "name": "Weak Candidate D", "original_name": "Weak Candidate D", "first_air_date": "2016-01-01"},
-            {"id": 1005, "name": "Weak Candidate E", "original_name": "Weak Candidate E", "first_air_date": "2015-01-01"},
-            {"id": 1006, "name": "Alias Rescue Candidate", "original_name": "Alias Rescue Candidate", "first_air_date": "2020-01-01"},
+            {"id": 1001, "name": "Target Series Version A", "original_name": "Target Series Version A", "first_air_date": "2019-01-01"},
+            {"id": 1002, "name": "Target Series Version B", "original_name": "Target Series Version B", "first_air_date": "2018-01-01"},
+            {"id": 1003, "name": "Target Series Version C", "original_name": "Target Series Version C", "first_air_date": "2017-01-01"},
+            {"id": 1004, "name": "Target Series Version D", "original_name": "Target Series Version D", "first_air_date": "2016-01-01"},
+            {"id": 1005, "name": "Target Series Version E", "original_name": "Target Series Version E", "first_air_date": "2015-01-01"},
+            {"id": 1006, "name": "Completely Unrelated Candidate", "original_name": "Completely Unrelated Candidate", "first_air_date": "2020-01-01"},
         ]
         provider_structure = {
             "complete": True, "season_count": 1, "episode_count": 3,
