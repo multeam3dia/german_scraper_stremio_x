@@ -2050,5 +2050,54 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, ["/tv/12345/season/1", "/tv/12345/season/4"])
         self.assertEqual(set(result), {"1", "4"})
 
+    def test_alias_rescued_candidate_is_promoted_before_structure_shortlist(self):
+        calls = []
+        candidates = [
+            {"id": 1001, "name": "Weak Candidate A", "original_name": "Weak Candidate A", "first_air_date": "2019-01-01"},
+            {"id": 1002, "name": "Weak Candidate B", "original_name": "Weak Candidate B", "first_air_date": "2018-01-01"},
+            {"id": 1003, "name": "Weak Candidate C", "original_name": "Weak Candidate C", "first_air_date": "2017-01-01"},
+            {"id": 1004, "name": "Weak Candidate D", "original_name": "Weak Candidate D", "first_air_date": "2016-01-01"},
+            {"id": 1005, "name": "Weak Candidate E", "original_name": "Weak Candidate E", "first_air_date": "2015-01-01"},
+            {"id": 1006, "name": "Alias Rescue Candidate", "original_name": "Alias Rescue Candidate", "first_air_date": "2020-01-01"},
+        ]
+        provider_structure = {
+            "complete": True, "season_count": 1, "episode_count": 3,
+            "seasons": [{"season_number": 1, "episode_count": 3, "episodes": [
+                {"title": "Alpha"}, {"title": "Beta"}, {"title": "Gamma"},
+            ]}],
+        }
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": candidates}
+            if path == "/tv/1006/alternative_titles":
+                return {"results": [{"title": "Target Series"}]}
+            if path.startswith("/tv/") and path.endswith("/alternative_titles"):
+                return {"results": []}
+            if path.startswith("/tv/") and path.endswith("/credits"):
+                return {"cast": [], "crew": []}
+            if path.startswith("/tv/") and path.endswith("/external_ids"):
+                return {"imdb_id": "tt1234567"}
+            if path.startswith("/tv/") and path.count("/") == 2:
+                return {
+                    "number_of_seasons": 1, "number_of_episodes": 3,
+                    "seasons": [{"season_number": 1, "episode_count": 3}],
+                }
+            if path.endswith("/season/1"):
+                return {"episodes": [{"name": "Alpha"}, {"name": "Beta"}, {"name": "Gamma"}]}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider": "aniworld",
+             "provider_title": "Target Series", "year": 2020,
+             "metadata": {"provider_structure": provider_structure}},
+            search_fn=fake_get,
+        )
+        self.assertIn("/tv/1006", calls, "Alias-promoted candidate should receive structure validation")
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 1006)
+
+
 if __name__ == "__main__":
     unittest.main()
