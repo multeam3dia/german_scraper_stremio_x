@@ -421,7 +421,7 @@ def _episode_title_similarity(
         return None
 
     generic_title = re.compile(
-        r"^(?:episode|episod|ep|part|chapter|chap|ova|special|season|"
+        r"^(?:episode|episod|ep|folge|part|chapter|kapitel|chap|ova|special|season|staffel|"
         r"series|s)\s*\d*$|^\d+$"
     )
 
@@ -497,8 +497,7 @@ def _episode_title_similarity(
             ):
                 continue
             used_provider.add(p_index)
-            used_candidate.update(c_indices)
-            matched_provider += 1
+            used_candidate.update(c_indices)            matched_provider += 1
             matched_candidate += len(c_indices)
         total_matched_provider += matched_provider
         total_matched_candidate += matched_candidate
@@ -997,8 +996,7 @@ def find_tmdb_match(
                     "query": query, "language": "en-US", "result_count": len(results),
                 })
                 for item in results:
-                    if not isinstance(item, dict):
-                        continue
+                    if not isinstance(item, dict):                        continue
                     tmdb_id = item.get("id")
                     if type(tmdb_id) is int and tmdb_id > 0:
                         existing = raw_candidates.get(tmdb_id)
@@ -1497,8 +1495,7 @@ def find_tmdb_match(
                        "status": "not_comparable" if item_genre_score is None else
                                  ("match" if item_genre_score >= 0.5 else "mismatch")},
             "actors": {"provider": metadata.get("actors") or [], "score": signals.get("actor_score"),
-                       "status": "not_available" if signals.get("actor_score") is None else
-                                 ("match" if signals["actor_score"] >= 0.5 else "mismatch")},
+                       "status": "not_available" if signals.get("actor_score") is None else                                 ("match" if signals["actor_score"] >= 0.5 else "mismatch")},
             "directors": {"provider": metadata.get("directors") or [], "score": signals.get("director_score"),
                           "status": "not_available" if signals.get("director_score") is None else
                                     ("match" if signals["director_score"] >= 0.5 else "mismatch")},
