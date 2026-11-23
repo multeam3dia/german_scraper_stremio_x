@@ -2073,6 +2073,8 @@ class IdentityResolverTests(unittest.TestCase):
                 return {"results": candidates}
             if path == "/tv/1006/alternative_titles":
                 return {"results": [{"title": "Target Series"}]}
+            if path == "/tv/1005/alternative_titles":
+                return {"results": [{"title": "Target Series Extra"}]}
             if path.startswith("/tv/") and path.endswith("/alternative_titles"):
                 return {"results": []}
             if path.startswith("/tv/") and path.endswith("/credits"):
