@@ -97,6 +97,21 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertIn("Alias D", queries)
         self.assertNotIn("", queries)
 
+    def test_alias_deduplication_uses_normalized_case_and_punctuation(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Primary Title",
+            ["Alias A", "alias a", "Alias-A", "Alias B"],
+        )
+
+        # Normalization collapses case and punctuation variants, preserving
+        # the first spelling while leaving room for a genuinely distinct alias.
+        self.assertEqual(queries.count("Alias A"), 1)
+        self.assertNotIn("alias a", queries)
+        self.assertNotIn("Alias-A", queries)
+        self.assertIn("Alias B", queries)
+
 
 if __name__ == "__main__":
     unittest.main()
