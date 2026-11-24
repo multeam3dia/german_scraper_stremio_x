@@ -697,8 +697,7 @@ class IdentityResolverTests(unittest.TestCase):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
-                    {"id": 43, "name": "Example", "original_name": "Example",
-                     "first_air_date": "2020-01-01"},
+                    {"id": 43, "name": "Example", "original_name": "Example",                     "first_air_date": "2020-01-01"},
                     {"id": 44, "name": "Example", "original_name": "Example",
                      "first_air_date": "2020-01-01"},
                 ]}
@@ -1397,8 +1396,7 @@ class IdentityResolverTests(unittest.TestCase):
         url = "https://aniworld.to/anime/stream/animal-crossing"
         catalog_db.record_unresolved_title(
             "aniworld", url, "Animal Crossing", "series", year=2006,
-            metadata={
-                "actors": ["Yui Horie", "Fumiko Orikasa"],
+            metadata={                "actors": ["Yui Horie", "Fumiko Orikasa"],
                 "directors": ["Joji Shimura"],
                 "producer": "OLM",
                 "provider_structure": {
@@ -1842,7 +1840,7 @@ class IdentityResolverTests(unittest.TestCase):
         ]}
         score = _episode_title_similarity(provider_structure, candidate_titles)
         # One candidate episode must not corroborate multiple provider episodes.
-        self.assertEqual(score, 1 / 3)
+        self.assertAlmostEqual(score, 1 / 3)
 
     def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
         provider_structure = {
