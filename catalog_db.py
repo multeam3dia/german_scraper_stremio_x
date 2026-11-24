@@ -153,6 +153,9 @@ def init_db() -> None:
                 attempts INTEGER NOT NULL DEFAULT 0,
                 last_attempt_at TEXT,
                 last_error TEXT,
+                resolver_attempts INTEGER NOT NULL DEFAULT 0,
+                resolver_last_attempt_at TEXT,
+                resolver_last_error TEXT,
                 resolved_imdb_id TEXT,
                 resolved_title_id TEXT,
                 resolved_at TEXT,
@@ -290,12 +293,19 @@ def init_db() -> None:
             db.execute(
                 "ALTER TABLE unresolved_provider_titles ADD COLUMN resolved_title_id TEXT"
             )
+        for column, declaration in (
+            ("resolver_attempts", "INTEGER NOT NULL DEFAULT 0"),
+            ("resolver_last_attempt_at", "TEXT"),
+            ("resolver_last_error", "TEXT"),
+        ):
+            if column not in unresolved_columns:
+                db.execute(f"ALTER TABLE unresolved_provider_titles ADD COLUMN {column} {declaration}")
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (6)")
-        elif row["version"] < 6:
-            db.execute("UPDATE schema_version SET version = 6")
-        elif row["version"] > 6:
+            db.execute("INSERT INTO schema_version(version) VALUES (7)")
+        elif row["version"] < 7:
+            db.execute("UPDATE schema_version SET version = 7")
+        elif row["version"] > 7:
             raise RuntimeError("Catalog database schema is newer than this application")
 
 
@@ -471,7 +481,7 @@ def record_unresolved_title(
                 provider, provider_url, provider_title, normalized_title,
                 media_type, year, poster_url, description, metadata_json,
                 first_seen_at, last_seen_at, attempts, last_attempt_at, last_error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ON CONFLICT(provider, provider_url) DO UPDATE SET
                 provider_title=excluded.provider_title,
                 normalized_title=excluded.normalized_title,
@@ -483,11 +493,13 @@ def record_unresolved_title(
                     THEN unresolved_provider_titles.metadata_json
                     ELSE excluded.metadata_json END,
                 last_seen_at=excluded.last_seen_at,
-                last_error=COALESCE(excluded.last_error, unresolved_provider_titles.last_error)
+                attempts=unresolved_provider_titles.attempts + 1,
+                last_attempt_at=excluded.last_attempt_at,
+                last_error=excluded.last_error
             """,
             (provider, provider_url, title, normalized, media_type, year,
              poster_url, description, json.dumps(metadata or {}, ensure_ascii=False),
-             now, now, (error or "")[:1000] or None),
+             now, now, now, (error or "")[:1000] or None),
         )
 
 
@@ -500,7 +512,7 @@ def record_unresolved_attempt(
         db.execute(
             """
             UPDATE unresolved_provider_titles
-            SET attempts=attempts + 1, last_attempt_at=?, last_error=?
+            SET resolver_attempts=resolver_attempts + 1, resolver_last_attempt_at=?, resolver_last_error=?
             WHERE provider=? AND provider_url=?
               AND resolved_imdb_id IS NULL AND resolved_title_id IS NULL
             """,
