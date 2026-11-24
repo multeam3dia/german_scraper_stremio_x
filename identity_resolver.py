@@ -467,6 +467,7 @@ def _episode_title_similarity(
         r"series|s)\s*\d*$|^\d+$"
         r"|^(?:第\s*)?(?:\d+|[一二三四五六七八九十百千]+)\s*(?:話|回|集)$"
         r"|^(?:제\s*)?\d+\s*(?:화|편)$"
+        r"|^(?:제\s*)?\d+\s*(?:화|편)$"
     )
 
     def clean_rows(rows: Any, provider_side: bool) -> list[list[str]]:
