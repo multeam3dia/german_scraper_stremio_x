@@ -1677,6 +1677,11 @@ def resolve_unresolved_titles(
 ) -> dict[str, Any]:
     """Evaluate queued titles and optionally persist only high-confidence matches."""
     init_db()
+    # Purge stale cache rows once per resolver run; the index keeps this bounded.
+    TMDB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
+    tmdb_cache_purged = purge_expired_tmdb_cache(
+        ttl_seconds=TMDB_CACHE_TTL_SECONDS
+    )
     # Fetch a broad candidate window before applying cooldown and limit so recently
     # refreshed items cannot starve older records that are already retry-due.
     candidates = get_unresolved_titles(provider=provider, limit=5000)
@@ -1692,6 +1697,9 @@ def resolve_unresolved_titles(
         "no_match": 0,
         "errors": 0,
         "dry_run": not apply,
+        "tmdb_cache_hits": 0,
+        "tmdb_cache_misses": 0,
+        "tmdb_cache_purged": tmdb_cache_purged,
         "results": [],
     }
     # Resolve the complete batch before writing anything. This preflight catches
@@ -1702,19 +1710,22 @@ def resolve_unresolved_titles(
     # Cache identical TMDB requests in memory during the batch and persist successful
     # responses for seven days to avoid repeated API traffic across resolver runs.
     request_cache: dict[str, dict[str, Any]] = {}
-    TMDB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
     def cached_search(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         cache_key = json.dumps(
             [path, params or {}], sort_keys=True, ensure_ascii=False, default=str
         )
-        if cache_key not in request_cache:
+        if cache_key in request_cache:
+            summary["tmdb_cache_hits"] += 1
+        else:
             persistent = get_tmdb_cached_response(
                 cache_key, ttl_seconds=TMDB_CACHE_TTL_SECONDS
             )
             if persistent is not None:
                 request_cache[cache_key] = persistent
+                summary["tmdb_cache_hits"] += 1
             else:
+                summary["tmdb_cache_misses"] += 1
                 response = search_fn(path, params)
                 request_cache[cache_key] = response
                 set_tmdb_cached_response(cache_key, response)
