@@ -826,6 +826,36 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, ["/search/tv", "/tv/53/external_ids"])
 
 
+    def test_alias_query_candidate_outside_top_twenty_gets_alternative_title_lookup(self):
+        unrelated = [
+            {"id": 200 + i, "name": f"Unrelated Candidate {i}",
+             "original_name": f"Unrelated Candidate {i}",
+             "first_air_date": f"{1990 + i}-01-01"}
+            for i in range(25)
+        ]
+        alias_candidate = {
+            "id": 999, "name": "完全に別のタイトル",
+            "original_name": "完全に別のタイトル", "first_air_date": "2020-01-01",
+        }
+        calls = []
+        def fake_get(path, params):
+            calls.append((path, params))
+            if path == "/search/tv":
+                if params.get("query") == "Alias Rescue Show":
+                    return {"results": [alias_candidate]}
+                return {"results": unrelated}
+            if path == "/tv/999/alternative_titles":
+                return {"results": [{"title": "Alias Rescue Show"}]}
+            if path == "/tv/999/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+        find_tmdb_match(
+            {"media_type": "series", "provider_title": "Unmatched Main Title",
+             "year": 2020, "metadata": {"alternative_titles": ["Alias Rescue Show"]}},
+            search_fn=fake_get,
+        )
+        self.assertIn("/tv/999/alternative_titles", [path for path, _ in calls])
+
     def test_alternative_title_shortlist_expands_beyond_initial_ten(self):
         candidates = [
             {"id": 200 + i, "name": f"Alias Rescue Candidate {i}",
