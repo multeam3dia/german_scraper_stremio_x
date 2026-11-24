@@ -397,8 +397,7 @@ class IdentityResolverTests(unittest.TestCase):
 
     def test_apply_persists_title_without_imdb_and_resolves_queue_item(self):
         url = "https://aniworld.to/anime/stream/example-no-imdb"
-        catalog_db.record_unresolved_title(            "aniworld", url, "Example Anime", "series", year=2024,
-        )
+        catalog_db.record_unresolved_title(            "aniworld", url, "Example Anime", "series", year=2024,        )
 
         def fake_get(path, params):
             if path == "/search/tv":
@@ -797,8 +796,7 @@ class IdentityResolverTests(unittest.TestCase):
             for i in range(1, 11)
         ]
         candidates.append({            "id": 999, "name": "完全に別のタイトル",
-            "original_name": "完全に別のタイトル", "first_air_date": "2020-01-01",
-        })
+            "original_name": "完全に別のタイトル", "first_air_date": "2020-01-01",        })
         calls = []
 
         def fake_get(path, params):
@@ -1123,6 +1121,30 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "identified")
 
 
+    def test_country_match_alone_is_not_independent_corroboration(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 220, "name": "Otome Yokai Zakuro",
+                    "original_name": "おとめ妖怪 ざくろ",
+                    "first_air_date": "2010-10-01",
+                }]}
+            if path == "/tv/220":
+                return {"production_countries": [{"name": "Japan", "iso_3166_1": "JP"}]}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream", "media_type": "series",
+                "provider_title": "Zakuro",
+                "metadata": {"country": "Japan"},
+            },
+            search_fn=fake_get,
+        )
+        # Country agreement is diagnostic, but cannot replace independent
+        # actor/director/studio corroboration.
+        self.assertNotIn(result["status"], {"matched", "identified"})
+
     def test_candidate_outside_metadata_shortlist_can_be_rescued_by_credits(self):
         def fake_get(path, params):
             if path == "/search/tv":
@@ -1197,8 +1219,7 @@ class IdentityResolverTests(unittest.TestCase):
                 return {"results": [{
                     "id": 202, "name": "Otome Yokai Zakuro",                    "original_name": "おとめ妖怪 ざくろ",
                 }]}
-            if path == "/tv/202/alternative_titles":
-                return {"results": []}
+            if path == "/tv/202/alternative_titles":                return {"results": []}
             return {}
 
         result = find_tmdb_match(
@@ -1597,8 +1618,7 @@ class IdentityResolverTests(unittest.TestCase):
                     {"media_type": "series", "provider_title": "Kanon", "year": year},                    search_fn=fake_get,
                 )
                 self.assertEqual(result["status"], "matched")
-                self.assertEqual(result["tmdb_id"], expected_id)
-                self.assertEqual(result["candidate_year"], year)
+                self.assertEqual(result["tmdb_id"], expected_id)                self.assertEqual(result["candidate_year"], year)
                 self.assertGreaterEqual(result["margin"], 0.08)
 
     def test_aniworld_parenthesized_year_is_not_counted_as_part_of_title(self):
