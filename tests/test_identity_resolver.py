@@ -29,6 +29,39 @@ class IdentityResolverTests(unittest.TestCase):
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
 
+    def test_resolver_reports_distinct_memory_persistent_and_http_cache_metrics(self):
+        url = "https://aniworld.to/anime/stream/cache-stat-test"
+        catalog_db.record_unresolved_title(
+            provider="aniworld", provider_url=url, title="Cache Stat Test",
+            media_type="series",
+        )
+        cache_key = json.dumps(
+            ["/search/tv", {"query": "Cache Stat Test"}],
+            sort_keys=True, ensure_ascii=False, default=str,
+        )
+        catalog_db.set_tmdb_cached_response(
+            cache_key,
+            {"results": [{
+                "id": 7001, "name": "Cache Stat Test",
+                "original_name": "Cache Stat Test", "first_air_date": "2020-01-01"
+            }]},
+        )
+        def fake_get(path, params):
+            if path == "/tv/7001/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+        summary = resolve_unresolved_titles(search_fn=fake_get)
+        self.assertGreaterEqual(summary["tmdb_cache_persistent_hits"], 1)
+        self.assertEqual(summary["tmdb_http_requests"], 1)
+        self.assertEqual(
+            summary["tmdb_cache_avoided_http_requests"], summary["tmdb_cache_hits"]
+        )
+        self.assertIn("tmdb_cache_hit_rate", summary)
+        self.assertIn("tmdb_cache_usage_totals", summary)
+        self.assertTrue(any(
+            row["cache_key"] == cache_key for row in summary["tmdb_cache_top_keys"]
+        ))
+
     def test_search_second_page_can_recover_exact_title_candidate(self):
         calls = []
 
