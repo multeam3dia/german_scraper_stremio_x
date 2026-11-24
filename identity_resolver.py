@@ -257,27 +257,27 @@ def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
     """Build bounded TMDB queries while reserving slots for provider aliases."""
-    candidates = [provider_title]
-    # AniWorld format labels are often appended to the actual work title.
-    # Keep the full title first, then try a conservative base-title variant.
-    without_format_suffix = re.sub(
-        r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
-        r"short\s+animation|special\s+episode|special|ova)$",
-        "", provider_title, flags=re.IGNORECASE,
-    ).strip()
-    if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
-        candidates.append(without_format_suffix)
-    punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
-    punctuation_light = " ".join(punctuation_light.split())
-    if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
-        candidates.append(punctuation_light)
-    without_parenthetical = re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title)
-    without_parenthetical = " ".join(without_parenthetical.split())
-    if without_parenthetical and _normalize(without_parenthetical) not in {
-        _normalize(value) for value in candidates
-    }:
-        candidates.append(without_parenthetical)
-
+    candidates = [provider_title] if _normalize(provider_title) else []
+    if candidates:
+        # AniWorld format labels are often appended to the actual work title.
+        # Keep the full title first, then try a conservative base-title variant.
+        without_format_suffix = re.sub(
+            r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
+            r"short\s+animation|special\s+episode|special|ova)$",
+            "", provider_title, flags=re.IGNORECASE,
+        ).strip()
+        if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
+            candidates.append(without_format_suffix)
+        punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
+        punctuation_light = " ".join(punctuation_light.split())
+        if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
+            candidates.append(punctuation_light)
+        without_parenthetical = re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title)
+        without_parenthetical = " ".join(without_parenthetical.split())
+        if without_parenthetical and _normalize(without_parenthetical) not in {
+            _normalize(value) for value in candidates
+        }:
+            candidates.append(without_parenthetical)
     # Keep at most two derived queries in addition to the original spelling.
     # Otherwise titles with several cleanup variants can crowd provider-supplied
     # alternate titles out of the seven-query budget.
