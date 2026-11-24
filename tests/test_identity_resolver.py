@@ -1894,6 +1894,18 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(variants[0], "Loveless: SD Theatre")
         self.assertIn("Loveless", variants)
 
+    def test_search_variants_ignore_empty_and_duplicate_aliases(self):
+        aliases = [
+            "!!!", "Alias A", "alias-a", "Alias B", "Alias C",
+            "Alias D", "Alias E", "Alias F", "Alias G",
+        ]
+        variants = _search_query_variants("!!!", aliases)
+        self.assertEqual(
+            variants,
+            ["Alias A", "Alias B", "Alias C", "Alias D", "Alias E", "Alias F", "Alias G"],
+        )
+        self.assertEqual(len(variants), 7)
+
     def test_episode_title_score_is_invariant_to_german_english_variant_order(self):
         provider_structure = {
             "seasons": [{
