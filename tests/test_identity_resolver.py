@@ -1227,6 +1227,35 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["actor_score"], 1.0)
         self.assertEqual(result["director_score"], 1.0)
 
+    def test_description_similarity_alone_does_not_rescue_weak_title(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 203, "name": "Otome Yokai Zakuro",
+                    "original_name": "おとめ妖怪 ざくろ",
+                }]}
+            if path == "/tv/203/alternative_titles":
+                return {"results": []}
+            if path == "/tv/203":
+                return {"overview": "A mysterious supernatural adventure involving spirits, friendship, romance, and a young heroine."}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "serienstream",
+                "media_type": "series",
+                "provider_title": "Zakuro",
+                "description": "A mysterious supernatural adventure involving spirits, friendship, romance, and a young heroine.",
+                "metadata": {},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "no_match")
+        self.assertEqual(
+            result["diagnostics"]["candidates"][0]["rejection"],
+            "below_title_similarity_threshold",
+        )
+
     def test_weak_title_without_two_independent_signals_is_not_rescued(self):
         def fake_get(path, params):
             if path == "/search/tv":
