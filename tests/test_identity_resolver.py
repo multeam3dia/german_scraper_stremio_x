@@ -137,7 +137,7 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertNotEqual(result["status"], "matched")
 
-    def test_short_title_collision_without_independent_evidence_stays_ambiguous(self
+    def test_short_title_collision_without_independent_evidence_stays_ambiguous(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [
