@@ -470,6 +470,12 @@ def _episode_title_similarity(
         r"|^(?:제\s*)?\d+\s*(?:화|편)$"
     )
 
+    numbered_title_prefix = re.compile(
+        r"^(?:episode|episod|ep|folge|part|chapter|kapitel|chap|season|staffel|series|s)\s*\d+\s+"
+        r"|^第\s*(?:\d+|[〇零一二三四五六七八九十百千万两廿卅卌]+)\s*(?:話|回|集|期|章|部|巻|卷)\s+"
+        r"|^(?:제\s*)?\d+\s*(?:화|편)\s+"
+    )
+
     def clean_rows(rows: Any, provider_side: bool) -> list[list[str]]:
         result = []
         for episode in rows or []:
@@ -481,12 +487,15 @@ def _episode_title_similarity(
                 for key in keys
                 if _normalize(episode.get(key))
             ]
-            names = [
-                name for name in names
-                if not generic_title.fullmatch(re.sub(r"\s+", "", name))
-            ]
-            if names:
-                result.append(names)
+            cleaned_names = []
+            for name in names:
+                if generic_title.fullmatch(re.sub(r"\s+", "", name)):
+                    continue
+                name = numbered_title_prefix.sub("", name).strip()
+                if name and not generic_title.fullmatch(re.sub(r"\s+", "", name)):
+                    cleaned_names.append(name)
+            if cleaned_names:
+                result.append(cleaned_names)
         return result
 
     def similarity(left: str, right: str) -> float:

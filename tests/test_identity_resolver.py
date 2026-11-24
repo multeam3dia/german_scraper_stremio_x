@@ -2104,6 +2104,25 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(_episode_title_similarity(provider_structure, candidate_titles), 0.0)
 
 
+    def test_numbered_episode_prefixes_are_ignored_for_title_similarity(self):
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"episode_number": 1, "title": "Episode 01: Rainfall at dawn"},
+                {"episode_number": 2, "title": "第2話：Copper lanterns"},
+                {"episode_number": 3, "title": "제3화: Silent orchard"},
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "Rainfall at dawn"},
+            {"episode_number": 2, "name": "Copper lanterns"},
+            {"episode_number": 3, "name": "Silent orchard"},
+        ]}
+        self.assertEqual(
+            _episode_title_similarity(provider_structure, candidate_titles),
+            1.0,
+        )
+
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
         # Numbering-only Japanese, Chinese, and Korean episode labels are not identity evidence.
         generic_titles = [
