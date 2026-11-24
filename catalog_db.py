@@ -274,6 +274,18 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_tmdb_response_cache_cached_at
                 ON tmdb_response_cache(cached_at);
 
+            CREATE TABLE IF NOT EXISTS tmdb_cache_usage (
+                cache_key TEXT PRIMARY KEY,
+                endpoint TEXT NOT NULL,
+                request_count INTEGER NOT NULL DEFAULT 0,
+                avoided_http_requests INTEGER NOT NULL DEFAULT 0,
+                first_used_at TEXT NOT NULL,
+                last_used_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_tmdb_cache_usage_requests
+                ON tmdb_cache_usage(request_count DESC);
+
             CREATE TABLE IF NOT EXISTS sync_outbox (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
@@ -1457,6 +1469,70 @@ def purge_expired_tmdb_cache(
             "DELETE FROM tmdb_response_cache WHERE cached_at < ?", (cutoff,)
         )
         return max(0, int(cursor.rowcount or 0))
+
+
+def record_tmdb_cache_usage(
+    cache_key: str,
+    *,
+    endpoint: str,
+    avoided_http_request: bool,
+    used_at: Optional[datetime] = None,
+) -> None:
+    """Persist aggregate use of a cache key without storing query payloads separately."""
+    timestamp = used_at or datetime.now(timezone.utc)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    timestamp_text = timestamp.isoformat()
+    with _connect() as db:
+        db.execute(
+            """
+            INSERT INTO tmdb_cache_usage(
+                cache_key, endpoint, request_count, avoided_http_requests,
+                first_used_at, last_used_at
+            ) VALUES (?, ?, 1, ?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                endpoint=excluded.endpoint,
+                request_count=tmdb_cache_usage.request_count + 1,
+                avoided_http_requests=tmdb_cache_usage.avoided_http_requests
+                    + excluded.avoided_http_requests,
+                last_used_at=excluded.last_used_at
+            """,
+            (
+                str(cache_key), str(endpoint),
+                int(bool(avoided_http_request)), timestamp_text, timestamp_text,
+            ),
+        )
+
+
+def get_tmdb_cache_usage(*, limit: int = 20) -> list[dict[str, Any]]:
+    """Return most frequently reused TMDB cache keys, ranked by avoided requests."""
+    safe_limit = max(1, min(500, int(limit)))
+    with _connect() as db:
+        rows = db.execute(
+            """
+            SELECT cache_key, endpoint, request_count, avoided_http_requests,
+                   first_used_at, last_used_at
+            FROM tmdb_cache_usage
+            ORDER BY avoided_http_requests DESC, request_count DESC, last_used_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_tmdb_cache_usage_totals() -> dict[str, int]:
+    """Return aggregate persistent cache usage counters."""
+    with _connect() as db:
+        row = db.execute(
+            """
+            SELECT COALESCE(SUM(request_count), 0) AS cache_uses,
+                   COALESCE(SUM(avoided_http_requests), 0) AS avoided_http_requests,
+                   COUNT(*) AS unique_cache_keys
+            FROM tmdb_cache_usage
+            """
+        ).fetchone()
+    return {key: int(row[key] or 0) for key in row.keys()}
 
 
 def set_tmdb_cached_response(
