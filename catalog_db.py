@@ -265,6 +265,12 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_crawl_runs_provider_started
                 ON crawl_runs(provider, started_at DESC);
 
+            CREATE TABLE IF NOT EXISTS tmdb_response_cache (
+                cache_key TEXT PRIMARY KEY,
+                response_json TEXT NOT NULL,
+                cached_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS sync_outbox (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
@@ -302,7 +308,7 @@ def init_db() -> None:
                 db.execute(f"ALTER TABLE unresolved_provider_titles ADD COLUMN {column} {declaration}")
         row = db.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
         if row is None:
-            db.execute("INSERT INTO schema_version(version) VALUES (7)")
+            db.execute("INSERT INTO schema_version(version) VALUES (8)")
         elif row["version"] < 7:
             db.execute("UPDATE schema_version SET version = 7")
         elif row["version"] > 7:
@@ -1398,6 +1404,58 @@ def mark_provider_structure_fetched(
             DO UPDATE SET fetched_at=excluded.fetched_at
             """,
             (media_type, imdb_id, provider.strip().lower(), now),
+        )
+
+
+def get_tmdb_cached_response(
+    cache_key: str, *, ttl_seconds: int = 604800, now: Optional[datetime] = None
+) -> Optional[dict[str, Any]]:
+    """Return a still-fresh cached TMDB JSON response, if present."""
+    try:
+        ttl = max(60, int(ttl_seconds))
+    except (TypeError, ValueError):
+        ttl = 604800
+    with _connect() as db:
+        row = db.execute(
+            "SELECT response_json, cached_at FROM tmdb_response_cache WHERE cache_key=?",
+            (str(cache_key),),
+        ).fetchone()
+    if row is None:
+        return None
+    try:
+        cached_at = datetime.fromisoformat(row["cached_at"])
+        if cached_at.tzinfo is None:
+            cached_at = cached_at.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        if (current - cached_at).total_seconds() >= ttl:
+            return None
+        payload = json.loads(row["response_json"])
+        return payload if isinstance(payload, dict) else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def set_tmdb_cached_response(
+    cache_key: str, response: dict[str, Any], *, cached_at: Optional[datetime] = None
+) -> None:
+    """Persist a successful TMDB JSON response for reuse across resolver runs."""
+    if not isinstance(response, dict):
+        raise ValueError("TMDB response must be a JSON object")
+    timestamp = cached_at or datetime.now(timezone.utc)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    with _connect() as db:
+        db.execute(
+            """
+            INSERT INTO tmdb_response_cache(cache_key, response_json, cached_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(cache_key) DO UPDATE SET
+                response_json=excluded.response_json,
+                cached_at=excluded.cached_at
+            """,
+            (str(cache_key), json.dumps(response, ensure_ascii=False), timestamp.isoformat()),
         )
 
 def get_title_for_tracking(media_type: str, imdb_id: str) -> Optional[dict[str, Any]]:
