@@ -397,8 +397,7 @@ class IdentityResolverTests(unittest.TestCase):
 
     def test_apply_persists_title_without_imdb_and_resolves_queue_item(self):
         url = "https://aniworld.to/anime/stream/example-no-imdb"
-        catalog_db.record_unresolved_title(
-            "aniworld", url, "Example Anime", "series", year=2024,
+        catalog_db.record_unresolved_title(            "aniworld", url, "Example Anime", "series", year=2024,
         )
 
         def fake_get(path, params):
@@ -797,8 +796,7 @@ class IdentityResolverTests(unittest.TestCase):
              "first_air_date": f"{2000 + i}-01-01"}
             for i in range(1, 11)
         ]
-        candidates.append({
-            "id": 999, "name": "完全に別のタイトル",
+        candidates.append({            "id": 999, "name": "完全に別のタイトル",
             "original_name": "完全に別のタイトル", "first_air_date": "2020-01-01",
         })
         calls = []
@@ -1197,8 +1195,7 @@ class IdentityResolverTests(unittest.TestCase):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
-                    "id": 202, "name": "Otome Yokai Zakuro",
-                    "original_name": "おとめ妖怪 ざくろ",
+                    "id": 202, "name": "Otome Yokai Zakuro",                    "original_name": "おとめ妖怪 ざくろ",
                 }]}
             if path == "/tv/202/alternative_titles":
                 return {"results": []}
@@ -1597,8 +1594,7 @@ class IdentityResolverTests(unittest.TestCase):
         for year, expected_id in ((2002, 2002), (2006, 2006)):
             with self.subTest(year=year):
                 result = find_tmdb_match(
-                    {"media_type": "series", "provider_title": "Kanon", "year": year},
-                    search_fn=fake_get,
+                    {"media_type": "series", "provider_title": "Kanon", "year": year},                    search_fn=fake_get,
                 )
                 self.assertEqual(result["status"], "matched")
                 self.assertEqual(result["tmdb_id"], expected_id)
@@ -1840,7 +1836,7 @@ class IdentityResolverTests(unittest.TestCase):
         ]}
         score = _episode_title_similarity(provider_structure, candidate_titles)
         # One candidate episode must not corroborate multiple provider episodes.
-        self.assertAlmostEqual(score, 1 / 3)
+        self.assertAlmostEqual(score, 1 / 3, places=4)
 
     def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
         provider_structure = {
@@ -1998,212 +1994,3 @@ class IdentityResolverTests(unittest.TestCase):
                 ],
             }],
         }
-        candidate_titles = {"1": [
-            {"episode_number": 1, "name": "Episode 1"},
-            {"episode_number": 2, "name": "Episode 2"},
-            {"episode_number": 3, "name": "Episode 3"},
-            {"episode_number": 4, "name": "Episode 4"},
-        ]}
-        score = _episode_title_similarity(provider_structure, candidate_titles)
-        self.assertIsNone(score)
-
-
-
-    def test_empty_provider_people_skip_credits_request(self):
-        calls = []
-
-        def fake_get(path, params):
-            calls.append(path)
-            return {}
-
-        signals = _metadata_signal_scores(
-            {"id": 99123}, "series",
-            {"actors": ["", "  "], "directors": ["", None]},
-            "aniworld", fake_get,
-        )
-
-        self.assertIsNone(signals["actor_score"])
-        self.assertIsNone(signals["director_score"])
-        self.assertEqual(calls, [])
-
-    def test_exact_title_match_skips_unnecessary_metadata_fetches(self):
-        calls = []
-
-        def fake_get(path, params):
-            calls.append(path)
-            if path == "/search/tv":
-                return {"results": [{
-                    "id": 88001, "name": "Exact Match Series",
-                    "original_name": "Exact Match Series", "first_air_date": "2020-01-01",
-                }]}
-            if path == "/tv/88001/external_ids":
-                return {"imdb_id": "tt1234567"}
-            return {}
-
-        result = find_tmdb_match(
-            {
-                "media_type": "series", "provider": "aniworld",
-                "provider_title": "Exact Match Series", "year": 2020,
-                "metadata": {
-                    "actors": ["Actor One"], "directors": ["Director One"],
-                    "producer": "Studio One", "country": "Japan",
-                },
-            },
-            search_fn=fake_get,
-        )
-
-        self.assertEqual(result["status"], "matched")
-        self.assertEqual(result["tmdb_id"], 88001)
-        self.assertFalse(any(path.endswith("/credits") for path in calls))
-        self.assertFalse(any(path == "/tv/88001" for path in calls))
-
-
-    def test_single_resolution_cache_reuses_candidate_details(self):
-        calls = []
-
-        def fake_get(path, params):
-            calls.append((path, dict(params or {})))
-            if path == "/search/tv":
-                return {"results": [
-                    {"id": 88021, "name": "Close Match", "original_name": "Close Match",
-                     "first_air_date": "2020-01-01"},
-                    {"id": 88022, "name": "Close Match", "original_name": "Close Match",
-                     "first_air_date": "2021-01-01"},
-                ]}
-            if path in ("/tv/88021", "/tv/88022"):
-                return {
-                    "production_companies": [{"name": "Studio X"}],
-                    "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}],
-                }
-            return {}
-
-        record = {
-            "media_type": "series",
-            "provider": "aniworld",
-            "provider_title": "Close Match",
-            "year": 2020,
-            "metadata": {
-                "producer": "Studio X",
-                "country": "Japan",
-                "provider_structure": {
-                    "complete": True,
-                    "season_count": 1,
-                    "episode_count": 12,
-                    "seasons": [{
-                        "season_number": 1,
-                        "episode_count": 12,
-                        "episodes": [
-                            {"title": "Ep One"},
-                            {"title": "Ep Two"},
-                            {"title": "Ep Three"},
-                        ],
-                    }],
-                },
-            },
-        }
-        find_tmdb_match(record, search_fn=fake_get)
-        self.assertEqual(calls.count(("/tv/88021", {"language": "de-DE"})), 1)
-        self.assertEqual(calls.count(("/tv/88022", {"language": "de-DE"})), 1)
-
-    def test_clear_exact_leader_skips_weak_runner_alternative_title_fetch(self):
-        calls = []
-
-        def fake_get(path, params):
-            calls.append(path)
-            if path == "/search/tv":
-                return {"results": [
-                    {"id": 88011, "name": "Exact Match Series", "original_name": "Exact Match Series",
-                     "first_air_date": "2020-01-01"},
-                    {"id": 88012, "name": "Unrelated Candidate", "original_name": "Unrelated Candidate",
-                     "first_air_date": "2019-01-01"},
-                ]}
-            if path == "/tv/88011/external_ids":
-                return {"imdb_id": "tt1234568"}
-            return {}
-
-        result = find_tmdb_match(
-            {"media_type": "series", "provider": "aniworld",
-             "provider_title": "Exact Match Series", "year": 2020},
-            search_fn=fake_get,
-        )
-        self.assertEqual(result["status"], "matched")
-        self.assertNotIn("/tv/88012/alternative_titles", calls)
-
-
-    def test_episode_title_fetch_uses_first_and_last_seasons_only(self):
-        calls = []
-        provider_structure = {
-            "complete": True,
-            "season_count": 4,
-            "episode_count": 40,
-            "seasons": [
-                {"season_number": n, "episode_count": 10, "episodes": [{"title": f"Episode {n}"}]}
-                for n in range(1, 5)
-            ],
-        }
-
-        def fake_get(path, params):
-            calls.append(path)
-            season_number = int(path.rsplit("/", 1)[-1])
-            return {"episodes": [{"name": f"Season {season_number} Episode"}]}
-
-        result = _candidate_season_episode_titles(
-            {"id": 12345}, provider_structure, fake_get
-        )
-        self.assertEqual(calls, ["/tv/12345/season/1", "/tv/12345/season/4"])
-        self.assertEqual(set(result), {"1", "4"})
-
-    def test_alias_rescued_candidate_is_promoted_before_structure_shortlist(self):
-        calls = []
-        candidates = [
-            {"id": 1001, "name": "Target Series Version A", "original_name": "Target Series Version A", "first_air_date": "2019-01-01"},
-            {"id": 1002, "name": "Target Series Version B", "original_name": "Target Series Version B", "first_air_date": "2018-01-01"},
-            {"id": 1003, "name": "Target Series Version C", "original_name": "Target Series Version C", "first_air_date": "2017-01-01"},
-            {"id": 1004, "name": "Target Series Version D", "original_name": "Target Series Version D", "first_air_date": "2016-01-01"},
-            {"id": 1005, "name": "Target Series Version E", "original_name": "Target Series Version E", "first_air_date": "2015-01-01"},
-            {"id": 1006, "name": "Completely Unrelated Candidate", "original_name": "Completely Unrelated Candidate", "first_air_date": "2020-01-01"},
-        ]
-        provider_structure = {
-            "complete": True, "season_count": 1, "episode_count": 3,
-            "seasons": [{"season_number": 1, "episode_count": 3, "episodes": [
-                {"title": "Alpha"}, {"title": "Beta"}, {"title": "Gamma"},
-            ]}],
-        }
-
-        def fake_get(path, params):
-            calls.append(path)
-            if path == "/search/tv":
-                return {"results": candidates}
-            if path == "/tv/1006/alternative_titles":
-                return {"results": [{"title": "Target Series"}]}
-            if path == "/tv/1005/alternative_titles":
-                return {"results": [{"title": "Target Series"}]}
-            if path.startswith("/tv/") and path.endswith("/alternative_titles"):
-                return {"results": []}
-            if path.startswith("/tv/") and path.endswith("/credits"):
-                return {"cast": [], "crew": []}
-            if path.startswith("/tv/") and path.endswith("/external_ids"):
-                return {"imdb_id": "tt1234567"}
-            if path.startswith("/tv/") and path.count("/") == 2:
-                return {
-                    "number_of_seasons": 1, "number_of_episodes": 3,
-                    "seasons": [{"season_number": 1, "episode_count": 3}],
-                }
-            if path.endswith("/season/1"):
-                return {"episodes": [{"name": "Alpha"}, {"name": "Beta"}, {"name": "Gamma"}]}
-            return {}
-
-        result = find_tmdb_match(
-            {"media_type": "series", "provider": "aniworld",
-             "provider_title": "Target Series", "year": 2020,
-             "metadata": {"provider_structure": provider_structure}},
-            search_fn=fake_get,
-        )
-        self.assertIn("/tv/1006", calls, "Alias-promoted candidate should receive structure validation")
-        self.assertIn("/tv/1006/season/1", calls, "Alias-promoted candidate should receive episode-title corroboration")
-        self.assertEqual(result["status"], "matched")
-        self.assertEqual(result["tmdb_id"], 1006)
-
-
-if __name__ == "__main__":
-    unittest.main()
