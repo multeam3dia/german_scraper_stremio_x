@@ -271,6 +271,9 @@ def init_db() -> None:
                 cached_at TEXT NOT NULL
             );
 
+            CREATE INDEX IF NOT EXISTS idx_tmdb_response_cache_cached_at
+                ON tmdb_response_cache(cached_at);
+
             CREATE TABLE IF NOT EXISTS sync_outbox (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
@@ -1435,6 +1438,25 @@ def get_tmdb_cached_response(
         return payload if isinstance(payload, dict) else None
     except (TypeError, ValueError, json.JSONDecodeError):
         return None
+
+
+def purge_expired_tmdb_cache(
+    *, ttl_seconds: int = 604800, now: Optional[datetime] = None
+) -> int:
+    """Remove expired TMDB cache rows and return the number deleted."""
+    try:
+        ttl = max(60, int(ttl_seconds))
+    except (TypeError, ValueError):
+        ttl = 604800
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    cutoff = (current - timedelta(seconds=ttl)).isoformat()
+    with _connect() as db:
+        cursor = db.execute(
+            "DELETE FROM tmdb_response_cache WHERE cached_at < ?", (cutoff,)
+        )
+        return max(0, int(cursor.rowcount or 0))
 
 
 def set_tmdb_cached_response(
