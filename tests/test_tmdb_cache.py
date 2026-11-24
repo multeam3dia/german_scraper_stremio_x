@@ -45,6 +45,34 @@ class TmdbResponseCacheTests(unittest.TestCase):
         catalog_db.set_tmdb_cached_response(key, {"v": 2})
         self.assertEqual(catalog_db.get_tmdb_cached_response(key), {"v": 2})
 
+    def test_purge_removes_expired_rows_and_keeps_fresh_rows(self):
+        now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+        catalog_db.set_tmdb_cached_response(
+            "old", {"v": "old"}, cached_at=now - timedelta(days=8)
+        )
+        catalog_db.set_tmdb_cached_response(
+            "fresh", {"v": "fresh"}, cached_at=now - timedelta(days=2)
+        )
+        removed = catalog_db.purge_expired_tmdb_cache(
+            ttl_seconds=7 * 24 * 60 * 60, now=now
+        )
+        self.assertEqual(removed, 1)
+        self.assertIsNone(catalog_db.get_tmdb_cached_response(
+            "old", now=now, ttl_seconds=7 * 24 * 60 * 60
+        ))
+        self.assertEqual(catalog_db.get_tmdb_cached_response(
+            "fresh", now=now, ttl_seconds=7 * 24 * 60 * 60
+        ), {"v": "fresh"})
+
+    def test_purge_handles_naive_now_as_utc(self):
+        now = datetime(2026, 11, 24, 12, 0, 0)
+        catalog_db.set_tmdb_cached_response(
+            "expired-naive", {"v": 1}, cached_at=now - timedelta(days=10)
+        )
+        self.assertEqual(catalog_db.purge_expired_tmdb_cache(
+            ttl_seconds=7 * 24 * 60 * 60, now=now
+        ), 1)
+
     def test_non_object_payload_is_rejected(self):
         with self.assertRaises(ValueError):
             catalog_db.set_tmdb_cached_response("bad", ["not", "an", "object"])
