@@ -80,5 +80,23 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertEqual(result["title_score"], 1.0)
 
 
+    def test_query_budget_deduplicates_aliases_and_never_exceeds_seven(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Primary Title: Special",
+            [
+                "", "Primary Title Special", "Alias A", "Alias A",
+                "Alias B", "Alias C", "Alias D", "Alias E",
+            ],
+        )
+
+        self.assertLessEqual(len(queries), 7)
+        self.assertEqual(len(queries), len(set(queries)))
+        self.assertIn("Alias A", queries)
+        self.assertIn("Alias D", queries)
+        self.assertNotIn("", queries)
+
+
 if __name__ == "__main__":
     unittest.main()
