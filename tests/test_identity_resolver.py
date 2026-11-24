@@ -135,7 +135,9 @@ class IdentityResolverTests(unittest.TestCase):
             {"media_type": "series", "provider_title": "Air", "year": None},
             search_fn=fake_get,
         )
-        self.assertNotEqual(result["status"], "matched")
+        self.assertNotIn(result["status"], {"matched", "identified"})
+        self.assertTrue(result.get("short_title_safeguard", {}).get("applied"))
+        self.assertFalse(result.get("short_title_safeguard", {}).get("supported"))
 
     def test_short_title_collision_without_independent_evidence_stays_ambiguous(self):
         def fake_get(path, params):
