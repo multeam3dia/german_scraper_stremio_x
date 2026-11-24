@@ -32,6 +32,7 @@ from catalog_db import (
     record_unresolved_attempt,
     get_tmdb_cached_response,
     set_tmdb_cached_response,
+    purge_expired_tmdb_cache,
     mark_unresolved_title_identified,
 )
 
