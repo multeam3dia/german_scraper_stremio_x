@@ -17,7 +17,7 @@ class ProviderAliasSearchTests(unittest.TestCase):
                 if query == "Alternate Four":
                     return {"results": [{
                         "id": 1,
-                        "name": "Synthetic Candidate",
+                        "name": "Alternate Four",
                         "original_name": "架空の候補",
                         "first_air_date": "2020-01-01",
                     }]}
