@@ -35,8 +35,10 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
         self.assertEqual(records[0]["provider_title"], "Example Show")
         self.assertEqual(records[0]["normalized_title"], "example show")
         self.assertEqual(records[0]["metadata"], {"country": "DE"})
-        self.assertEqual(records[0]["attempts"], 0)
-        self.assertIsNone(records[0]["last_attempt_at"])
+        self.assertEqual(records[0]["attempts"], 1)
+        self.assertIsNotNone(records[0]["last_attempt_at"])
+        self.assertEqual(records[0]["resolver_attempts"], 0)
+        self.assertIsNone(records[0]["resolver_last_attempt_at"])
         self.assertEqual(catalog_db.get_catalog_stats()["unresolved_titles"], 1)
 
     def test_discovery_refresh_does_not_count_resolver_attempts(self):
@@ -44,8 +46,9 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
         catalog_db.record_unresolved_title("serienstream", url, "Example Show")
         catalog_db.record_unresolved_title("serienstream", url, "Example Show")
         record = catalog_db.get_unresolved_titles()[0]
-        self.assertEqual(record["attempts"], 0)
-        self.assertIsNone(record["last_attempt_at"])
+        self.assertEqual(record["attempts"], 2)
+        self.assertEqual(record["resolver_attempts"], 0)
+        self.assertIsNone(record["resolver_last_attempt_at"])
 
     def test_resolver_attempt_is_counted_and_timestamps(self):
         url = "https://serienstream.to/serie/example"
@@ -53,7 +56,8 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
         catalog_db.record_unresolved_attempt("serienstream", url)
         record = catalog_db.get_unresolved_titles()[0]
         self.assertEqual(record["attempts"], 1)
-        self.assertIsNotNone(record["last_attempt_at"])
+        self.assertEqual(record["resolver_attempts"], 1)
+        self.assertIsNotNone(record["resolver_last_attempt_at"])
 
     def test_resolved_record_leaves_pending_queue(self):
         url = "https://serienstream.to/serie/example"
