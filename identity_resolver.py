@@ -480,7 +480,7 @@ def _episode_title_similarity(
                 for key in keys
                 if _normalize(episode.get(key))
             ]
-            names = [name for name in names if not generic_title.fullmatch(name)]
+            names = [\n                name for name in names\n                if not generic_title.fullmatch(re.sub(r"\\s+", "", name))\n            ]
             if names:
                 result.append(names)
         return result
