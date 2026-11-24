@@ -636,7 +636,7 @@ def _episode_title_similarity(
             ):
                 direct_first_provider_used.add(provider_index)
                 direct_first_candidate_used.update(candidate_indices)
-                direct_first_merged_edges.append((provider_index, candidate_indices)
+                direct_first_merged_edges.append((provider_index, candidate_indices))
 
         merge_first_provider_matches = (
             len(selected_merged_edges) + len(direct_matching)
