@@ -73,6 +73,28 @@ class TmdbResponseCacheTests(unittest.TestCase):
             ttl_seconds=7 * 24 * 60 * 60, now=now
         ), 1)
 
+    def test_usage_stats_track_avoided_requests_and_top_keys(self):
+        catalog_db.record_tmdb_cache_usage(
+            "key-a", endpoint="/search/tv", avoided_http_request=True
+        )
+        catalog_db.record_tmdb_cache_usage(
+            "key-a", endpoint="/search/tv", avoided_http_request=True
+        )
+        catalog_db.record_tmdb_cache_usage(
+            "key-a", endpoint="/search/tv", avoided_http_request=False
+        )
+        catalog_db.record_tmdb_cache_usage(
+            "key-b", endpoint="/tv/123", avoided_http_request=True
+        )
+        totals = catalog_db.get_tmdb_cache_usage_totals()
+        self.assertEqual(totals["cache_uses"], 4)
+        self.assertEqual(totals["avoided_http_requests"], 3)
+        self.assertEqual(totals["unique_cache_keys"], 2)
+        top = catalog_db.get_tmdb_cache_usage(limit=1)
+        self.assertEqual(top[0]["cache_key"], "key-a")
+        self.assertEqual(top[0]["request_count"], 3)
+        self.assertEqual(top[0]["avoided_http_requests"], 2)
+
     def test_non_object_payload_is_rejected(self):
         with self.assertRaises(ValueError):
             catalog_db.set_tmdb_cached_response("bad", ["not", "an", "object"])
