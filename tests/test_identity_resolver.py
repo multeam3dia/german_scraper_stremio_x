@@ -2125,12 +2125,31 @@ class IdentityResolverTests(unittest.TestCase):
             1.0,
         )
 
+    def test_simplified_chinese_and_formal_japanese_episode_prefixes_are_ignored(self):
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"episode_number": 1, "title": "第1话: Rainfall at dawn"},
+                {"episode_number": 2, "title": "第壱話: Copper lanterns"},
+                {"episode_number": 3, "title": "第弐集: Silent orchard"},
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "Rainfall at dawn"},
+            {"episode_number": 2, "name": "Copper lanterns"},
+            {"episode_number": 3, "name": "Silent orchard"},
+        ]}
+        self.assertEqual(
+            _episode_title_similarity(provider_structure, candidate_titles),
+            1.0,
+        )
+
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
         # Numbering-only Japanese, Chinese, and Korean episode labels are not identity evidence.
         generic_titles = [
             "第1話", "第二話", "第3集", "第4回", "第5話", "第6集",
             "第7話", "第8回", "第9話", "第10集", "第十一話", "第〇話", "第零集",
-            "第两回", "第廿話", "第1话", "第二话", "第两集", "第廿话", "제12화", "13편", "1회", "제2회", "3회",
+            "第两回", "第廿話", "第壱話", "第弐集", "第参回", "第拾話", "第1话", "第二话", "第两集", "第廿话", "제12화", "13편", "1회", "제2회", "3회",
         ]
         provider_structure = {
             "seasons": [{
