@@ -2111,12 +2111,14 @@ class IdentityResolverTests(unittest.TestCase):
                 {"episode_number": 1, "title": "Episode 01: Rainfall at dawn"},
                 {"episode_number": 2, "title": "第2話：Copper lanterns"},
                 {"episode_number": 3, "title": "제3화: Silent orchard"},
+                {"episode_number": 4, "title": "제4회: Amber bridge"},
             ],
         }]}
         candidate_titles = {"1": [
             {"episode_number": 1, "name": "Rainfall at dawn"},
             {"episode_number": 2, "name": "Copper lanterns"},
             {"episode_number": 3, "name": "Silent orchard"},
+            {"episode_number": 4, "name": "Amber bridge"},
         ]}
         self.assertEqual(
             _episode_title_similarity(provider_structure, candidate_titles),

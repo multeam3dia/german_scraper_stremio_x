@@ -467,13 +467,13 @@ def _episode_title_similarity(
         r"series|s)\s*\d*$|^\d+$"
         r"|^(?:第\s*)?(?:\d+|[〇零一二三四五六七八九十百千万两廿卅卌]+)\s*(?:話|话|回|集|期|章|部|巻|卷)$"
         r"|^(?:제\s*)?\d+\s*(?:화|편|회)$"
-        r"|^(?:제\s*)?\d+\s*(?:화|편)$"
+        r"|^(?:제\s*)?\d+\s*(?:화|편|회)$"
     )
 
     numbered_title_prefix = re.compile(
         r"^(?:episode|episod|ep|folge|part|chapter|kapitel|chap|season|staffel|series|s)\s*\d+\s+"
         r"|^第\s*(?:\d+|[〇零一二三四五六七八九十百千万两廿卅卌]+)\s*(?:話|回|集|期|章|部|巻|卷)\s+"
-        r"|^(?:제\s*)?\d+\s*(?:화|편)\s+"
+        r"|^(?:제\s*)?\d+\s*(?:화|편|회)\s+"
     )
 
     def clean_rows(rows: Any, provider_side: bool) -> list[list[str]]:
