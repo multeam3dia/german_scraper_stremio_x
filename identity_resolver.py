@@ -465,7 +465,7 @@ def _episode_title_similarity(
     generic_title = re.compile(
         r"^(?:episode|episod|ep|folge|part|chapter|kapitel|chap|ova|special|season|staffel|"
         r"series|s)\s*\d*$|^\d+$"
-        r"|^(?:第\s*)?(?:\d+|[〇零一二三四五六七八九十百千万两廿卅卌]+)\s*(?:話|回|集)$"
+        r"|^(?:第\s*)?(?:\d+|[〇零一二三四五六七八九十百千万两廿卅卌]+)\s*(?:話|回|集|期|章|部|巻|卷)$"
         r"|^(?:제\s*)?\d+\s*(?:화|편)$"
         r"|^(?:제\s*)?\d+\s*(?:화|편)$"
     )
