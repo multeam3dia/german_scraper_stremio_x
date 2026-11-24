@@ -36,7 +36,11 @@ class IdentityResolverTests(unittest.TestCase):
             media_type="series",
         )
         cache_key = json.dumps(
-            ["/search/tv", {"query": "Cache Stat Test"}],
+            ["/search/tv", {
+                "query": "Cache Stat Test",
+                "include_adult": "false",
+                "language": "de-DE",
+            }],
             sort_keys=True, ensure_ascii=False, default=str,
         )
         catalog_db.set_tmdb_cached_response(
