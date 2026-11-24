@@ -1980,6 +1980,26 @@ class IdentityResolverTests(unittest.TestCase):
         score = _episode_title_similarity(provider_structure, candidate_titles)
         self.assertGreaterEqual(score, 0.75)
 
+    def test_greedy_merged_match_does_not_block_two_direct_matches(self):
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"title": "Rainfall at dawn / Copper lanterns"},
+                {"title": "Rainfall at dawn extra"},
+                {"title": "Copper lanterns extra"},
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"name": "Rainfall at dawn"},
+            {"name": "Copper lanterns"},
+            {"name": "Winter signals"},
+        ]}
+        # The merged perfect match would block two direct matches (0.84 and
+        # 0.83). The direct-first strategy has better balanced coverage (2/3).
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertAlmostEqual(score, 2 / 3, places=4)
+
+
     def test_exact_year_and_one_strong_credit_can_rescue_translated_title(self):
         def fake_get(path, params):
             if path == "/search/tv":
