@@ -1940,6 +1940,26 @@ class IdentityResolverTests(unittest.TestCase):
         # One candidate episode must not corroborate multiple provider episodes.
         self.assertAlmostEqual(score, 1 / 3, places=4)
 
+    def test_episode_title_matching_uses_augmenting_paths_to_avoid_greedy_misses(self):
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"title": "rainfxll at dawn"},
+                {"title": "rainfall at dark"},
+                {"title": "Gamma"},
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"name": "rainfxll at dawn"},
+            {"name": "rainfall dawn"},
+            {"name": "Gamma"},
+        ]}
+        # The first provider episode's exact match would block the second
+        # episode's only viable match in a greedy assignment. Reassignment
+        # yields three distinct one-to-one episode matches.
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        self.assertEqual(score, 1.0)
+
     def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
         provider_structure = {
             "seasons": [{

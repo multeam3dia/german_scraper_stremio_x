@@ -546,8 +546,7 @@ def _episode_title_similarity(
 
         used_provider: set[int] = set()
         used_candidate: set[int] = set()
-        matched_provider = 0
-        matched_candidate = 0
+        selected_merged_edges: list[tuple[int, tuple[int, ...]]] = []
         for score, p_index, c_indices in sorted(edges, reverse=True):
             if score < 0.78 or p_index in used_provider or any(
                 index in used_candidate for index in c_indices
@@ -555,8 +554,63 @@ def _episode_title_similarity(
                 continue
             used_provider.add(p_index)
             used_candidate.update(c_indices)
-            matched_provider += 1
-            matched_candidate += len(c_indices)
+            if len(c_indices) > 1:
+                selected_merged_edges.append((p_index, c_indices))
+
+        # Greedy direct matches can strand another provider episode. Preserve
+        # merged matches, then maximize one-to-one matches with augmenting paths.
+        merged_provider_indices = {
+            provider_index for provider_index, _ in selected_merged_edges
+        }
+        merged_candidate_indices = {
+            candidate_index
+            for _, candidate_indices in selected_merged_edges
+            for candidate_index in candidate_indices
+        }
+        direct_adjacency: dict[int, list[tuple[float, int]]] = {}
+        for score, provider_index, candidate_indices in edges:
+            if (
+                score >= 0.78
+                and len(candidate_indices) == 1
+                and provider_index not in merged_provider_indices
+                and candidate_indices[0] not in merged_candidate_indices
+            ):
+                direct_adjacency.setdefault(provider_index, []).append(
+                    (score, candidate_indices[0])
+                )
+        for matches in direct_adjacency.values():
+            matches.sort(reverse=True)
+
+        direct_matching: dict[int, int] = {}
+
+        def assign_direct(provider_index: int, seen_candidates: set[int]) -> bool:
+            for _, candidate_index in direct_adjacency.get(provider_index, []):
+                if candidate_index in seen_candidates:
+                    continue
+                seen_candidates.add(candidate_index)
+                previous_provider = direct_matching.get(candidate_index)
+                if previous_provider is None or assign_direct(
+                    previous_provider, seen_candidates
+                ):
+                    direct_matching[candidate_index] = provider_index
+                    return True
+            return False
+
+        provider_order = sorted(
+            direct_adjacency,
+            key=lambda provider_index: max(
+                score for score, _ in direct_adjacency[provider_index]
+            ),
+            reverse=True,
+        )
+        for provider_index in provider_order:
+            assign_direct(provider_index, set())
+
+        matched_provider = len(selected_merged_edges) + len(direct_matching)
+        matched_candidate = sum(
+            len(candidate_indices)
+            for _, candidate_indices in selected_merged_edges
+        ) + len(direct_matching)
         total_matched_provider += matched_provider
         total_matched_candidate += matched_candidate
 
