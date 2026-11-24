@@ -33,6 +33,9 @@ from catalog_db import (
     get_tmdb_cached_response,
     set_tmdb_cached_response,
     purge_expired_tmdb_cache,
+    record_tmdb_cache_usage,
+    get_tmdb_cache_usage,
+    get_tmdb_cache_usage_totals,
     mark_unresolved_title_identified,
 )
 
@@ -1700,6 +1703,10 @@ def resolve_unresolved_titles(
         "dry_run": not apply,
         "tmdb_cache_hits": 0,
         "tmdb_cache_misses": 0,
+        "tmdb_cache_memory_hits": 0,
+        "tmdb_cache_persistent_hits": 0,
+        "tmdb_cache_avoided_http_requests": 0,
+        "tmdb_http_requests": 0,
         "tmdb_cache_purged": tmdb_cache_purged,
         "results": [],
     }
@@ -1716,8 +1723,14 @@ def resolve_unresolved_titles(
         cache_key = json.dumps(
             [path, params or {}], sort_keys=True, ensure_ascii=False, default=str
         )
+        endpoint = str(path).split("?", 1)[0]
         if cache_key in request_cache:
             summary["tmdb_cache_hits"] += 1
+            summary["tmdb_cache_memory_hits"] += 1
+            summary["tmdb_cache_avoided_http_requests"] += 1
+            record_tmdb_cache_usage(
+                cache_key, endpoint=endpoint, avoided_http_request=True
+            )
         else:
             persistent = get_tmdb_cached_response(
                 cache_key, ttl_seconds=TMDB_CACHE_TTL_SECONDS
@@ -1725,11 +1738,21 @@ def resolve_unresolved_titles(
             if persistent is not None:
                 request_cache[cache_key] = persistent
                 summary["tmdb_cache_hits"] += 1
+                summary["tmdb_cache_persistent_hits"] += 1
+                summary["tmdb_cache_avoided_http_requests"] += 1
+                record_tmdb_cache_usage(
+                    cache_key, endpoint=endpoint, avoided_http_request=True
+                )
             else:
                 summary["tmdb_cache_misses"] += 1
+                summary["tmdb_http_requests"] += 1
                 response = search_fn(path, params)
                 request_cache[cache_key] = response
+                # search_fn returning a dict means a valid, cacheable API payload.
                 set_tmdb_cached_response(cache_key, response)
+                record_tmdb_cache_usage(
+                    cache_key, endpoint=endpoint, avoided_http_request=False
+                )
         return copy.deepcopy(request_cache[cache_key])
 
     for record in records:
@@ -1966,6 +1989,13 @@ def resolve_unresolved_titles(
             summary["no_match"] += 1
         else:
             summary["errors"] += 1
+    cache_totals = get_tmdb_cache_usage_totals()
+    summary["tmdb_cache_usage_totals"] = cache_totals
+    summary["tmdb_cache_top_keys"] = get_tmdb_cache_usage(limit=10)
+    total_cache_requests = summary["tmdb_cache_hits"] + summary["tmdb_cache_misses"]
+    summary["tmdb_cache_hit_rate"] = round(
+        summary["tmdb_cache_hits"] / total_cache_requests, 4
+    ) if total_cache_requests else 0.0
     return summary
 
 
