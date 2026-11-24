@@ -1699,9 +1699,8 @@ def resolve_unresolved_titles(
     # (for example sequel/season pages sharing a franchise-level external ID).
     evaluated: list[tuple[dict[str, Any], dict[str, Any]]] = []
     genre_maps: dict[str, dict[int, str]] = {}
-    # Cache identical TMDB requests for this batch only. This safely avoids
-    # repeated search/details/credits calls for duplicate provider entries while
-    # keeping each resolver invocation isolated and returning independent objects.
+    # Cache identical TMDB requests in memory during the batch and persist successful
+    # responses for seven days to avoid repeated API traffic across resolver runs.
     request_cache: dict[str, dict[str, Any]] = {}
     TMDB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
@@ -1719,7 +1718,7 @@ def resolve_unresolved_titles(
                 response = search_fn(path, params)
                 request_cache[cache_key] = response
                 set_tmdb_cached_response(cache_key, response)
-        return copy.deepcopy(request_cache[cache_key)
+        return copy.deepcopy(request_cache[cache_key])
 
     for record in records:
         metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
