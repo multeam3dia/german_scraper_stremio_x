@@ -1120,6 +1120,14 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "identified")
 
 
+    def test_country_score_does_not_count_as_second_independent_signal(self):
+        values = _independent_corroboration_values(
+            {"actor_score": 0.95, "director_score": None,
+             "studio_score": None, "country_score": 1.0},
+            {"actors": ["Actor A"], "directors": [], "country": "Japan"},
+        )
+        self.assertEqual(values, [0.95])
+
     def test_country_match_alone_is_not_independent_corroboration(self):
         def fake_get(path, params):
             if path == "/search/tv":
