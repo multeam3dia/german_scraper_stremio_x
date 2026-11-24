@@ -41,5 +41,44 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 1)
 
 
+    def test_provider_alias_query_can_discover_japanese_candidate_and_confirm_tmdb_alias(self):
+        provider_title = "Localized Provider Name"
+        provider_alias = "Known English Alias"
+        searched_queries = []
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                query = params.get("query")
+                searched_queries.append(query)
+                if query == provider_alias:
+                    return {"results": [{
+                        "id": 77,
+                        "name": "日本語タイトル",
+                        "original_name": "日本語タイトル",
+                        "first_air_date": "2019-01-01",
+                    }]}
+                return {"results": []}
+            if path == "/tv/77/alternative_titles":
+                return {"results": [{"title": provider_alias, "iso_3166_1": "US"}]}
+            if path == "/tv/77/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series",
+                "provider_title": provider_title,
+                "year": 2019,
+                "metadata": {"alternative_titles": [provider_alias]},
+            },
+            search_fn=fake_get,
+        )
+
+        self.assertIn(provider_alias, searched_queries)
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 77)
+        self.assertEqual(result["title_score"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()
