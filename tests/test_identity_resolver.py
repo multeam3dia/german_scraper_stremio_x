@@ -997,8 +997,7 @@ class IdentityResolverTests(unittest.TestCase):
                 return {"results": [{
                     "id": 104, "name": "Unrelated Show",
                     "original_name": "別の番組",
-                    "first_air_date": "2020-01-01",
-                }]}
+                    "first_air_date": "2020-01-01",                }]}
             if path == "/tv/104/alternative_titles":
                 return {"results": [{"title": "Other Local Title"}]}
             return {}
@@ -1618,7 +1617,8 @@ class IdentityResolverTests(unittest.TestCase):
                     {"media_type": "series", "provider_title": "Kanon", "year": year},                    search_fn=fake_get,
                 )
                 self.assertEqual(result["status"], "matched")
-                self.assertEqual(result["tmdb_id"], expected_id)                self.assertEqual(result["candidate_year"], year)
+                self.assertEqual(result["tmdb_id"], expected_id)
+                self.assertEqual(result["candidate_year"], year)
                 self.assertGreaterEqual(result["margin"], 0.08)
 
     def test_aniworld_parenthesized_year_is_not_counted_as_part_of_title(self):
@@ -1997,8 +1997,7 @@ class IdentityResolverTests(unittest.TestCase):
             {"episode_number": 1, "name": "Folge 1"},
             {"episode_number": 2, "name": "Folge 2"},
             {"episode_number": 3, "name": "Folge 3"},
-            {"episode_number": 4, "name": "Folge 4"},
-        ]}
+            {"episode_number": 4, "name": "Folge 4"},        ]}
         score = _episode_title_similarity(provider_structure, candidate_titles)
         self.assertIsNone(score)
 
