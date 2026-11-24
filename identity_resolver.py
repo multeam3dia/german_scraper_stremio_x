@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from datetime import datetime, timedelta, timezone
 import difflib
 from functools import lru_cache
 import json
@@ -46,6 +47,34 @@ IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 MIN_TITLE_SCORE_WITH_YEAR = 0.94
+
+# Persistent resolver retry delays, indexed by the number of prior resolver attempts.
+# A new item (zero attempts) is always eligible; failures back off up to 90 days.
+RESOLVER_RETRY_DAYS = (1, 3, 7, 14, 30, 60, 90)
+
+
+def resolver_retry_due(record: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """Return whether an unresolved record is eligible for another resolver pass."""
+    try:
+        attempts = max(0, int(record.get("resolver_attempts") or 0))
+    except (TypeError, ValueError):
+        attempts = 0
+    if attempts == 0:
+        return True
+    last_attempt = record.get("resolver_last_attempt_at")
+    if not last_attempt:
+        return True
+    try:
+        timestamp = datetime.fromisoformat(str(last_attempt))
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return True
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    delay_days = RESOLVER_RETRY_DAYS[min(attempts - 1, len(RESOLVER_RETRY_DAYS) - 1)]
+    return current >= timestamp + timedelta(days=delay_days)
 
 GENRE_ALIASES = {
     "abenteuer": "adventure", "komodie": "comedy", "krimi": "crime",
@@ -1646,9 +1675,13 @@ def resolve_unresolved_titles(
 ) -> dict[str, Any]:
     """Evaluate queued titles and optionally persist only high-confidence matches."""
     init_db()
-    records = get_unresolved_titles(provider=provider, limit=limit)
+    # Fetch a broad candidate window before applying cooldown and limit so recently
+    # refreshed items cannot starve older records that are already retry-due.
+    candidates = get_unresolved_titles(provider=provider, limit=5000)
+    records = [record for record in candidates if resolver_retry_due(record)][:max(1, int(limit))]
     summary: dict[str, Any] = {
         "scanned": len(records),
+        "deferred_by_retry_cooldown": len(candidates) - len(records),
         "matched": 0,
         "applied": 0,
         "ambiguous": 0,
