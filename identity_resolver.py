@@ -28,6 +28,7 @@ from catalog_db import (
     get_unresolved_titles,
     mark_unresolved_title_resolved,
     record_discovery,
+    record_unresolved_attempt,
     mark_unresolved_title_identified,
 )
 
@@ -1801,6 +1802,7 @@ def resolve_unresolved_titles(
             result["identity_collision"] = collision
 
     for record, result in evaluated:
+        record_unresolved_attempt(record["provider"], record["provider_url"])
         result_row = {
             "provider": record["provider"],
             "title": record["provider_title"],
