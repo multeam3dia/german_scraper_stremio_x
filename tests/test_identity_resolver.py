@@ -87,6 +87,34 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(values, [])
 
 
+    def test_user_rejected_candidate_is_not_auto_matched(self):
+        """A manually rejected candidate remains rejected by title evidence alone."""
+        rejected_candidate = {
+            "id": 66221,
+            "name": "Urawa no Usagi-chan",
+            "original_name": "Urawa no Usagi-chan",
+            "first_air_date": "2015-01-01",
+        }
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [rejected_candidate]}
+            if path.endswith("/alternative_titles"):
+                return {"results": []}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld",
+                "media_type": "series",
+                "provider_title": "Musasi-no",
+                "year": None,
+            },
+            search_fn=fake_get,
+        )
+        self.assertNotEqual(result["status"], "matched")
+        self.assertIn(result["status"], {"no_match", "ambiguous"})
+
     def test_short_single_word_titles_are_flagged(self):
         for title in ("Air", "One", "Dark", "Orange"):
             with self.subTest(title=title):
