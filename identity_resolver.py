@@ -1728,32 +1728,31 @@ def resolve_unresolved_titles(
             summary["tmdb_cache_hits"] += 1
             summary["tmdb_cache_memory_hits"] += 1
             summary["tmdb_cache_avoided_http_requests"] += 1
+            return copy.deepcopy(request_cache[cache_key])
+
+        persistent = get_tmdb_cached_response(
+            cache_key, ttl_seconds=TMDB_CACHE_TTL_SECONDS
+        )
+        if persistent is not None:
+            request_cache[cache_key] = persistent
+            summary["tmdb_cache_hits"] += 1
+            summary["tmdb_cache_persistent_hits"] += 1
+            summary["tmdb_cache_avoided_http_requests"] += 1
             record_tmdb_cache_usage(
                 cache_key, endpoint=endpoint, avoided_http_request=True
             )
-        else:
-            persistent = get_tmdb_cached_response(
-                cache_key, ttl_seconds=TMDB_CACHE_TTL_SECONDS
-            )
-            if persistent is not None:
-                request_cache[cache_key] = persistent
-                summary["tmdb_cache_hits"] += 1
-                summary["tmdb_cache_persistent_hits"] += 1
-                summary["tmdb_cache_avoided_http_requests"] += 1
-                record_tmdb_cache_usage(
-                    cache_key, endpoint=endpoint, avoided_http_request=True
-                )
-            else:
-                summary["tmdb_cache_misses"] += 1
-                summary["tmdb_http_requests"] += 1
-                response = search_fn(path, params)
-                request_cache[cache_key] = response
-                # search_fn returning a dict means a valid, cacheable API payload.
-                set_tmdb_cached_response(cache_key, response)
-                record_tmdb_cache_usage(
-                    cache_key, endpoint=endpoint, avoided_http_request=False
-                )
-        return copy.deepcopy(request_cache[cache_key])
+            return copy.deepcopy(persistent)
+
+        summary["tmdb_cache_misses"] += 1
+        summary["tmdb_http_requests"] += 1
+        response = search_fn(path, params)
+        request_cache[cache_key] = response
+        # The request returned successfully; persist its JSON response for reuse.
+        set_tmdb_cached_response(cache_key, response)
+        record_tmdb_cache_usage(
+            cache_key, endpoint=endpoint, avoided_http_request=False
+        )
+        return copy.deepcopy(response)
 
     for record in records:
         metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
