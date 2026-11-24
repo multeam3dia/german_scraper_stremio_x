@@ -3,9 +3,58 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
+
+from identity_resolver import resolver_retry_due
 
 import catalog_db
 
+
+
+class ResolverRetryCooldownTests(unittest.TestCase):
+    def test_new_records_are_immediately_retryable(self):
+        self.assertTrue(resolver_retry_due({"resolver_attempts": 0}))
+
+    def test_first_failure_waits_one_day(self):
+        now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+        record = {
+            "resolver_attempts": 1,
+            "resolver_last_attempt_at": now.isoformat(),
+        }
+        self.assertFalse(resolver_retry_due(record, now=now + timedelta(hours=23)))
+        self.assertTrue(resolver_retry_due(record, now=now + timedelta(days=1)))
+
+    def test_retry_delay_exponentially_steps_and_caps_at_90_days(self):
+        now = datetime(2026, 11, 24, tzinfo=timezone.utc)
+        schedule = (1, 3, 7, 14, 30, 60, 90, 90)
+        for attempts, delay in enumerate(schedule, start=1):
+            record = {
+                "resolver_attempts": attempts,
+                "resolver_last_attempt_at": now.isoformat(),
+            }
+            self.assertFalse(
+                resolver_retry_due(record, now=now + timedelta(days=delay, hours=-1)),
+                f"attempt {attempts} should not retry before {delay} days",
+            )
+            self.assertTrue(
+                resolver_retry_due(record, now=now + timedelta(days=delay)),
+                f"attempt {attempts} should retry at {delay} days",
+            )
+
+    def test_missing_or_invalid_retry_timestamp_is_retryable(self):
+        self.assertTrue(resolver_retry_due({"resolver_attempts": 3}))
+        self.assertTrue(resolver_retry_due({
+            "resolver_attempts": 3,
+            "resolver_last_attempt_at": "not-a-date",
+        }))
+
+    def test_naive_timestamp_is_interpreted_as_utc(self):
+        record = {
+            "resolver_attempts": 2,
+            "resolver_last_attempt_at": "2026-11-24T00:00:00",
+        }
+        now = datetime(2026, 11, 27, tzinfo=timezone.utc)
+        self.assertTrue(resolver_retry_due(record, now=now))
 
 class UnresolvedProviderTitleTests(unittest.TestCase):
     def setUp(self):
