@@ -1824,6 +1824,26 @@ class IdentityResolverTests(unittest.TestCase):
         score = _episode_title_similarity(provider_structure, candidate_titles)
         self.assertGreaterEqual(score, 0.99)
 
+    def test_episode_title_similarity_does_not_reuse_candidate_episode(self):
+        provider_structure = {
+            "seasons": [{
+                "season_number": 1,
+                "episodes": [
+                    {"title": "Alpha"},
+                    {"title": "Alpha"},
+                    {"title": "Alpha"},
+                ],
+            }],
+        }
+        candidate_titles = {"1": [
+            {"name": "Alpha"},
+            {"name": "Bravo"},
+            {"name": "Charlie"},
+        ]}
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        # One candidate episode must not corroborate multiple provider episodes.
+        self.assertEqual(score, 1 / 3)
+
     def test_episode_title_comparison_tolerates_one_merged_provider_episode(self):
         provider_structure = {
             "seasons": [{
