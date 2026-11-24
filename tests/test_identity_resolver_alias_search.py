@@ -113,5 +113,18 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertIn("Alias B", queries)
 
 
+    def test_empty_normalized_aliases_do_not_consume_query_budget(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Main & Title (Subtext) - OVA",
+            ["!!!", "Alias A", "Alias B", "Alias C", "Alias D"],
+        )
+
+        self.assertNotIn("!!!", queries)
+        self.assertIn("Alias D", queries)
+        self.assertEqual(len(queries), 7)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -286,7 +286,7 @@ def _search_query_variants(
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
         normalized_alias = _normalize(alias)
-        if alias and normalized_alias not in seen and len(query_candidates) < 7:
+        if alias and normalized_alias and normalized_alias not in seen and len(query_candidates) < 7:
             query_candidates.append(alias)
             seen.add(normalized_alias)
     return query_candidates
