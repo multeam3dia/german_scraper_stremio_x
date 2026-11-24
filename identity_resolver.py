@@ -30,6 +30,8 @@ from catalog_db import (
     mark_unresolved_title_resolved,
     record_discovery,
     record_unresolved_attempt,
+    get_tmdb_cached_response,
+    set_tmdb_cached_response,
     mark_unresolved_title_identified,
 )
 
@@ -1701,14 +1703,23 @@ def resolve_unresolved_titles(
     # repeated search/details/credits calls for duplicate provider entries while
     # keeping each resolver invocation isolated and returning independent objects.
     request_cache: dict[str, dict[str, Any]] = {}
+    TMDB_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 
     def cached_search(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         cache_key = json.dumps(
             [path, params or {}], sort_keys=True, ensure_ascii=False, default=str
         )
         if cache_key not in request_cache:
-            request_cache[cache_key] = search_fn(path, params)
-        return copy.deepcopy(request_cache[cache_key])
+            persistent = get_tmdb_cached_response(
+                cache_key, ttl_seconds=TMDB_CACHE_TTL_SECONDS
+            )
+            if persistent is not None:
+                request_cache[cache_key] = persistent
+            else:
+                response = search_fn(path, params)
+                request_cache[cache_key] = response
+                set_tmdb_cached_response(cache_key, response)
+        return copy.deepcopy(request_cache[cache_key)
 
     for record in records:
         metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
