@@ -1678,10 +1678,11 @@ def resolve_unresolved_titles(
     # Fetch a broad candidate window before applying cooldown and limit so recently
     # refreshed items cannot starve older records that are already retry-due.
     candidates = get_unresolved_titles(provider=provider, limit=5000)
-    records = [record for record in candidates if resolver_retry_due(record)][:max(1, int(limit))]
+    due_records = [record for record in candidates if resolver_retry_due(record)]
+    records = due_records[:max(1, int(limit))]
     summary: dict[str, Any] = {
         "scanned": len(records),
-        "deferred_by_retry_cooldown": len(candidates) - len(records),
+        "deferred_by_retry_cooldown": len(candidates) - len(due_records),
         "matched": 0,
         "applied": 0,
         "ambiguous": 0,
