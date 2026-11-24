@@ -1280,7 +1280,18 @@ def find_tmdb_match(
     # When a unique exact title already leads, alternative-title calls for
     # weaker candidates cannot improve the decision and only add API traffic.
     if not clear_exact_leader:
-        for item in preliminary[:20]:
+        alias_query_set = {_normalize(alias) for alias in provider_aliases if _normalize(alias)}
+        alias_discovered = [
+            item for item in preliminary
+            if alias_query_set.intersection(
+                {_normalize(query) for query in item.get("_matched_queries", [])}
+            )
+        ]
+        alias_extra = [
+            item for item in alias_discovered if item not in preliminary[:20]
+        ][:5]
+        alternative_title_shortlist = preliminary[:20] + alias_extra
+        for item in alternative_title_shortlist:
             tmdb_id = item.get("id")
             if type(tmdb_id) is not int or tmdb_id <= 0:
                 continue
