@@ -479,8 +479,8 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "no_match")
 
-    def test_large_year_gap_drops_unique_exact_title_below_confidence(self):
-        """An exact but substantially misdated unique candidate should not auto-match."""
+    def test_large_year_gap_is_diagnostic_not_hard_exclusion(self):
+        """Year mismatch ranks an exact-title candidate but does not exclude it."""
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
@@ -494,10 +494,11 @@ class IdentityResolverTests(unittest.TestCase):
             {"media_type": "series", "provider_title": "Example Series", "year": 2017},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["status"], "matched")
         self.assertEqual(result["candidate_year_delta"], 7)
-        self.assertLess(result["score"], 0.94)
+        self.assertGreaterEqual(result["score"], 0.94)
         self.assertEqual(result["diagnostics"]["candidates"][0]["year"]["status"], "mismatch")
+        self.assertFalse(result["diagnostics"]["candidates"][0]["year"]["used_for_exclusion"])
 
     def test_provider_year_difference_does_not_exclude_exact_title(self):
         def fake_get(path, params):
