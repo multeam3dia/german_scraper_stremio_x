@@ -10,7 +10,7 @@ from identity_resolver import (
     find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
-    _independent_corroboration_values, _is_short_ambiguous_title,
+    _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -1119,6 +1119,13 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertNotEqual(result["status"], "matched")
         self.assertNotEqual(result["status"], "identified")
 
+
+    def test_company_similarity_ignores_legal_entity_suffixes(self):
+        score = _company_similarity(
+            ["Studio Example GmbH"],
+            ["Studio Example"],
+        )
+        self.assertEqual(score, 1.0)
 
     def test_country_score_does_not_count_as_second_independent_signal(self):
         values = _independent_corroboration_values(
