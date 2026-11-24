@@ -6,7 +6,7 @@ on:
       - feature/aniworld-integration
   pull_request:
     branches:
-      - feature/aniworld-integration
+      - main
   workflow_dispatch:
 
 jobs:
