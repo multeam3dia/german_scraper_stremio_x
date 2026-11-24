@@ -220,7 +220,7 @@ def _title_similarity(
 def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
-    """Build bounded TMDB queries from provider, cleaned and original titles."""
+    """Build bounded TMDB queries while reserving slots for provider aliases."""
     candidates = [provider_title]
     # AniWorld format labels are often appended to the actual work title.
     # Keep the full title first, then try a conservative base-title variant.
@@ -241,13 +241,19 @@ def _search_query_variants(
         _normalize(value) for value in candidates
     }:
         candidates.append(without_parenthetical)
+
+    # Keep at most two derived queries in addition to the original spelling.
+    # Otherwise titles with several cleanup variants can crowd provider-supplied
+    # alternate titles out of the seven-query budget.
+    query_candidates = candidates[:3]
+    seen = {_normalize(value) for value in query_candidates}
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
-        if alias and _normalize(alias) not in {_normalize(value) for value in candidates}:
-            candidates.append(alias)
-    return candidates[:7]
-
-
+        normalized_alias = _normalize(alias)
+        if alias and normalized_alias not in seen and len(query_candidates) < 7:
+            query_candidates.append(alias)
+            seen.add(normalized_alias)
+    return query_candidates
 def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
     """Read title aliases from both TMDB TV and movie alternative-title responses."""
     values: list[str] = []
