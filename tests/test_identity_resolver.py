@@ -2084,14 +2084,33 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNone(score)
 
     def test_generic_episode_titles_do_not_provide_identity_evidence(self):
+        # Numbering-only Japanese, Chinese, and Korean episode labels are not identity evidence.
+        generic_titles = [
+            "第1話", "第二話", "第3集", "第4回", "第5話", "第6集",
+            "第7話", "第8回", "第9話", "第10集", "第十一話", "제12화", "13편",
+        ]
         provider_structure = {
             "seasons": [{
                 "season_number": 1,
                 "episodes": [
-                    {"episode_number": 1, "title": "Episode 1"},
-                    {"episode_number": 2, "title": "Episode 2"},
-                    {"episode_number": 3, "title": "Episode 3"},
-                    {"episode_number": 4, "title": "Episode 4"},
+                    {"episode_number": index, "title": title}
+                    for index, title in enumerate(generic_titles, 1)
+                ] + [
+                    {"episode_number": 14, "title": "Rainfall at dawn"},
+                    {"episode_number": 15, "title": "Copper lanterns"},
+                    {"episode_number": 16, "title": "Silent orchard"},
                 ],
             }],
         }
+        candidate_titles = {"1": [
+            {"episode_number": index, "name": title}
+            for index, title in enumerate(generic_titles, 1)
+        ] + [
+            {"episode_number": 14, "name": "Quantum drift"},
+            {"episode_number": 15, "name": "Blue velvet"},
+            {"episode_number": 16, "name": "Winter signals"},
+        ]}
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        # Without filtering, 13/16 identical labels would exceed the 0.78 threshold.
+        # The 3 meaningful titles do not match, so the filtered score must be zero.
+        self.assertEqual(score, 0.0)
