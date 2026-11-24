@@ -1549,7 +1549,7 @@ def find_tmdb_match(
         "studio_score": scores_for(best).get("studio_score"),
         "metadata_score": best_metadata_score,
     }
-    if _is_short_ambiguous_title(provider_title) and (len(candidates) > 1 or provider_year is None):
+    if _is_short_ambiguous_title(provider_title) and len(candidates) > 1:
         # For colliding short titles, an exact year is sufficient to distinguish
         # editions; without it, keep the result manual. Independent credits are
         # helpful but should not be mandatory when the year resolves the collision.
