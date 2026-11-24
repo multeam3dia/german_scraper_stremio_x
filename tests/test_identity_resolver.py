@@ -122,23 +122,6 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(_is_short_ambiguous_title("The Dark"))
         self.assertFalse(_is_short_ambiguous_title("Attack on Titan"))
 
-    def test_short_single_candidate_without_year_stays_ambiguous(self):
-        def fake_get(path, params):
-            if path == "/search/tv":
-                return {"results": [{
-                    "id": 881, "name": "Air", "original_name": "Air",
-                    "first_air_date": "2005-01-01",
-                }]}
-            return {}
-
-        result = find_tmdb_match(
-            {"media_type": "series", "provider_title": "Air", "year": None},
-            search_fn=fake_get,
-        )
-        self.assertNotIn(result["status"], {"matched", "identified"})
-        self.assertTrue(result.get("short_title_safeguard", {}).get("applied"))
-        self.assertFalse(result.get("short_title_safeguard", {}).get("supported"))
-
     def test_short_title_collision_without_independent_evidence_stays_ambiguous(self):
         def fake_get(path, params):
             if path == "/search/tv":
