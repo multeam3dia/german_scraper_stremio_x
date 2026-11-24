@@ -2087,7 +2087,8 @@ class IdentityResolverTests(unittest.TestCase):
         # Numbering-only Japanese, Chinese, and Korean episode labels are not identity evidence.
         generic_titles = [
             "第1話", "第二話", "第3集", "第4回", "第5話", "第6集",
-            "第7話", "第8回", "第9話", "第10集", "第十一話", "제12화", "13편",
+            "第7話", "第8回", "第9話", "第10集", "第十一話", "第〇話", "第零集",
+            "第两回", "第廿話", "제12화", "13편",
         ]
         provider_structure = {
             "seasons": [{
