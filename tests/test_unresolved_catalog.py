@@ -145,7 +145,13 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
     def test_invalid_canonical_title_id_cannot_resolve_record(self):
         url = "https://serienstream.to/serie/example"
         catalog_db.record_unresolved_title("serienstream", url, "Example Show")
-        for invalid in ("gsx:series:abc", "gsx:movie:" + "g" * 32, "gsx:series:" + "a" * 31, "gsx:series:" + "a" * 33):
+        invalid_ids = (
+            "gsx:series:abc",
+            "gsx:movie:" + "g" * 32,
+            "gsx:series:" + "a" * 31,
+            "gsx:series:" + "a" * 33,
+        )
+        for invalid in invalid_ids:
             with self.subTest(title_id=invalid):
                 with self.assertRaises(ValueError):
                     catalog_db.mark_unresolved_title_identified("serienstream", url, invalid)
