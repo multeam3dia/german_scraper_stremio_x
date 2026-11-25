@@ -1636,9 +1636,14 @@ def find_tmdb_match(
             for row in rejected_diagnostics
         )
         empty_aniworld_series_search = provider == "aniworld" and not all_candidates
-        if media_type == "series" and (
-            structural_rejection or empty_aniworld_series_search
-        ):
+        if media_type == "series" and provider == "aniworld":
+            # AniWorld sometimes returns a TV search result that is unrelated or
+            # too weak to pass the conservative series checks, while the entry
+            # itself is actually a film. Probe the movie endpoint whenever the
+            # series candidates all fail verification—not only when TV search is
+            # empty or episode structure explicitly mismatches. The result is
+            # still gated by the exact-year + independent-signal checks below;
+            # weak movie evidence becomes a type-conflict review, never a match.
             alternate_record = dict(record)
             alternate_record["media_type"] = "movie"
             alternate = find_tmdb_match(
