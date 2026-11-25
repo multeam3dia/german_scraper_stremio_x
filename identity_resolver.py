@@ -139,19 +139,19 @@ def _normalize_text(value: str) -> str:
     folded = []
     latin_base = False
     for char in decomposed:
-        if unic.category(char).startswith("M"):
+        if unicodedata.category(char).startswith("M"):
             # Latin accents are folded for search, but combining marks in
             # other scripts (e.g. Japanese dakuten) can change the character.
             if not latin_base:
                 folded.append(char)
             continue
         folded.append(char)
-        latin_base = char.isalpha() and unic.name(char, "").startswith("LATIN")
+        latin_base = char.isalpha() and unicodedata.name(char, "").startswith("LATIN")
     value = "".join(folded).replace("&", " and ")
     tokens = []
     current = []
     for char in value:
-        if char.isalnum() or unic.category(char).startswith("M"):
+        if char.isalnum() or unicodedata.category(char).startswith("M"):
             current.append(char)
         elif current:
             tokens.append("".join(current))
