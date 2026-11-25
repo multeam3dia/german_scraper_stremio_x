@@ -135,12 +135,30 @@ class TMDBAPIError(RuntimeError):
 
 @lru_cache(maxsize=16384)
 def _normalize_text(value: str) -> str:
-    value = unicodedata.normalize("NFKD", value.casefold())
-    value = "".join(char for char in value if not unicodedata.combining(char))
-    value = value.replace("&", " and ")
-    # Preserve non-Latin scripts (notably Japanese and Chinese anime titles)
-    # instead of silently deleting them before title comparison.
-    return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    folded = []
+    latin_base = False
+    for char in decomposed:
+        if unic.category(char).startswith("M"):
+            # Latin accents are folded for search, but combining marks in
+            # other scripts (e.g. Japanese dakuten) can change the character.
+            if not latin_base:
+                folded.append(char)
+            continue
+        folded.append(char)
+        latin_base = char.isalpha() and unic.name(char, "").startswith("LATIN")
+    value = "".join(folded).replace("&", " and ")
+    tokens = []
+    current = []
+    for char in value:
+        if char.isalnum() or unic.category(char).startswith("M"):
+            current.append(char)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return " ".join(tokens)
 
 
 @lru_cache(maxsize=32768)

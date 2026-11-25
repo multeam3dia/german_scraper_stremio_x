@@ -14,6 +14,7 @@ from identity_resolver import (
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
+    _normalize, _best_title_match,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -2007,6 +2008,19 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["candidates"][0]["country"]["score"], 1.0)
         self.assertEqual(result["diagnostics"]["candidates"][1]["country"]["score"], 0.0)
 
+
+    def test_normalization_preserves_japanese_voicing_marks_but_folds_latin_accents(self):
+        # Synthetic strings: voicing marks distinguish Japanese characters, while
+        # Latin accent folding remains useful for alternate-title matching.
+        self.assertNotEqual(_normalize("か"), _normalize("が"))
+        self.assertNotEqual(_normalize("カ"), _normalize("ガ"))
+        self.assertEqual(_normalize("Cafe"), _normalize("Café"))
+
+        score, matched = _best_title_match(
+            "が", {"name": "か", "original_name": "か"}, "series"
+        )
+        self.assertLess(score, 1.0)
+        self.assertEqual(matched, "か")
 
     def test_search_variants_prioritize_parenthetical_year_cleanup(self):
         variants = _search_query_variants(
