@@ -4,11 +4,12 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import catalog_db
 from identity_resolver import (
-    find_tmdb_match, resolve_unresolved_titles, _structure_comparison,
+    find_tmdb_match, resolve_unresolved_titles, resolver_retry_due, _structure_comparison,
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
@@ -29,6 +30,16 @@ class IdentityResolverTests(unittest.TestCase):
         else:
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
+
+    def test_resolver_retry_boundary_respects_timezone_offset(self):
+        record = {
+            "resolver_attempts": 1,
+            "resolver_last_attempt_at": "2026-11-24T00:00:00+02:00",
+        }
+        before_due = datetime.fromisoformat("2026-11-24T21:59:00+00:00")
+        exactly_due = datetime.fromisoformat("2026-11-24T22:00:00+00:00")
+        self.assertFalse(resolver_retry_due(record, now=before_due))
+        self.assertTrue(resolver_retry_due(record, now=exactly_due))
 
     def test_resolver_reports_distinct_memory_persistent_and_http_cache_metrics(self):
         url = "https://aniworld.to/anime/stream/cache-stat-test"
