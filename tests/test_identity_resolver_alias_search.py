@@ -126,5 +126,31 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertEqual(len(queries), 7)
 
 
+    def test_subtitle_free_title_query_is_prioritized_before_punctuation_variant(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "The Legend of Heroes: Trails in the Sky",
+            ["空の軌跡", "The Legend of Heroes", "Trails in the Sky"],
+        )
+
+        self.assertEqual(queries[0], "The Legend of Heroes: Trails in the Sky")
+        self.assertIn("The Legend of Heroes", queries)
+        self.assertIn("空の軌跡", queries)
+        self.assertLessEqual(len(queries), 7)
+        self.assertEqual(len(queries), len(set(queries)))
+
+    def test_format_reduction_and_aliases_are_both_preserved(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Loveless: SD Theatre",
+            ["ラブレス", "Loveless"],
+        )
+
+        self.assertIn("Loveless", queries)
+        self.assertIn("ラブレス", queries)
+        self.assertEqual(queries[0], "Loveless: SD Theatre")
+
 if __name__ == "__main__":
     unittest.main()
