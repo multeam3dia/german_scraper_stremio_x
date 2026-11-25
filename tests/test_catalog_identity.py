@@ -37,6 +37,18 @@ class CatalogIdentityTests(unittest.TestCase):
         self.assertEqual(record["year"], 2024)
         self.assertEqual(record["external_ids"], {})
 
+    def test_create_title_rejects_invalid_year_types(self):
+        for year in (True, 2024.5, "2024"):
+            with self.subTest(year=year):
+                with self.assertRaises(ValueError):
+                    create_title("series", "Invalid year", year=year)
+
+    def test_create_title_rejects_non_dictionary_metadata(self):
+        for metadata in ("metadata", [], 42):
+            with self.subTest(metadata=metadata):
+                with self.assertRaises(ValueError):
+                    create_title("series", "Invalid metadata", metadata=metadata)
+
     def test_external_ids_resolve_to_same_canonical_title(self):
         title_id = create_title("series", "Example Anime")
         add_external_id(title_id, "tmdb", "12345", source="tmdb", confidence=0.99)
