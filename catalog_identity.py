@@ -158,7 +158,10 @@ def add_external_id(
     confidence: float | None = None,
     verified: bool = False,
 ) -> None:
-    """Attach an external ID; conflicting mappings are rejected, never overwritten."""
+    """Attach an external ID; conflicting mappings are rejected, never overwritten.
+    
+    IMDb IDs are globally unique across canonical media types.
+    """
     title_id = _validate_title_id(title_id)
     namespace = str(namespace or "").strip().lower()
     external_id = str(external_id or "").strip()
@@ -182,12 +185,22 @@ def add_external_id(
         raise ValueError("verified must be a boolean")
     init_identity_schema()
     with _connect() as db:
-        owner = db.execute(
-            """SELECT title_id FROM external_title_ids
-               WHERE media_type=(SELECT media_type FROM canonical_titles WHERE title_id=?)
-                 AND namespace=? AND external_id=?""",
-            (title_id, namespace, external_id),
-        ).fetchone()
+        # IMDb IDs identify a title globally, not within a media-type namespace.
+        # Serialize the check-and-insert to prevent concurrent cross-type mappings.
+        db.execute("BEGIN IMMEDIATE")
+        if namespace == "imdb":
+            owner = db.execute(
+                """SELECT title_id FROM external_title_ids
+                   WHERE namespace=? AND external_id=?""",
+                (namespace, external_id),
+            ).fetchone()
+        else:
+            owner = db.execute(
+                """SELECT title_id FROM external_title_ids
+                   WHERE media_type=(SELECT media_type FROM canonical_titles WHERE title_id=?)
+                     AND namespace=? AND external_id=?""",
+                (title_id, namespace, external_id),
+            ).fetchone()
         if owner and owner["title_id"] != title_id:
             raise IdentityConflictError(
                 f"{namespace}:{external_id} is already linked to another title"

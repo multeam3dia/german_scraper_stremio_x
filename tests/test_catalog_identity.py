@@ -113,6 +113,23 @@ class CatalogIdentityTests(unittest.TestCase):
             get_title_by_external_id("series", "tmdb", "42")["title_id"], first
         )
 
+    def test_imdb_external_id_is_globally_unique_across_media_types(self):
+        series = create_title("series", "Synthetic Series")
+        movie = create_title("movie", "Synthetic Movie")
+        external_id = "tt1234567"
+
+        add_external_id(series, "imdb", external_id, verified=True)
+        with self.assertRaises(IdentityConflictError):
+            add_external_id(movie, "imdb", external_id)
+
+        self.assertEqual(
+            get_title_by_external_id("series", "imdb", external_id)["title_id"],
+            series,
+        )
+        self.assertIsNone(
+            get_title_by_external_id("movie", "imdb", external_id)
+        )
+
     def test_provider_url_links_to_canonical_title(self):
         title_id = create_title("series", "Linked Anime")
         link_provider_title(
