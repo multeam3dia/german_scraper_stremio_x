@@ -913,6 +913,7 @@ def _structure_comparison(
     mismatch = episode_mismatch or season_mismatch
 
     provider_by_season = {}
+    duplicate_provider_seasons = set()
     for season in provider_structure.get("seasons", []):
         if not isinstance(season, dict):
             continue
@@ -932,11 +933,17 @@ def _structure_comparison(
         except (TypeError, ValueError, OverflowError):
             continue
         if season_number > 0 and episode_count >= 0:
-            provider_by_season[str(season_number)] = episode_count
+            key = str(season_number)
+            if key in provider_by_season:
+                duplicate_provider_seasons.add(key)
+                provider_by_season.pop(key, None)
+            elif key not in duplicate_provider_seasons:
+                provider_by_season[key] = episode_count
     tmdb_by_season = candidate_details.get("seasons")
     season_comparable = isinstance(tmdb_by_season, list) and bool(provider_by_season)
     season_detail_mismatch = False
     tmdb_map = {}
+    duplicate_tmdb_seasons = set()
     if season_comparable:
         for season in tmdb_by_season:
             if not isinstance(season, dict):
@@ -957,7 +964,12 @@ def _structure_comparison(
             except (TypeError, ValueError, OverflowError):
                 continue
             if season_number > 0 and episode_count >= 0:
-                tmdb_map[str(season_number)] = episode_count
+                key = str(season_number)
+                if key in tmdb_map:
+                    duplicate_tmdb_seasons.add(key)
+                    tmdb_map.pop(key, None)
+                elif key not in duplicate_tmdb_seasons:
+                    tmdb_map[key] = episode_count
         shared = set(provider_by_season) & set(tmdb_map)
         if shared:
             season_detail_mismatch = any(
