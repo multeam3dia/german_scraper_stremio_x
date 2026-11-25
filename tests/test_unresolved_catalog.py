@@ -133,6 +133,15 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
         self.assertEqual(catalog_db.get_unresolved_titles(), [])
         self.assertEqual(catalog_db.get_catalog_stats()["unresolved_titles"], 0)
 
+    def test_resolved_record_cannot_be_overwritten_by_later_resolution(self):
+        url = "https://serienstream.to/serie/example"
+        catalog_db.record_unresolved_title("serienstream", url, "Example Show")
+        catalog_db.mark_unresolved_title_resolved("serienstream", url, "tt1234567")
+        catalog_db.mark_unresolved_title_identified("serienstream", url, "gsx:series:abc")
+        record = catalog_db.get_resolved_imdb_id("serienstream", url)
+        self.assertEqual(record, "tt1234567")
+        self.assertEqual(catalog_db.get_unresolved_titles(), [])
+
     def test_invalid_imdb_id_cannot_resolve_record(self):
         url = "https://serienstream.to/serie/example"
         catalog_db.record_unresolved_title("serienstream", url, "Example Show")
