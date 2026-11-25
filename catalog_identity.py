@@ -7,6 +7,7 @@ rows or tracking databases.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sqlite3
@@ -161,8 +162,16 @@ def add_external_id(
         raise ValueError("external_id is required")
     if namespace == "imdb" and not IMDB_ID_RE.fullmatch(external_id):
         raise ValueError("Invalid IMDb external ID")
-    if confidence is not None and not 0 <= float(confidence) <= 1:
-        raise ValueError("confidence must be between 0 and 1")
+    if confidence is not None:
+        if isinstance(confidence, bool):
+            raise ValueError("confidence must be between 0 and 1")
+        try:
+            confidence_value = float(confidence)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("confidence must be between 0 and 1") from None
+        if not math.isfinite(confidence_value) or not 0 <= confidence_value <= 1:
+            raise ValueError("confidence must be between 0 and 1")
+        confidence = confidence_value
     init_identity_schema()
     with _connect() as db:
         owner = db.execute(
