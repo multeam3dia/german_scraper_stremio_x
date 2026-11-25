@@ -153,5 +153,19 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertEqual(queries[0], "Loveless: SD Theatre")
         self.assertEqual(len(queries), len(set(queries)))
 
+    def test_aliases_get_priority_over_weak_reductions(self):
+        from identity_resolver import _search_query_variants
+
+        aliases = ["日本語タイトル", "Romanized Title", "English Alias", "Alias Four", "Alias Five"]
+        queries = _search_query_variants("Main Title: Subtitle", aliases)
+
+        self.assertEqual(queries[0], "Main Title: Subtitle")
+        self.assertIn("日本語タイトル", queries)
+        self.assertIn("Romanized Title", queries)
+        self.assertIn("English Alias", queries)
+        self.assertIn("Alias Five", queries)
+        self.assertLessEqual(len(queries), 7)
+        self.assertEqual(len(queries), len(set(queries)))
+
 if __name__ == "__main__":
     unittest.main()
