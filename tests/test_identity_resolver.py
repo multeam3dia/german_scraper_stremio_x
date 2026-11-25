@@ -321,7 +321,7 @@ class IdentityResolverTests(unittest.TestCase):
             return {}
         result = find_tmdb_match(
             {"media_type": "series", "provider_title": "Kanon (2006)",
-             "year": 2006, "alternative_titles": ["Kanon"]},
+             "year": 2006, "metadata": {"alternative_titles": ["Kanon"]}},
             search_fn=fake_get,
         )
         self.assertEqual(result["status"], "matched", result)
