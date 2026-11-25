@@ -584,6 +584,7 @@ def mark_unresolved_title_resolved(
             UPDATE unresolved_provider_titles
             SET resolved_imdb_id=?, resolved_at=?, last_error=NULL
             WHERE provider=? AND provider_url=?
+              AND resolved_imdb_id IS NULL AND resolved_title_id IS NULL
             """,
             (imdb_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
         )
@@ -602,6 +603,7 @@ def mark_unresolved_title_identified(
             UPDATE unresolved_provider_titles
             SET resolved_title_id=?, resolved_at=?, last_error=NULL
             WHERE provider=? AND provider_url=?
+              AND resolved_imdb_id IS NULL AND resolved_title_id IS NULL
             """,
             (title_id, _utc_now(), provider.strip().lower(), provider_url.strip()),
         )
