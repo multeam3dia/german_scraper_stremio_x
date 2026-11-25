@@ -41,6 +41,14 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(resolver_retry_due(record, now=before_due))
         self.assertTrue(resolver_retry_due(record, now=exactly_due))
 
+    def test_resolver_retry_boundary_overflow_is_not_due(self):
+        record = {
+            "resolver_attempts": 1,
+            "resolver_last_attempt_at": "9999-12-31T23:59:59+00:00",
+        }
+        now = datetime.fromisoformat("2026-11-25T04:40:00+00:00")
+        self.assertFalse(resolver_retry_due(record, now=now))
+
     def test_resolver_reports_distinct_memory_persistent_and_http_cache_metrics(self):
         url = "https://aniworld.to/anime/stream/cache-stat-test"
         catalog_db.record_unresolved_title(

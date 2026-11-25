@@ -80,7 +80,13 @@ def resolver_retry_due(record: dict[str, Any], *, now: datetime | None = None) -
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     delay_days = RESOLVER_RETRY_DAYS[min(attempts - 1, len(RESOLVER_RETRY_DAYS) - 1)]
-    return current >= timestamp + timedelta(days=delay_days)
+    try:
+        due_at = timestamp + timedelta(days=delay_days)
+    except OverflowError:
+        # A timestamp at the representable datetime ceiling cannot have a
+        # retry boundary within the supported datetime range.
+        return False
+    return current >= due_at
 
 GENRE_ALIASES = {
     "abenteuer": "adventure", "komodie": "comedy", "krimi": "crime",
