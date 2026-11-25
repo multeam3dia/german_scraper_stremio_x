@@ -335,15 +335,21 @@ def _search_query_variants(
         if value and normalized and normalized not in seen:
             deduplicated_candidates.append(value)
             seen.add(normalized)
-    # Keep the original plus at most two useful reductions before aliases.
-    # Aliases often contain the Japanese original or romanized title.
-    query_candidates = deduplicated_candidates[:3]
+    # Prioritize the primary title and one strong reduction, then reserve
+    # most of the bounded budget for provider aliases (often Japanese or
+    # romanized titles). Remaining reductions are fallback query hints.
+    query_candidates = deduplicated_candidates[:2]
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
         normalized_alias = _normalize(alias)
         if alias and normalized_alias and normalized_alias not in seen and len(query_candidates) < 7:
             query_candidates.append(alias)
             seen.add(normalized_alias)
+    for reduction in deduplicated_candidates[2:]:
+        normalized = _normalize(reduction)
+        if reduction and normalized and normalized not in seen and len(query_candidates) < 7:
+            query_candidates.append(reduction)
+            seen.add(normalized)
     return query_candidates
 def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
     """Read title aliases from both TMDB TV and movie alternative-title responses."""
