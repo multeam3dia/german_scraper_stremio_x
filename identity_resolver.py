@@ -1326,12 +1326,6 @@ def find_tmdb_match(
             # previous five-request budget while improving romanized/translated hits.
             primary_query = query_variants[0] if query_variants else provider_title
             normalized_aliases = {_normalize(alias) for alias in provider_aliases if _normalize(alias)}
-            alias_query = next(
-                (query for query in query_variants
-                 if _normalize(query) in normalized_aliases
-                 and _normalize(query) != _normalize(primary_query)),
-                None,
-            )
             # Spend the bounded year-search budget on distinct title identities:
             # three nearby-year searches for the primary label, then exact-year
             # searches for up to two provider aliases. Alias spellings (often
