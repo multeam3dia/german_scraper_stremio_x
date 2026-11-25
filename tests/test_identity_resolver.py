@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+from decimal import Decimal
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -33,7 +34,7 @@ class IdentityResolverTests(unittest.TestCase):
 
     def test_resolver_retry_malformed_attempt_counters_are_treated_as_initial(self):
         now = datetime.fromisoformat("2026-11-25T04:40:00+00:00")
-        for malformed in (True, 1.5, "not-a-number"):
+        for malformed in (True, 1.5, Decimal("1.5"), "not-a-number"):
             with self.subTest(attempts=malformed):
                 record = {
                     "resolver_attempts": malformed,
