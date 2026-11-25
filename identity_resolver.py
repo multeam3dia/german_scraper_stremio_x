@@ -290,26 +290,7 @@ def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
     """Build a bounded search set without sacrificing strong title reductions."""
-    if not _normalize(provider_title):
-        return []
-
-    # Derive query-only variants. These are discovery hints; final identity
-    # scoring always evaluates the full provider title and its aliases.
-    format_free = re.sub(
-        r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
-        r"short\s+animation|special\s+episode|special|ova)$",
-        "", provider_title, flags=re.IGNORECASE,
-    ).strip()
-    subtitle_free = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
-    year_free = re.sub(
-        r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
-    ).strip()
-    punctuation_light = " ".join(
-        re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE).split()
-    )
-    parenthetical_free = " ".join(
-        re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title).split()
-    )
+    valid_primary = bool(_normalize(provider_title))
 
     def unique(values):
         result, seen_local = [], set()
@@ -321,23 +302,39 @@ def _search_query_variants(
                 seen_local.add(norm)
         return result
 
-    primary = unique([provider_title])
-    # Strong reductions (especially text before a subtitle colon) are protected
-    # from alias-heavy provider metadata and get slots before weaker reductions.
-    strong_reductions = unique([
-        format_free, subtitle_free, year_free,
-    ])
-    strong_reductions = [
-        value for value in strong_reductions
-        if _normalize(value) != _normalize(provider_title)
-    ]
+    primary = [provider_title.strip()] if valid_primary else []
+    strong_reductions = []
+    weak = []
+    if valid_primary:
+        format_free = re.sub(
+            r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
+            r"short\s+animation|special\s+episode|special|ova)$",
+            "", provider_title, flags=re.IGNORECASE,
+        ).strip()
+        subtitle_free = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
+        year_free = re.sub(
+            r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
+        ).strip()
+        punctuation_light = " ".join(
+            re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE).split()
+        )
+        parenthetical_free = " ".join(
+            re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title).split()
+        )
+        strong_reductions = unique([format_free, subtitle_free, year_free])
+        strong_reductions = [
+            value for value in strong_reductions
+            if _normalize(value) != _normalize(provider_title)
+        ]
+        weak = unique([punctuation_light, parenthetical_free])
 
     selected = primary[:]
+    # Preserve the title's most useful reductions before aliases, unless they
+    # are duplicates. The budget remains seven total searches.
     for reduction in strong_reductions:
         if len(selected) < 7:
             selected.append(reduction)
 
-    # Alias allocation uses only remaining slots, prioritizing original scripts.
     selected_norm = {_normalize(value) for value in selected}
     aliases = []
     for alias in alternative_titles or []:
@@ -357,9 +354,6 @@ def _search_query_variants(
             break
         selected.append(alias)
 
-    # Weak punctuation/parenthetical variants are last-resort fillers and never
-    # displace the full title, subtitle-free query, or informative aliases.
-    weak = unique([punctuation_light, parenthetical_free])
     weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
     for variant in weak:
         if len(selected) >= 7:
