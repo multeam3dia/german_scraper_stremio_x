@@ -56,6 +56,16 @@ class ResolverRetryCooldownTests(unittest.TestCase):
         now = datetime(2026, 11, 27, tzinfo=timezone.utc)
         self.assertTrue(resolver_retry_due(record, now=now))
 
+    def test_offset_timestamp_uses_absolute_instant_for_retry_boundary(self):
+        record = {
+            "resolver_attempts": 1,
+            "resolver_last_attempt_at": "2026-11-24T00:00:00+02:00",
+        }
+        before_due = datetime(2026, 11, 24, 21, 59, tzinfo=timezone.utc)
+        due = datetime(2026, 11, 24, 22, 0, tzinfo=timezone.utc)
+        self.assertFalse(resolver_retry_due(record, now=before_due))
+        self.assertTrue(resolver_retry_due(record, now=due))
+
 class UnresolvedProviderTitleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
