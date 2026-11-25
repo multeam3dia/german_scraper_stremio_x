@@ -2387,6 +2387,35 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["provider"]["seasons"], {})
         self.assertEqual(result["tmdb"]["seasons"], {})
 
+    def test_structure_comparison_ignores_duplicate_season_numbers(self):
+        provider_structure = {
+            "complete": True,
+            "season_count": 2,
+            "episode_count": 24,
+            "seasons": [
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 1, "episode_count": 11},
+                {"season_number": 2, "episode_count": 12},
+            ],
+        }
+        candidate_details = {
+            "number_of_seasons": 2,
+            "number_of_episodes": 24,
+            "seasons": [
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 1, "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+            ],
+        }
+        result = _structure_comparison(provider_structure, candidate_details)
+        self.assertEqual(result["status"], "match")
+        self.assertFalse(result["mismatch"])
+        # Duplicated season 1 data is ambiguous and must not be used for
+        # corroboration; the unique season 2 record remains comparable.
+        self.assertEqual(result["provider"]["seasons"], {"2": 12})
+        self.assertEqual(result["tmdb"]["seasons"], {"2": 12})
+
+
     def test_structure_comparison_ignores_malformed_per_season_counts(self):
         provider_structure = {
             "complete": True,
