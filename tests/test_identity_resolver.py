@@ -2346,6 +2346,27 @@ class IdentityResolverTests(unittest.TestCase):
         # The 3 meaningful titles do not match, so the filtered score must be zero.
         self.assertEqual(score, 0.0)
 
+    def test_structure_comparison_rejects_boolean_and_fractional_season_values(self):
+        provider_structure = {
+            "complete": True, "season_count": 1, "episode_count": 12,
+            "seasons": [
+                {"season_number": True, "episode_count": 12},
+                {"season_number": 1.5, "episode_count": 12},
+                {"season_number": 1, "episode_count": 2.5},
+            ],
+        }
+        candidate_details = {
+            "number_of_seasons": 1, "number_of_episodes": 12,
+            "seasons": [
+                {"season_number": True, "episode_count": 12},
+                {"season_number": 1.5, "episode_count": 12},
+                {"season_number": 1, "episode_count": 2.5},
+            ],
+        }
+        result = _structure_comparison(provider_structure, candidate_details)
+        self.assertEqual(result["provider"]["seasons"], {})
+        self.assertEqual(result["tmdb"]["seasons"], {})
+
     def test_structure_comparison_ignores_malformed_per_season_counts(self):
         provider_structure = {
             "complete": True,
