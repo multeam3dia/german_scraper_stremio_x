@@ -903,21 +903,32 @@ def _structure_comparison(
     season_mismatch = season_delta >= 2 and min(provider_seasons, tmdb_seasons) >= 2
     mismatch = episode_mismatch or season_mismatch
 
-    provider_by_season = {
-        str(item.get("season_number")): int(item.get("episode_count", 0))
-        for item in provider_structure.get("seasons", [])
-        if isinstance(item, dict) and item.get("season_number") is not None
-    }
+    provider_by_season = {}
+    for season in provider_structure.get("seasons", []):
+        if not isinstance(season, dict):
+            continue
+        try:
+            season_number = int(season.get("season_number"))
+            episode_count = int(season.get("episode_count", 0))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if season_number > 0 and episode_count >= 0:
+            provider_by_season[str(season_number)] = episode_count
     tmdb_by_season = candidate_details.get("seasons")
     season_comparable = isinstance(tmdb_by_season, list) and bool(provider_by_season)
     season_detail_mismatch = False
     if season_comparable:
-        tmdb_map = {
-            str(item.get("season_number")): int(item.get("episode_count", 0))
-            for item in tmdb_by_season
-            if isinstance(item, dict) and item.get("season_number") is not None
-            and int(item.get("season_number", 0)) > 0
-        }
+        tmdb_map = {}
+        for season in tmdb_by_season:
+            if not isinstance(season, dict):
+                continue
+            try:
+                season_number = int(season.get("season_number"))
+                episode_count = int(season.get("episode_count", 0))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if season_number > 0 and episode_count >= 0:
+                tmdb_map[str(season_number)] = episode_count
         shared = set(provider_by_season) & set(tmdb_map)
         if shared:
             season_detail_mismatch = any(
