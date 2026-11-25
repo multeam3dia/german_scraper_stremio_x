@@ -2155,7 +2155,10 @@ def resolve_unresolved_titles(
             result["identity_collision"] = collision
 
     for record, result in evaluated:
-        record_unresolved_attempt(record["provider"], record["provider_url"])
+        # A forced dry-run is diagnostic only: do not consume another retry
+        # attempt or extend the cooldown merely because the user inspected it.
+        if not force_retry or apply:
+            record_unresolved_attempt(record["provider"], record["provider_url"])
         result_row = {
             "provider": record["provider"],
             "title": record["provider_title"],
