@@ -61,6 +61,14 @@ class CatalogIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     add_external_id(title_id, "imdb", external_id)
 
+    def test_invalid_confidence_values_are_rejected(self):
+        title_id = create_title("series", "Synthetic confidence test")
+        invalid_values = (True, float("nan"), float("inf"), -0.01, 1.01, "not-a-number")
+        for confidence in invalid_values:
+            with self.subTest(confidence=confidence):
+                with self.assertRaises(ValueError):
+                    add_external_id(title_id, "tmdb", "98765", confidence=confidence)
+
     def test_conflicting_external_id_is_rejected(self):
         first = create_title("series", "First")
         second = create_title("series", "Second")
