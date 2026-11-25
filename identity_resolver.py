@@ -337,8 +337,14 @@ def _search_query_variants(
 
     selected_norm = {_normalize(value) for value in selected}
     aliases = []
-    for alias in alternative_titles or []:
-        alias = str(alias or "").strip()
+    # Alias metadata is expected to be a list/tuple of strings. Ignore malformed
+    # containers and entries rather than turning them into noisy search queries.
+    if not isinstance(alternative_titles, (list, tuple)):
+        alternative_titles = []
+    for alias in alternative_titles:
+        if not isinstance(alias, str):
+            continue
+        alias = alias.strip()
         norm = _normalize(alias)
         if not alias or not norm or norm in selected_norm:
             continue

@@ -2242,6 +2242,18 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(variants[0], "Loveless: SD Theatre")
         self.assertIn("Loveless", variants)
 
+    def test_search_variants_ignore_malformed_alias_payloads(self):
+        aliases = [
+            "Useful Synthetic Alias", {"title": "Nested Alias"},
+            ["List Alias"], 123, None,
+        ]
+        self.assertEqual(
+            _search_query_variants("!!!", aliases),
+            ["Useful Synthetic Alias"],
+        )
+        # A string is not a collection of aliases (characters must not become queries).
+        self.assertEqual(_search_query_variants("!!!", "Alias"), [])
+
     def test_search_variants_ignore_empty_and_duplicate_aliases(self):
         aliases = [
             "!!!", "Alias A", "alias-a", "Alias B", "Alias C",
