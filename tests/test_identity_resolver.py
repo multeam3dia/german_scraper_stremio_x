@@ -179,6 +179,28 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(_is_short_ambiguous_title("The Dark"))
         self.assertFalse(_is_short_ambiguous_title("Attack on Titan"))
 
+    def test_short_alias_title_collision_is_protected_when_provider_title_is_long(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                query = params.get("query", "")
+                if query in {"Dark Reboot", "Dark"}:
+                    return {"results": [
+                        {"id": 777, "name": "Dark", "original_name": "Dark",
+                         "first_air_date": "2017-01-01"},
+                        {"id": 779, "name": "Dark", "original_name": "Dark",
+                         "first_air_date": "2020-01-01"},
+                    ]}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Dark Reboot",
+             "year": None, "metadata": {"alternative_titles": ["Dark"]}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertTrue(result["short_title_safeguard"]["applied"])
+        self.assertFalse(result["short_title_safeguard"]["supported"])
+
     def test_short_title_collision_without_independent_evidence_stays_ambiguous(self):
         def fake_get(path, params):
             if path == "/search/tv":
