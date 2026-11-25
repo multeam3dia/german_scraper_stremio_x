@@ -2292,6 +2292,38 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(len(variants), 7)
 
+    def test_resolver_search_ignores_non_string_provider_aliases(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, dict(params or {}))
+            if path == "/search/tv":
+                return {"results": []}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "fixture",
+                "media_type": "series",
+                "provider_title": "Alpha Show",
+                "year": None,
+                "metadata": {
+                    "alternative_titles": [
+                        {"title": "Injected Alias"}, 73, None, " Valid Alias ",
+                        ["Nested Alias"], "!!!",
+                    ],
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "no_match")
+        queries = {
+            params.get("query")
+            for path, params in calls
+            if path == "/search/tv"
+        }
+        self.assertEqual(queries, {"Alpha Show", "Valid Alias"})
+
     def test_invalid_primary_title_can_find_candidate_from_alias_search(self):
         calls = []
         candidate = {

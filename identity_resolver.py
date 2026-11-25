@@ -1217,7 +1217,7 @@ def find_tmdb_match(
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     provider_aliases = metadata.get("alternative_titles")
     provider_aliases = (
-        [str(value).strip() for value in provider_aliases if str(value).strip()]
+        [value.strip() for value in provider_aliases if isinstance(value, str) and value.strip()]
         if isinstance(provider_aliases, list) else []
     )
     provider_genres = metadata.get("provider_genres")
