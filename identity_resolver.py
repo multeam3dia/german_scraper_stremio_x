@@ -62,13 +62,16 @@ RESOLVER_RETRY_DAYS = (1, 3, 7, 14, 30, 60, 90)
 def resolver_retry_due(record: dict[str, Any], *, now: datetime | None = None) -> bool:
     """Return whether an unresolved record is eligible for another resolver pass."""
     raw_attempts = record.get("resolver_attempts")
-    if isinstance(raw_attempts, bool) or (
-        isinstance(raw_attempts, float) and not raw_attempts.is_integer()
-    ):
+    if isinstance(raw_attempts, bool):
         attempts = 0
     else:
         try:
-            attempts = max(0, int(raw_attempts or 0))
+            parsed_attempts = int(raw_attempts or 0)
+            # Non-string numeric types must be integral, not merely int()-coercible.
+            if not isinstance(raw_attempts, str) and raw_attempts != parsed_attempts:
+                attempts = 0
+            else:
+                attempts = max(0, parsed_attempts)
         except (TypeError, ValueError, OverflowError):
             attempts = 0
     if attempts == 0:
