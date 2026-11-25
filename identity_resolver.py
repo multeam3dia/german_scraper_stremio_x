@@ -296,7 +296,7 @@ def _search_query_variants(
         punctuation_light = " ".join(punctuation_light.split())
         if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
             candidates.append(punctuation_light)
-        without_parenthetical = re.sub(r"\\s*[（(][^）)]*[）)]\\s*", " ", provider_title)
+        without_parenthetical = re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title)
         without_parenthetical = " ".join(without_parenthetical.split())
         if without_parenthetical and _normalize(without_parenthetical) not in {
             _normalize(value) for value in candidates
