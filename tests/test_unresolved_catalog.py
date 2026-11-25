@@ -48,6 +48,14 @@ class ResolverRetryCooldownTests(unittest.TestCase):
             "resolver_last_attempt_at": "not-a-date",
         }))
 
+    def test_non_finite_retry_attempt_count_is_retryable(self):
+        record = {
+            "resolver_attempts": float("inf"),
+            "resolver_last_attempt_at": "2026-11-24T00:00:00+00:00",
+        }
+        now = datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc)
+        self.assertTrue(resolver_retry_due(record, now=now))
+
     def test_naive_timestamp_is_interpreted_as_utc(self):
         record = {
             "resolver_attempts": 2,

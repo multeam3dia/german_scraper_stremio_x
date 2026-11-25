@@ -63,7 +63,7 @@ def resolver_retry_due(record: dict[str, Any], *, now: datetime | None = None) -
     """Return whether an unresolved record is eligible for another resolver pass."""
     try:
         attempts = max(0, int(record.get("resolver_attempts") or 0))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         attempts = 0
     if attempts == 0:
         return True
