@@ -1981,7 +1981,7 @@ class IdentityResolverTests(unittest.TestCase):
         variants = _search_query_variants(
             "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
         )
-        self.assertEqual(variants[:3], ["Kanon (2006)", "Kanon 2006", "Kanon"])
+        self.assertEqual(variants[:3], ["Kanon (2006)", "Kanon", "Kanon 2006"])
         self.assertIn("カノン", variants)
         self.assertIn("Alias Four", variants)
         self.assertLessEqual(len(variants), 7)
