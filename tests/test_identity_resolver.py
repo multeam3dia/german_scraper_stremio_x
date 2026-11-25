@@ -20,6 +20,41 @@ from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
 class IdentityResolverTests(unittest.TestCase):
+    def test_resolver_default_selection_respects_retry_cooldown(self):
+        candidates = [
+            {"provider": "aniworld", "provider_url": "https://a", "provider_title": "Due",
+             "media_type": "series", "cooldown": False},
+            {"provider": "aniworld", "provider_url": "https://b", "provider_title": "Deferred",
+             "media_type": "series", "cooldown": True},
+        ]
+        with patch("identity_resolver.get_unresolved_titles", return_value=candidates), \
+             patch("identity_resolver.resolver_retry_due", side_effect=lambda row: not row["cooldown"]), \
+             patch("identity_resolver.find_tmdb_match", return_value={"status": "no_match", "reason": "test"}), \
+             patch("identity_resolver.record_unresolved_attempt"), \
+             patch("identity_resolver.purge_expired_tmdb_cache", return_value=0):
+            summary = resolve_unresolved_titles(provider="aniworld", limit=500)
+        self.assertEqual(summary["scanned"], 1)
+        self.assertEqual(summary["deferred_by_retry_cooldown"], 1)
+        self.assertEqual(summary["cooldown_bypassed"], 0)
+
+    def test_resolver_force_retry_bypasses_cooldown_for_selected_items(self):
+        candidates = [
+            {"provider": "aniworld", "provider_url": "https://a", "provider_title": "Due",
+             "media_type": "series", "cooldown": False},
+            {"provider": "aniworld", "provider_url": "https://b", "provider_title": "Deferred",
+             "media_type": "series", "cooldown": True},
+        ]
+        with patch("identity_resolver.get_unresolved_titles", return_value=candidates), \
+             patch("identity_resolver.resolver_retry_due", side_effect=lambda row: not row["cooldown"]), \
+             patch("identity_resolver.find_tmdb_match", return_value={"status": "no_match", "reason": "test"}), \
+             patch("identity_resolver.record_unresolved_attempt"), \
+             patch("identity_resolver.purge_expired_tmdb_cache", return_value=0):
+            summary = resolve_unresolved_titles(provider="aniworld", limit=500, force_retry=True)
+        self.assertEqual(summary["scanned"], 2)
+        self.assertEqual(summary["deferred_by_retry_cooldown"], 0)
+        self.assertEqual(summary["cooldown_bypassed"], 1)
+
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.previous_path = os.environ.get("CATALOG_DB_PATH")
