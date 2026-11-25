@@ -884,12 +884,21 @@ def _structure_comparison(
     if not isinstance(candidate_details, dict):
         return {"status": "not_available", "score": None, "mismatch": False}
 
+    raw_counts = [
+        provider_structure.get("episode_count"),
+        provider_structure.get("season_count"),
+        candidate_details.get("number_of_episodes"),
+        candidate_details.get("number_of_seasons"),
+    ]
+    if any(isinstance(value, bool) for value in raw_counts):
+        return {"status": "not_available", "score": None, "mismatch": False}
+    if any(isinstance(value, float) and not value.is_integer() for value in raw_counts):
+        return {"status": "not_available", "score": None, "mismatch": False}
     try:
-        provider_episodes = int(provider_structure.get("episode_count"))
-        provider_seasons = int(provider_structure.get("season_count"))
-        tmdb_episodes = int(candidate_details.get("number_of_episodes"))
-        tmdb_seasons = int(candidate_details.get("number_of_seasons"))
-    except (TypeError, ValueError):
+        provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons = (
+            int(value) for value in raw_counts
+        )
+    except (TypeError, ValueError, OverflowError):
         return {"status": "not_available", "score": None, "mismatch": False}
     if min(provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons) < 1:
         return {"status": "not_available", "score": None, "mismatch": False}
