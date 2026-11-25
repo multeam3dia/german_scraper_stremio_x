@@ -172,6 +172,8 @@ def add_external_id(
         if not math.isfinite(confidence_value) or not 0 <= confidence_value <= 1:
             raise ValueError("confidence must be between 0 and 1")
         confidence = confidence_value
+    if not isinstance(verified, bool):
+        raise ValueError("verified must be a boolean")
     init_identity_schema()
     with _connect() as db:
         owner = db.execute(
