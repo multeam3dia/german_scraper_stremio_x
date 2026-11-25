@@ -151,6 +151,7 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertIn("Loveless", queries)
         self.assertIn("ラブレス", queries)
         self.assertEqual(queries[0], "Loveless: SD Theatre")
+        self.assertEqual(len(queries), len(set(queries)))
 
 if __name__ == "__main__":
     unittest.main()
