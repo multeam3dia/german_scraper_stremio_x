@@ -183,3 +183,25 @@ class ProviderAliasSearchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_colon_subtitle_reduction_is_not_displaced_by_aliases(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Les Miserables: Shoujo Cossette",
+            ["Alias One", "Alias Two", "Alias Three", "Alias Four", "Alias Five"],
+        )
+        self.assertEqual(queries[0], "Les Miserables: Shoujo Cossette")
+        self.assertIn("Les Miserables", queries)
+        self.assertLessEqual(len(queries), 7)
+
+    def test_ane_log_short_title_is_preserved_with_alias_heavy_metadata(self):
+        from identity_resolver import _search_query_variants
+
+        queries = _search_query_variants(
+            "Ane Log: Big Sister Moyako's Never-ending Monologue",
+            ["日本語正式題", "Romanized Alias", "English Alias A", "English Alias B", "English Alias C"],
+        )
+        self.assertIn("Ane Log", queries)
+        self.assertIn("日本語正式題", queries)
+        self.assertLessEqual(len(queries), 7)
