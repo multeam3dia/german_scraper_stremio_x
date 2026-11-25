@@ -1206,30 +1206,34 @@ def find_tmdb_match(
         # weak. This bounded discovery step helps recover buried exact matches
         # without multiplying requests across every query variant.
         if best_german_score < MIN_TITLE_SCORE_WITH_YEAR and query_variants:
-            query = query_variants[0]
-            response = search_fn(search_path, {
-                "query": query, "include_adult": "false",
-                "language": "de-DE", "page": 2,
-            })
-            results = response.get("results")
-            results = results if isinstance(results, list) else []
-            search_attempts.append({
-                "query": query, "language": "de-DE", "page": 2,
-                "result_count": len(results),
-            })
-            for item in results:
-                if not isinstance(item, dict):
-                    continue
-                tmdb_id = item.get("id")
-                if type(tmdb_id) is int and tmdb_id > 0:
-                    existing = raw_candidates.get(tmdb_id)
-                    if existing is None:
-                        raw_candidates[tmdb_id] = dict(item)
-                        raw_candidates[tmdb_id]["_matched_queries"] = [query]
+            # Page two is useful when TMDB buries an exact title among noisy
+            # results. Expand the primary and one distinct cleanup/alias query,
+            # but keep discovery bounded to at most two extra requests.
+            page_two_queries = list(dict.fromkeys(query_variants[:2]))
+            for query in page_two_queries:
+                response = search_fn(search_path, {
+                    "query": query, "include_adult": "false",
+                    "language": "de-DE", "page": 2,
+                })
+                results = response.get("results")
+                results = results if isinstance(results, list) else []
+                search_attempts.append({
+                    "query": query, "language": "de-DE", "page": 2,
+                    "result_count": len(results),
+                })
+                for item in results:
+                    if not isinstance(item, dict):
+                        continue
+                    tmdb_id = item.get("id")
+                    if type(tmdb_id) is int and tmdb_id > 0:
+                        existing = raw_candidates.get(tmdb_id)
+                        if existing is None:
+                            raw_candidates[tmdb_id] = dict(item)
+                            raw_candidates[tmdb_id]["_matched_queries"] = [query]
+                        else:
+                            existing.setdefault("_matched_queries", []).append(query)
                     else:
-                        existing.setdefault("_matched_queries", []).append(query)
-                else:
-                    anonymous_candidates.append(dict(item))
+                        anonymous_candidates.append(dict(item))
         # Re-evaluate after page two: it may have supplied a strong exact
         # match, making the English fallback unnecessary.
         best_german_score = max(
