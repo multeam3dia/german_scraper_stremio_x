@@ -1189,6 +1189,40 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIn("Alpha Beta", page_two_queries)
         self.assertLessEqual(len(page_two_queries), 2)
 
+    def test_page_two_prioritizes_provider_alias_over_cleanup_variant(self):
+        page_two_queries = []
+        alias = "Alpha Beta Romanized"
+
+        def fake_get(path, params):
+            if path != "/search/tv":
+                if path == "/tv/812/external_ids":
+                    return {"imdb_id": "tt8123456"}
+                return {}
+            query = params.get("query", "")
+            page = params.get("page", 1)
+            lang = params.get("language")
+            if lang == "de-DE" and page == 1:
+                return {"results": [{"id": 801, "name": "Unrelated Result",
+                                     "original_name": "Unrelated Result"}]}
+            if lang == "de-DE" and page == 2:
+                page_two_queries.append(query)
+                if query == alias:
+                    return {"results": [{"id": 812, "name": alias,
+                                        "original_name": alias,
+                                        "first_air_date": "2020-01-01"}]}
+                return {"results": []}
+            return {"results": []}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Alpha Beta (2020)",
+             "year": 2020, "metadata": {"alternative_titles": [alias]}},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched", result)
+        self.assertEqual(result["tmdb_id"], 812)
+        self.assertIn(alias, page_two_queries)
+        self.assertLessEqual(len(page_two_queries), 2)
+
     def test_english_fallback_runs_when_german_results_are_irrelevant(self):
         calls = []
 
