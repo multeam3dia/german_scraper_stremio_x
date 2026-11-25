@@ -326,11 +326,18 @@ def _search_query_variants(
         }:
             candidates.append(without_parenthetical)
 
-    # Reserve two derived queries for title reductions; aliases (which can
-    # contain the Japanese original or romanized title) must not be crowded out
-    # by punctuation-only variants. Fill remaining slots with distinct aliases.
-    query_candidates = candidates[:3]
-    seen = {_normalize(value) for value in query_candidates}
+    # Deduplicate derived variants before allocating the bounded query budget;
+    # otherwise format and subtitle reductions can be identical and waste a slot.
+    deduplicated_candidates = []
+    seen = set()
+    for value in candidates:
+        normalized = _normalize(value)
+        if value and normalized and normalized not in seen:
+            deduplicated_candidates.append(value)
+            seen.add(normalized)
+    # Keep the original plus at most two useful reductions before aliases.
+    # Aliases often contain the Japanese original or romanized title.
+    query_candidates = deduplicated_candidates[:3]
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
         normalized_alias = _normalize(alias)
