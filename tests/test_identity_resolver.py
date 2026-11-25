@@ -341,6 +341,40 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 0.94)
         self.assertEqual(result["candidate_year"], 2017)
 
+    def test_year_filtered_discovery_uses_two_distinct_provider_aliases(self):
+        calls = []
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                query = params.get("query")
+                year = params.get("first_air_date_year")
+                calls.append((query, year))
+                if query == "Official Romanized" and year == 2018:
+                    return {"results": [{
+                        "id": 88018, "name": "Official Romanized",
+                        "original_name": "公式ローマ字",
+                        "first_air_date": "2018-04-01",
+                    }]}
+                return {"results": []}
+            if path == "/tv/88018/external_ids":
+                return {"imdb_id": "tt12345678"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series", "provider_title": "Hard to Find Label",
+                "year": 2018,
+                "metadata": {
+                    "alternative_titles": ["First Alias", "Official Romanized"],
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched", result)
+        year_filtered = [query for query, year in calls if year is not None]
+        self.assertLessEqual(len(year_filtered), 5)
+        self.assertIn("Official Romanized", year_filtered)
+
     def test_year_filtered_discovery_uses_provider_alias_within_request_budget(self):
         calls = []
         def fake_get(path, params):
