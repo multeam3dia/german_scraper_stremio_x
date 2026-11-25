@@ -283,11 +283,20 @@ def _search_query_variants(
         ).strip()
         if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
             candidates.append(without_format_suffix)
-        punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
+        # Year suffixes are common in provider labels but TMDB search treats them
+        # as literal title text. Prioritize removing a terminal year before
+        # punctuation-light variants, because the query budget is bounded and
+        # provider aliases must still retain slots.
+        without_parenthetical_year = re.sub(
+            r"\\s*[（(](?:19|20)\\d{2}[）)]\\s*$", "", provider_title
+        ).strip()
+        if without_parenthetical_year and _normalize(without_parenthetical_year) != _normalize(provider_title):
+            candidates.append(without_parenthetical_year)
+        punctuation_light = re.sub(r"[^\\w\\s]", " ", provider_title, flags=re.UNICODE)
         punctuation_light = " ".join(punctuation_light.split())
         if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
             candidates.append(punctuation_light)
-        without_parenthetical = re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title)
+        without_parenthetical = re.sub(r"\\s*[（(][^）)]*[）)]\\s*", " ", provider_title)
         without_parenthetical = " ".join(without_parenthetical.split())
         if without_parenthetical and _normalize(without_parenthetical) not in {
             _normalize(value) for value in candidates
