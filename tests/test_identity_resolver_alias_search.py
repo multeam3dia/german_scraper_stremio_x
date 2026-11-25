@@ -167,5 +167,19 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertLessEqual(len(queries), 7)
         self.assertEqual(len(queries), len(set(queries)))
 
+    def test_informative_original_script_aliases_survive_large_alias_lists(self):
+        from identity_resolver import _search_query_variants
+
+        aliases = [
+            "Short", "Alias two", "Alias three", "Alias four",
+            "Alias five", "Alias six", "Alias seven", "Alias eight",
+            "日本語の正式タイトル",
+        ]
+        queries = _search_query_variants("Primary Title: Subtitle", aliases)
+
+        self.assertIn("日本語の正式タイトル", queries)
+        self.assertLessEqual(len(queries), 7)
+        self.assertEqual(len(queries), len(set(queries)))
+
 if __name__ == "__main__":
     unittest.main()
