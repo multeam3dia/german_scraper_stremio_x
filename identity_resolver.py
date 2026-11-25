@@ -1948,6 +1948,7 @@ def resolve_unresolved_titles(
     provider: str | None = None,
     limit: int = 500,
     apply: bool = False,
+    force_retry: bool = False,
     search_fn: Callable[..., dict[str, Any]] = _tmdb_get,
 ) -> dict[str, Any]:
     """Evaluate queued titles and optionally persist only high-confidence matches."""
@@ -1961,10 +1962,13 @@ def resolve_unresolved_titles(
     # refreshed items cannot starve older records that are already retry-due.
     candidates = get_unresolved_titles(provider=provider, limit=5000)
     due_records = [record for record in candidates if resolver_retry_due(record)]
-    records = due_records[:max(1, int(limit))]
+    selected_pool = candidates if force_retry else due_records
+    records = selected_pool[:max(1, int(limit))]
+    cooldown_bypassed = sum(1 for record in records if not resolver_retry_due(record)) if force_retry else 0
     summary: dict[str, Any] = {
         "scanned": len(records),
-        "deferred_by_retry_cooldown": len(candidates) - len(due_records),
+        "deferred_by_retry_cooldown": 0 if force_retry else len(candidates) - len(due_records),
+        "cooldown_bypassed": cooldown_bypassed,
         "matched": 0,
         "applied": 0,
         "ambiguous": 0,
@@ -2274,12 +2278,17 @@ def main() -> None:
     parser.add_argument("--provider", choices=("aniworld", "serienstream"))
     parser.add_argument("--limit", type=int, default=500)
     parser.add_argument(
+        "--force-retry", action="store_true",
+        help="Ignore retry cooldown and re-evaluate unresolved titles",
+    )
+    parser.add_argument(
         "--apply", action="store_true",
         help="Persist high-confidence matches (default: report only)",
     )
     args = parser.parse_args()
     summary = resolve_unresolved_titles(
-        provider=args.provider, limit=args.limit, apply=args.apply
+        provider=args.provider, limit=args.limit, apply=args.apply,
+        force_retry=args.force_retry,
     )
     rendered = json.dumps(summary, ensure_ascii=False, indent=2)
     report_path = "/app/data/identity-resolver-report.json"
