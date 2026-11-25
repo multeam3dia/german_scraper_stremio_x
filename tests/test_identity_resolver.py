@@ -2346,6 +2346,26 @@ class IdentityResolverTests(unittest.TestCase):
         # The 3 meaningful titles do not match, so the filtered score must be zero.
         self.assertEqual(score, 0.0)
 
+    def test_structure_comparison_rejects_boolean_and_fractional_summary_counts(self):
+        provider_structure = {"complete": True, "season_count": True, "episode_count": 12}
+        candidate_details = {"number_of_seasons": 1, "number_of_episodes": 12}
+        self.assertEqual(
+            _structure_comparison(provider_structure, candidate_details)["status"],
+            "not_available",
+        )
+        provider_structure = {"complete": True, "season_count": 1, "episode_count": 12.5}
+        candidate_details = {"number_of_seasons": 1, "number_of_episodes": 12}
+        self.assertEqual(
+            _structure_comparison(provider_structure, candidate_details)["status"],
+            "not_available",
+        )
+        provider_structure = {"complete": True, "season_count": 1, "episode_count": 12}
+        candidate_details = {"number_of_seasons": 1.5, "number_of_episodes": 12}
+        self.assertEqual(
+            _structure_comparison(provider_structure, candidate_details)["status"],
+            "not_available",
+        )
+
     def test_structure_comparison_rejects_boolean_and_fractional_season_values(self):
         provider_structure = {
             "complete": True, "season_count": 1, "episode_count": 12,
