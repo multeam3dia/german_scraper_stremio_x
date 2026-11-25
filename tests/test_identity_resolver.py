@@ -2489,3 +2489,42 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(result["mismatch"])
         self.assertEqual(result["provider"]["seasons"], {"2": 12})
         self.assertEqual(result["tmdb"]["seasons"], {"2": 12})
+
+
+    def test_verified_cross_provider_identity_benchmark_exact_title_cases(self):
+        """Regression benchmark based on verified cross-provider IMDb mappings."""
+        verified_cases = [
+            (".hack//Sign", 2000, 361, "tt0361140"),
+            ("07-Ghost", 2009, 362, "tt1424033"),
+            (("11eyes"), 2009, 363, "tt1515976"),
+            ("16bit Sensation: Another Layer", 2023, 364, "tt29143189"),
+            (("18if"), 2017, 365, "tt8020634"),
+            (("22/7"), 2020, 366, "tt12024510"),
+            (("7 Seeds"), 2019, 367, "tt9348718"),
+            (("86: Eighty Six"), 2021, 368, "tt13718450"),
+            (("91 Days"), 2016, 369, "tt5839706"),
+            (("ARP Backstage Pass"), 2020, 370, "tt13752200"),
+            (("ATRI -My Dear Moments-"), 2024, 371, "tt30326044"),
+            (("AYAKA"), 2023, 372, "tt28266753"),
+        ]
+        for title, year, tmdb_id, imdb_id in verified_cases:
+            with self.subTest(title=title):
+                def fake_get(path, params):
+                    if path == "/search/tv":
+                        if params.get("query", "").casefold() == title.casefold():
+                            return {"results": [{
+                                "id": tmdb_id, "name": title,
+                                "original_name": title,
+                                "first_air_date": f"{year}-01-01",
+                            }]}
+                        return {"results": []}
+                    if path == f"/tv/{tmdb_id}/external_ids":
+                        return {"imdb_id": imdb_id}
+                    return {}
+                result = find_tmdb_match(
+                    {"media_type": "series", "provider_title": title, "year": year},
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "matched", result)
+                self.assertEqual(result["tmdb_id"], tmdb_id)
+                self.assertEqual(result["imdb_id"], imdb_id)
