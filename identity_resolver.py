@@ -917,8 +917,8 @@ def _structure_comparison(
     tmdb_by_season = candidate_details.get("seasons")
     season_comparable = isinstance(tmdb_by_season, list) and bool(provider_by_season)
     season_detail_mismatch = False
+    tmdb_map = {}
     if season_comparable:
-        tmdb_map = {}
         for season in tmdb_by_season:
             if not isinstance(season, dict):
                 continue
@@ -955,12 +955,7 @@ def _structure_comparison(
         "provider": {"season_count": provider_seasons, "episode_count": provider_episodes,
                      "seasons": provider_by_season},
         "tmdb": {"season_count": tmdb_seasons, "episode_count": tmdb_episodes,
-                 "seasons": {
-                     str(item.get("season_number")): int(item.get("episode_count", 0))
-                     for item in tmdb_by_season
-                     if isinstance(item, dict) and item.get("season_number") is not None
-                     and int(item.get("season_number", 0)) > 0
-                 } if isinstance(tmdb_by_season, list) else {}},
+                 "seasons": tmdb_map},
         "episode_delta": episode_delta,
         "season_delta": season_delta,
         "season_detail_mismatch": season_detail_mismatch,
