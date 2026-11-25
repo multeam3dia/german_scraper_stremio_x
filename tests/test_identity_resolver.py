@@ -14,7 +14,7 @@ from identity_resolver import (
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
-    _normalize, _best_title_match,
+    _normalize, _best_title_match, _alternative_title_values,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -2242,17 +2242,24 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(variants[0], "Loveless: SD Theatre")
         self.assertIn("Loveless", variants)
 
-    def test_search_variants_ignore_malformed_alias_payloads(self):
-        aliases = [
-            "Useful Synthetic Alias", {"title": "Nested Alias"},
-            ["List Alias"], 123, None,
-        ]
+    def test_alternative_title_extraction_rejects_malformed_values_and_deduplicates(self):
+        payload = {
+            "results": [
+                {"title": "  Synthetic Alias  "},
+                {"title": {"nested": "bad"}, "name": "Valid fallback"},
+                {"title": 123},
+                {"name": ["Not a string"]},
+                {"title": "!!!"},
+                {"title": "synthetic alias"},
+            ],
+            "titles": [{"name": "Alternate Alias"}, {"title": None}],
+        }
         self.assertEqual(
-            _search_query_variants("!!!", aliases),
-            ["Useful Synthetic Alias"],
+            _alternative_title_values(payload),
+            ["Synthetic Alias", "Valid fallback", "Alternate Alias"],
         )
-        # A string is not a collection of aliases (characters must not become queries).
-        self.assertEqual(_search_query_variants("!!!", "Alias"), [])
+        self.assertEqual(_alternative_title_values(None), [])
+        self.assertEqual(_alternative_title_values(["bad payload"]), [])
 
     def test_search_variants_ignore_empty_and_duplicate_aliases(self):
         aliases = [

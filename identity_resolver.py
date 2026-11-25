@@ -366,19 +366,31 @@ def _search_query_variants(
             break
         selected.append(variant)
     return selected
-def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
-    """Read title aliases from both TMDB TV and movie alternative-title responses."""
+def _alternative_title_values(payload: Any) -> list[str]:
+    """Read valid, deduplicated title aliases from TMDB alternative-title responses."""
+    if not isinstance(payload, dict):
+        return []
     values: list[str] = []
+    seen: set[str] = set()
     for key in ("results", "titles"):
         rows = payload.get(key)
         if not isinstance(rows, list):
             continue
         for row in rows:
-            if isinstance(row, dict):
-                value = row.get("title") or row.get("name")
-                if value:
-                    values.append(str(value))
-    return list(dict.fromkeys(values))
+            if not isinstance(row, dict):
+                continue
+            for field in ("title", "name"):
+                value = row.get(field)
+                if not isinstance(value, str):
+                    continue
+                value = value.strip()
+                normalized = _normalize(value)
+                if not value or not normalized or normalized in seen:
+                    continue
+                values.append(value)
+                seen.add(normalized)
+                break
+    return values
 
 
 def _best_provider_title_match(
