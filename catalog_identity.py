@@ -17,6 +17,7 @@ from typing import Any, Iterator
 
 MEDIA_TYPES = {"movie", "series"}
 GSX_ID_RE = re.compile(r"^gsx:(movie|series):[0-9a-f]{32}$")
+IMDB_ID_RE = re.compile(r"^tt\\d{7,10}$")
 EXTERNAL_ID_NAMESPACES = {
     "imdb", "tmdb", "mal", "tvdb", "trakt", "wikidata", "mdblist"
 }
@@ -158,6 +159,8 @@ def add_external_id(
         raise ValueError("Unsupported external ID namespace")
     if not external_id:
         raise ValueError("external_id is required")
+    if namespace == "imdb" and not IMDB_ID_RE.fullmatch(external_id):
+        raise ValueError("Invalid IMDb external ID")
     if confidence is not None and not 0 <= float(confidence) <= 1:
         raise ValueError("confidence must be between 0 and 1")
     init_identity_schema()
