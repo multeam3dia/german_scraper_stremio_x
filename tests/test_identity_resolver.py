@@ -1846,6 +1846,41 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertIn("/search/movie", calls)
 
+    def test_aniworld_rejected_tv_search_still_probes_movie_for_type_conflict(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 777, "name": "Unrelated TV Result",
+                    "original_name": "Unrelated TV Result", "first_air_date": "2003-01-01",
+                }]}
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 11875, "title": "Tokyo Godfathers",
+                    "original_title": "東京ゴッドファーザーズ",
+                    "release_date": "2003-12-29",
+                }]}
+            if path == "/movie/11875/external_ids":
+                return {"imdb_id": "tt0388473"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Tokyo Godfathers", "year": 2003,
+                "metadata": {},
+            },
+            search_fn=fake_get,
+        )
+        self.assertIn("/search/movie", calls)
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertTrue(result.get("media_type_conflict"))
+        self.assertEqual(
+            result["diagnostics"]["alternate_movie_candidate"]["tmdb_id"], 11875
+        )
+
     def test_aniworld_empty_tv_search_probes_movie_and_corrects_verified_film(self):
         calls = []
 
