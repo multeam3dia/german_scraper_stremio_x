@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional
 
 IMDB_ID_RE = __import__("re").compile(r"^tt\d{7,10}$")
+GSX_ID_RE = __import__("re").compile(r"^gsx:(movie|series):[0-9a-f]{32}$")
 MEDIA_TYPES = {"movie", "series"}
 
 # Only these providers are allowed to establish public catalog availability.
@@ -595,7 +596,7 @@ def mark_unresolved_title_identified(
 ) -> None:
     """Mark a provider record resolved to a canonical GSX identity without IMDb."""
     title_id = str(title_id or "").strip()
-    if not title_id.startswith(("gsx:movie:", "gsx:series:")):
+    if not GSX_ID_RE.fullmatch(title_id):
         raise ValueError("A valid GSX title ID is required")
     with _connect() as db:
         db.execute(
