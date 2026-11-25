@@ -2607,6 +2607,24 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(_episode_title_similarity(provider_structure, candidate_titles), 0.0)
 
 
+    def test_numbered_prefix_with_short_generic_residue_is_not_identity_evidence(self):
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"episode_number": 1, "title": "Episode 1: A"},
+                {"episode_number": 2, "title": "Episode 2: The"},
+                {"episode_number": 3, "title": "Episode 3: Yes"},
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "A"},
+            {"episode_number": 2, "name": "The"},
+            {"episode_number": 3, "name": "Yes"},
+        ]}
+        # Removing episode numbers must not turn short generic residues into
+        # three perfect identity matches.
+        self.assertIsNone(_episode_title_similarity(provider_structure, candidate_titles))
+
     def test_numbered_episode_prefixes_are_ignored_for_title_similarity(self):
         provider_structure = {"seasons": [{
             "season_number": 1,
