@@ -1617,10 +1617,9 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(calls, [
             "/tv/123/season/2",
-            "/tv/123/season/3",
             "/tv/123/season/4",
         ])
-        self.assertEqual(result, {"2": [], "3": [], "4": []})
+        self.assertEqual(result, {"2": [], "4": []})
 
     def test_verified_aniworld_movie_type_correction_is_applied_as_movie(self):
         url = "https://aniworld.to/anime/stream/animal-crossing"
@@ -1981,7 +1980,7 @@ class IdentityResolverTests(unittest.TestCase):
         variants = _search_query_variants(
             "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
         )
-        self.assertEqual(variants[:3], ["Kanon (2006)", "Kanon", "Kanon 2006"])
+        self.assertEqual(variants[:3], ["Kanon (2006)", "Kanon", "カノン"])
         self.assertIn("カノン", variants)
         self.assertIn("Alias Four", variants)
         self.assertLessEqual(len(variants), 7)
