@@ -137,10 +137,18 @@ class UnresolvedProviderTitleTests(unittest.TestCase):
         url = "https://serienstream.to/serie/example"
         catalog_db.record_unresolved_title("serienstream", url, "Example Show")
         catalog_db.mark_unresolved_title_resolved("serienstream", url, "tt1234567")
-        catalog_db.mark_unresolved_title_identified("serienstream", url, "gsx:series:abc")
+        catalog_db.mark_unresolved_title_identified("serienstream", url, "gsx:series:" + "a" * 32)
         record = catalog_db.get_resolved_imdb_id("serienstream", url)
         self.assertEqual(record, "tt1234567")
         self.assertEqual(catalog_db.get_unresolved_titles(), [])
+
+    def test_invalid_canonical_title_id_cannot_resolve_record(self):
+        url = "https://serienstream.to/serie/example"
+        catalog_db.record_unresolved_title("serienstream", url, "Example Show")
+        for invalid in ("gsx:series:abc", "gsx:movie:" + "g" * 32, "gsx:series:" + "a" * 31, "gsx:series:" + "a" * 33):
+            with self.subTest(title_id=invalid):
+                with self.assertRaises(ValueError):
+                    catalog_db.mark_unresolved_title_identified("serienstream", url, invalid)
 
     def test_invalid_imdb_id_cannot_resolve_record(self):
         url = "https://serienstream.to/serie/example"
