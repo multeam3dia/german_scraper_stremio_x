@@ -43,6 +43,17 @@ class CatalogIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     create_title("series", "Invalid year", year=year)
 
+    def test_create_title_rejects_years_outside_sqlite_integer_range(self):
+        for year in (-(1 << 63) - 1, (1 << 63)):
+            with self.subTest(year=year):
+                with self.assertRaises(ValueError):
+                    create_title("series", "Out-of-range year", year=year)
+
+        for year in (-(1 << 63), (1 << 63) - 1):
+            with self.subTest(year=year):
+                title_id = create_title("series", "Boundary year", year=year)
+                self.assertEqual(get_title(title_id)["year"], year)
+
     def test_create_title_rejects_non_dictionary_metadata(self):
         for metadata in ("metadata", [], 42):
             with self.subTest(metadata=metadata):

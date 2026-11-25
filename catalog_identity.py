@@ -129,6 +129,8 @@ def create_title(
         raise ValueError("title is required")
     if year is not None and (isinstance(year, bool) or not isinstance(year, int)):
         raise ValueError("year must be an integer or None")
+    if year is not None and not -(1 << 63) <= year <= (1 << 63) - 1:
+        raise ValueError("year must fit SQLite INTEGER")
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("metadata must be a dictionary or None")
     if title_id is None:
