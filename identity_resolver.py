@@ -435,9 +435,14 @@ def _candidate_season_episode_titles(
     for season in seasons:
         if not isinstance(season, dict):
             continue
+        raw_number = season.get("season_number")
+        if isinstance(raw_number, bool) or (
+            isinstance(raw_number, float) and not raw_number.is_integer()
+        ):
+            continue
         try:
-            number = int(season.get("season_number"))
-        except (TypeError, ValueError):
+            number = int(raw_number)
+        except (TypeError, ValueError, OverflowError):
             continue
         if number > 0 and isinstance(season.get("episodes"), list):
             season_numbers.append(number)
