@@ -282,12 +282,6 @@ def link_provider_title(
         raise ValueError("invalid availability_status")
     init_identity_schema()
     with _connect() as db:
-        existing = db.execute(
-            "SELECT title_id FROM canonical_provider_links WHERE provider=? AND provider_url=?",
-            (provider, provider_url),
-        ).fetchone()
-        if existing and existing["title_id"] != title_id:
-            raise IdentityConflictError("Provider URL is already linked to another title")
         cursor = db.execute(
             """INSERT INTO canonical_provider_links(
                    provider,provider_url,title_id,provider_title,availability_status
@@ -295,11 +289,12 @@ def link_provider_title(
                ON CONFLICT(provider,provider_url) DO UPDATE SET
                    provider_title=COALESCE(excluded.provider_title,canonical_provider_links.provider_title),
                    availability_status=excluded.availability_status,
-                   updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')""",
+                   updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               WHERE canonical_provider_links.title_id=excluded.title_id""",
             (provider, provider_url, title_id, provider_title, status),
         )
         if cursor.rowcount != 1:
-            raise ValueError("Could not link provider title")
+            raise IdentityConflictError("Provider URL is already linked to another title")
 
 
 def get_title_by_provider_url(provider: str, provider_url: str) -> dict[str, Any] | None:

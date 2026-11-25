@@ -150,6 +150,23 @@ class CatalogIdentityTests(unittest.TestCase):
         with self.assertRaises(IdentityConflictError):
             link_provider_title(second, "aniworld", url)
 
+    def test_provider_url_same_title_can_update_metadata_and_status(self):
+        import sqlite3
+
+        title_id = create_title("series", "Idempotent Provider Link")
+        url = "https://aniworld.to/anime/stream/idempotent"
+        link_provider_title(title_id, "aniworld", url, provider_title="Original")
+        link_provider_title(
+            title_id, "aniworld", url, provider_title="Updated", availability_status="missing"
+        )
+        with sqlite3.connect(os.environ["CATALOG_DB_PATH"]) as db:
+            row = db.execute(
+                """SELECT title_id,provider_title,availability_status
+                   FROM canonical_provider_links WHERE provider=? AND provider_url=?""",
+                ("aniworld", url),
+            ).fetchone()
+        self.assertEqual(row, (title_id, "Updated", "missing"))
+
     def test_media_type_must_match_gsx_id(self):
         with self.assertRaises(ValueError):
             create_title("movie", "Wrong type", title_id="gsx:series:" + "a" * 32)
