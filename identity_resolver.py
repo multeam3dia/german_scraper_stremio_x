@@ -289,11 +289,12 @@ def _title_similarity(
 def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
-    """Build bounded TMDB queries while reserving slots for provider aliases."""
+    """Build bounded TMDB queries with useful title reductions and alias slots."""
     candidates = [provider_title] if _normalize(provider_title) else []
     if candidates:
-        # AniWorld format labels are often appended to the actual work title.
-        # Keep the full title first, then try a conservative base-title variant.
+        # Provider labels frequently append format descriptors or subtitles.
+        # These reductions are query-only discovery hints: final scoring still
+        # compares the full provider title and its aliases against each result.
         without_format_suffix = re.sub(
             r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
             r"short\s+animation|special\s+episode|special|ova)$",
@@ -301,15 +302,19 @@ def _search_query_variants(
         ).strip()
         if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
             candidates.append(without_format_suffix)
-        # Year suffixes are common in provider labels but TMDB search treats them
-        # as literal title text. Prioritize removing a terminal year before
-        # punctuation-light variants, because the query budget is bounded and
-        # provider aliases must still retain slots.
+
+        # Subtitle-free queries often recover entries whose TMDB primary title
+        # differs only by localized subtitle. Keep this after the full title.
+        before_colon = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
+        if before_colon and _normalize(before_colon) != _normalize(provider_title):
+            candidates.append(before_colon)
+
         without_parenthetical_year = re.sub(
             r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
         ).strip()
         if without_parenthetical_year and _normalize(without_parenthetical_year) != _normalize(provider_title):
             candidates.append(without_parenthetical_year)
+
         punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
         punctuation_light = " ".join(punctuation_light.split())
         if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
@@ -320,9 +325,10 @@ def _search_query_variants(
             _normalize(value) for value in candidates
         }:
             candidates.append(without_parenthetical)
-    # Keep at most two derived queries in addition to the original spelling.
-    # Otherwise titles with several cleanup variants can crowd provider-supplied
-    # alternate titles out of the seven-query budget.
+
+    # Reserve two derived queries for title reductions; aliases (which can
+    # contain the Japanese original or romanized title) must not be crowded out
+    # by punctuation-only variants. Fill remaining slots with distinct aliases.
     query_candidates = candidates[:3]
     seen = {_normalize(value) for value in query_candidates}
     for alias in alternative_titles or []:
