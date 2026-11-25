@@ -289,86 +289,83 @@ def _title_similarity(
 def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
-    """Build bounded TMDB queries with useful title reductions and alias slots."""
-    candidates = [provider_title] if _normalize(provider_title) else []
-    if candidates:
-        # Provider labels frequently append format descriptors or subtitles.
-        # These reductions are query-only discovery hints: final scoring still
-        # compares the full provider title and its aliases against each result.
-        without_format_suffix = re.sub(
-            r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
-            r"short\s+animation|special\s+episode|special|ova)$",
-            "", provider_title, flags=re.IGNORECASE,
-        ).strip()
-        if without_format_suffix and _normalize(without_format_suffix) != _normalize(provider_title):
-            candidates.append(without_format_suffix)
+    """Build a bounded search set without sacrificing strong title reductions."""
+    if not _normalize(provider_title):
+        return []
 
-        # Subtitle-free queries often recover entries whose TMDB primary title
-        # differs only by localized subtitle. Keep this after the full title.
-        before_colon = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
-        if before_colon and _normalize(before_colon) != _normalize(provider_title):
-            candidates.append(before_colon)
+    # Derive query-only variants. These are discovery hints; final identity
+    # scoring always evaluates the full provider title and its aliases.
+    format_free = re.sub(
+        r"\s*(?:[:\-–]\s*)?(?:sd\s+theatre|short\s+animation\s+series|"
+        r"short\s+animation|special\s+episode|special|ova)$",
+        "", provider_title, flags=re.IGNORECASE,
+    ).strip()
+    subtitle_free = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
+    year_free = re.sub(
+        r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
+    ).strip()
+    punctuation_light = " ".join(
+        re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE).split()
+    )
+    parenthetical_free = " ".join(
+        re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title).split()
+    )
 
-        without_parenthetical_year = re.sub(
-            r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
-        ).strip()
-        if without_parenthetical_year and _normalize(without_parenthetical_year) != _normalize(provider_title):
-            candidates.append(without_parenthetical_year)
+    def unique(values):
+        result, seen_local = [], set()
+        for value in values:
+            value = str(value or "").strip()
+            norm = _normalize(value)
+            if value and norm and norm not in seen_local:
+                result.append(value)
+                seen_local.add(norm)
+        return result
 
-        punctuation_light = re.sub(r"[^\w\s]", " ", provider_title, flags=re.UNICODE)
-        punctuation_light = " ".join(punctuation_light.split())
-        if punctuation_light and _normalize(punctuation_light) != _normalize(provider_title):
-            candidates.append(punctuation_light)
-        without_parenthetical = re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title)
-        without_parenthetical = " ".join(without_parenthetical.split())
-        if without_parenthetical and _normalize(without_parenthetical) not in {
-            _normalize(value) for value in candidates
-        }:
-            candidates.append(without_parenthetical)
+    primary = unique([provider_title])
+    # Strong reductions (especially text before a subtitle colon) are protected
+    # from alias-heavy provider metadata and get slots before weaker reductions.
+    strong_reductions = unique([
+        format_free, subtitle_free, year_free,
+    ])
+    strong_reductions = [
+        value for value in strong_reductions
+        if _normalize(value) != _normalize(provider_title)
+    ]
 
-    # Deduplicate derived variants before allocating the bounded query budget;
-    # otherwise format and subtitle reductions can be identical and waste a slot.
-    deduplicated_candidates = []
-    seen = set()
-    for value in candidates:
-        normalized = _normalize(value)
-        if value and normalized and normalized not in seen:
-            deduplicated_candidates.append(value)
-            seen.add(normalized)
-    # Prioritize the primary title and one strong reduction, then reserve
-    # most of the bounded budget for provider aliases (often Japanese or
-    # romanized titles). Remaining reductions are fallback query hints.
-    query_candidates = deduplicated_candidates[:2]
-    # Only the selected query strings occupy slots at this point. We must not
-    # mark weak reductions as already used before aliases are considered.
-    seen = {_normalize(value) for value in query_candidates}
-    alias_candidates = []
+    selected = primary[:]
+    for reduction in strong_reductions:
+        if len(selected) < 7:
+            selected.append(reduction)
+
+    # Alias allocation uses only remaining slots, prioritizing original scripts.
+    selected_norm = {_normalize(value) for value in selected}
+    aliases = []
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
-        normalized_alias = _normalize(alias)
-        if alias and normalized_alias and normalized_alias not in seen:
-            # Prefer informative aliases and original-script spellings over
-            # short/duplicate fragments when the provider exposes many names.
-            script_bonus = sum(
-                1 for char in alias
-                if char.isalpha() and not unicodedata.name(char, "").startswith("LATIN")
-            )
-            alias_candidates.append((alias, normalized_alias, script_bonus))
-            seen.add(normalized_alias)
-    # Stable sorting: original provider order is retained when quality is equal.
-    alias_candidates.sort(
-        key=lambda entry: (entry[2], len(entry[0].strip())),
-        reverse=True,
-    )
-    for alias, normalized_alias, _ in alias_candidates:
-        if len(query_candidates) < 7:
-            query_candidates.append(alias)
-    for reduction in deduplicated_candidates[2:]:
-        normalized = _normalize(reduction)
-        if reduction and normalized and normalized not in seen and len(query_candidates) < 7:
-            query_candidates.append(reduction)
-            seen.add(normalized)
-    return query_candidates
+        norm = _normalize(alias)
+        if not alias or not norm or norm in selected_norm:
+            continue
+        script_bonus = sum(
+            1 for char in alias
+            if char.isalpha() and not unicodedata.name(char, "").startswith("LATIN")
+        )
+        aliases.append((alias, norm, script_bonus))
+        selected_norm.add(norm)
+    aliases.sort(key=lambda item: (item[2], len(item[0].strip())), reverse=True)
+    for alias, _, _ in aliases:
+        if len(selected) >= 7:
+            break
+        selected.append(alias)
+
+    # Weak punctuation/parenthetical variants are last-resort fillers and never
+    # displace the full title, subtitle-free query, or informative aliases.
+    weak = unique([punctuation_light, parenthetical_free])
+    weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
+    for variant in weak:
+        if len(selected) >= 7:
+            break
+        selected.append(variant)
+    return selected
 def _alternative_title_values(payload: dict[str, Any]) -> list[str]:
     """Read title aliases from both TMDB TV and movie alternative-title responses."""
     values: list[str] = []
