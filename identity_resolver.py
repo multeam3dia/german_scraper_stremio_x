@@ -907,9 +907,19 @@ def _structure_comparison(
     for season in provider_structure.get("seasons", []):
         if not isinstance(season, dict):
             continue
+        raw_season_number = season.get("season_number")
+        raw_episode_count = season.get("episode_count", 0)
+        if isinstance(raw_season_number, bool) or isinstance(raw_episode_count, bool):
+            continue
+        if (
+            isinstance(raw_season_number, float) and not raw_season_number.is_integer()
+        ) or (
+            isinstance(raw_episode_count, float) and not raw_episode_count.is_integer()
+        ):
+            continue
         try:
-            season_number = int(season.get("season_number"))
-            episode_count = int(season.get("episode_count", 0))
+            season_number = int(raw_season_number)
+            episode_count = int(raw_episode_count)
         except (TypeError, ValueError, OverflowError):
             continue
         if season_number > 0 and episode_count >= 0:
@@ -922,9 +932,19 @@ def _structure_comparison(
         for season in tmdb_by_season:
             if not isinstance(season, dict):
                 continue
+            raw_season_number = season.get("season_number")
+            raw_episode_count = season.get("episode_count", 0)
+            if isinstance(raw_season_number, bool) or isinstance(raw_episode_count, bool):
+                continue
+            if (
+                isinstance(raw_season_number, float) and not raw_season_number.is_integer()
+            ) or (
+                isinstance(raw_episode_count, float) and not raw_episode_count.is_integer()
+            ):
+                continue
             try:
-                season_number = int(season.get("season_number"))
-                episode_count = int(season.get("episode_count", 0))
+                season_number = int(raw_season_number)
+                episode_count = int(raw_episode_count)
             except (TypeError, ValueError, OverflowError):
                 continue
             if season_number > 0 and episode_count >= 0:
