@@ -217,11 +217,24 @@ def _year_from_result(item: dict[str, Any], media_type: str) -> int | None:
 
 def _title_variants(item: dict[str, Any], media_type: str) -> list[str]:
     keys = ("name", "original_name") if media_type == "series" else ("title", "original_title")
-    values = [str(item[key]) for key in keys if item.get(key)]
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: Any) -> None:
+        if not isinstance(value, str):
+            return
+        value = value.strip()
+        if value and value not in seen:
+            values.append(value)
+            seen.add(value)
+
+    for key in keys:
+        add(item.get(key))
     aliases = item.get("_alternative_titles")
     if isinstance(aliases, list):
-        values.extend(str(value) for value in aliases if value)
-    return list(dict.fromkeys(values))
+        for value in aliases:
+            add(value)
+    return values
 
 
 def _best_title_match(

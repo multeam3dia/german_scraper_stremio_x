@@ -321,6 +321,25 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNone(scores["actor_score"])
         self.assertEqual(scores["studio_score"], 1.0)
 
+    def test_title_variants_ignore_malformed_candidate_fields_but_keep_string_fallbacks(self):
+        malformed = {
+            "name": {"nested": "Malformed Candidate"},
+            "original_name": 123,
+            "_alternative_titles": [{"title": "Malformed Candidate"}, 456],
+        }
+        score, matched_title = _best_title_match("Malformed Candidate", malformed, "series")
+        self.assertEqual(score, 0.0)
+        self.assertIsNone(matched_title)
+
+        fallback = {
+            "name": ["Invalid title container"],
+            "original_name": "  Valid Fallback Title  ",
+            "_alternative_titles": [None, {"title": "Invalid alias"}, 42],
+        }
+        score, matched_title = _best_title_match("Valid Fallback Title", fallback, "series")
+        self.assertEqual(score, 1.0)
+        self.assertEqual(matched_title, "Valid Fallback Title")
+
     def test_exact_title_and_year_returns_imdb_match(self):
         def fake_get(path, params):
             if path == "/search/tv":
