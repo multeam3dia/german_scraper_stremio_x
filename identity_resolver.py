@@ -556,7 +556,12 @@ def _episode_title_similarity(
     total_matched_provider = 0
     total_matched_candidate = 0
 
-    for season in provider_structure.get("seasons", []):
+    raw_seasons = provider_structure.get("seasons")
+    if not isinstance(raw_seasons, list):
+        return None
+    seasons_by_number: dict[str, dict[str, Any]] = {}
+    duplicate_seasons: set[str] = set()
+    for season in raw_seasons:
         if not isinstance(season, dict):
             continue
         season_number = season.get("season_number")
@@ -566,9 +571,23 @@ def _episode_title_similarity(
             parsed_season_number = int(season_number)
             if not isinstance(season_number, str) and season_number != parsed_season_number:
                 continue
-            season_key = str(parsed_season_number)
         except (TypeError, ValueError, OverflowError):
             continue
+        if parsed_season_number <= 0:
+            continue
+        season_key = str(parsed_season_number)
+        if season_key in seasons_by_number:
+            duplicate_seasons.add(season_key)
+        else:
+            seasons_by_number[season_key] = season
+    # Duplicate season records are ambiguous: exclude the whole season instead
+    # of allowing repeated rows to overweight its episode-title evidence.
+    for season_key in duplicate_seasons:
+        seasons_by_number.pop(season_key, None)
+
+    for season_key, season in sorted(
+        seasons_by_number.items(), key=lambda item: int(item[0])
+    ):
         provider_rows = clean_rows(season.get("episodes"), True)
         candidate_rows = clean_rows(candidate_episode_titles.get(season_key), False)
         if not provider_rows or not candidate_rows:

@@ -2245,6 +2245,44 @@ class IdentityResolverTests(unittest.TestCase):
         score = _episode_title_similarity(provider_structure, candidate_titles)
         self.assertGreaterEqual(score, 0.99)
 
+    def test_duplicate_provider_seasons_are_excluded_from_episode_title_evidence(self):
+        season_one = {
+            "season_number": 1,
+            "episodes": [
+                {"title": "Synthetic Alpha"},
+                {"title": "Synthetic Bravo"},
+                {"title": "Synthetic Charlie"},
+            ],
+        }
+        provider_structure = {"seasons": [
+            season_one,
+            {**season_one},
+            {
+                "season_number": 2,
+                "episodes": [
+                    {"title": "Provider Omega"},
+                    {"title": "Provider Delta"},
+                    {"title": "Provider Sigma"},
+                ],
+            },
+        ]}
+        candidate_titles = {
+            "1": [
+                {"name": "Synthetic Alpha"},
+                {"name": "Synthetic Bravo"},
+                {"name": "Synthetic Charlie"},
+            ],
+            "2": [
+                {"name": "Candidate Kappa"},
+                {"name": "Candidate Theta"},
+                {"name": "Candidate Lambda"},
+            ],
+        }
+        score = _episode_title_similarity(provider_structure, candidate_titles)
+        # A duplicate season must not let its perfect matches dominate the
+        # unrelated season's lack of corroboration.
+        self.assertEqual(score, 0.0)
+
     def test_episode_title_similarity_does_not_reuse_candidate_episode(self):
         provider_structure = {
             "seasons": [{
