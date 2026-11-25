@@ -1977,6 +1977,15 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["candidates"][1]["country"]["score"], 0.0)
 
 
+    def test_search_variants_prioritize_parenthetical_year_cleanup(self):
+        variants = _search_query_variants(
+            "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
+        )
+        self.assertEqual(variants[:3], ["Kanon (2006)", "Kanon 2006", "Kanon"])
+        self.assertIn("カノン", variants)
+        self.assertIn("Alias Four", variants)
+        self.assertLessEqual(len(variants), 7)
+
     def test_aniworld_alternate_japanese_title_can_match_tmdb_original_title(self):
         variants = _search_query_variants(
             "The Space Between (2012)", ["間の楔", "Ai no Kusabi"]
