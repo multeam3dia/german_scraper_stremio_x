@@ -573,7 +573,7 @@ class IdentityResolverTests(unittest.TestCase):
         calls = []
 
         def fake_get(path, params):
-            calls.append((path, dict(params or {}))))
+            calls.append((path, dict(params or {})))
             if path == "/search/tv":
                 return {"results": [
                     {"id": 555, "name": "Example Anime", "original_name": "Example Anime",
