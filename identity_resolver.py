@@ -1227,7 +1227,18 @@ def find_tmdb_match(
             # Page two is useful when TMDB buries an exact title among noisy
             # results. Expand the primary and one distinct cleanup/alias query,
             # but keep discovery bounded to at most two extra requests.
-            page_two_queries = list(dict.fromkeys(query_variants[:2]))
+            primary_query = query_variants[0]
+            normalized_aliases = {_normalize(alias) for alias in provider_aliases if _normalize(alias)}
+            alias_queries = [
+                query for query in query_variants[1:]
+                if _normalize(query) in normalized_aliases
+            ]
+            # Alias spellings often carry the crucial romanization/translation.
+            # Search the primary plus one alias on page two before spending the
+            # second slot on another punctuation/year cleanup variant.
+            page_two_queries = list(dict.fromkeys(
+                [primary_query] + (alias_queries[:1] or query_variants[1:2])
+            ))
             for query in page_two_queries:
                 response = search_fn(search_path, {
                     "query": query, "include_adult": "false",
