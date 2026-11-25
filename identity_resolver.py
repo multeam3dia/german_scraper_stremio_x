@@ -443,7 +443,7 @@ def _candidate_season_episode_titles(
             season_numbers.append(number)
     # The first and last numbered seasons give useful coverage without
     # turning identity resolution into a full-series metadata crawl.
-    season_numbers = list(dict.fromkeys(season_numbers))
+    season_numbers = sorted(set(season_numbers))
     if len(season_numbers) > 2:
         season_numbers = [season_numbers[0], season_numbers[-1]]
     result: dict[str, list[dict[str, Any]]] = {}

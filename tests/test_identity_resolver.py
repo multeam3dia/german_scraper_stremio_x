@@ -1540,6 +1540,29 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["provider"]["seasons"], {"1": 1})
         self.assertTrue(result["season_detail_mismatch"])
 
+    def test_candidate_season_fetch_uses_numeric_first_and_last_when_unsorted(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            return {"episodes": []}
+
+        provider_structure = {"seasons": [
+            {"season_number": 4, "episodes": []},
+            {"season_number": 2, "episodes": []},
+            {"season_number": 1, "episodes": []},
+            {"season_number": 3, "episodes": []},
+            {"season_number": 4, "episodes": []},
+        ]}
+        result = _candidate_season_episode_titles(
+            {"id": 123}, provider_structure, fake_get
+        )
+        self.assertEqual(calls, [
+            "/tv/123/season/1",
+            "/tv/123/season/4",
+        ])
+        self.assertEqual(result, {"1": [], "4": []})
+
     def test_verified_aniworld_movie_type_correction_is_applied_as_movie(self):
         url = "https://aniworld.to/anime/stream/animal-crossing"
         catalog_db.record_unresolved_title(
