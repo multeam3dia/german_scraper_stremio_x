@@ -532,9 +532,14 @@ def _episode_title_similarity(
         if not isinstance(season, dict):
             continue
         season_number = season.get("season_number")
+        if isinstance(season_number, bool):
+            continue
         try:
-            season_key = str(int(season_number))
-        except (TypeError, ValueError):
+            parsed_season_number = int(season_number)
+            if not isinstance(season_number, str) and season_number != parsed_season_number:
+                continue
+            season_key = str(parsed_season_number)
+        except (TypeError, ValueError, OverflowError):
             continue
         provider_rows = clean_rows(season.get("episodes"), True)
         candidate_rows = clean_rows(candidate_episode_titles.get(season_key), False)

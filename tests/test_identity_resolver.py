@@ -2212,6 +2212,41 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["candidate_year"], 1992)
 
 
+    def test_episode_title_similarity_ignores_invalid_season_numbers(self):
+        invalid_season_numbers = (True, 1.5, Decimal("1.5"), float("inf"))
+        provider_structure = {
+            "seasons": [
+                {
+                    "season_number": season_number,
+                    "episodes": [
+                        {"episode_number": 1, "title": "Synthetic episode alpha"},
+                        {"episode_number": 2, "title": "Synthetic episode beta"},
+                        {"episode_number": 3, "title": "Synthetic episode gamma"},
+                    ],
+                }
+                for season_number in invalid_season_numbers
+            ],
+        }
+        candidate_titles = {"1": [
+            {"episode_number": 1, "name": "Synthetic episode alpha"},
+            {"episode_number": 2, "name": "Synthetic episode beta"},
+            {"episode_number": 3, "name": "Synthetic episode gamma"},
+        ]}
+        self.assertIsNone(_episode_title_similarity(provider_structure, candidate_titles))
+
+        integral_float_structure = {"seasons": [{
+            "season_number": 1.0,
+            "episodes": [
+                {"episode_number": 1, "title": "Synthetic episode alpha"},
+                {"episode_number": 2, "title": "Synthetic episode beta"},
+                {"episode_number": 3, "title": "Synthetic episode gamma"},
+            ],
+        }]}
+        self.assertEqual(
+            _episode_title_similarity(integral_float_structure, candidate_titles), 1.0
+        )
+
+
     def test_episode_title_comparison_does_not_cross_match_different_seasons(self):
         provider_structure = {
             "seasons": [
