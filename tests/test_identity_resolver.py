@@ -2597,6 +2597,56 @@ class IdentityResolverTests(unittest.TestCase):
             "not_available",
         )
 
+    def test_structure_comparison_rejects_fractional_decimal_counts_and_season_details(self):
+        provider_structure = {
+            "complete": True, "season_count": 1, "episode_count": Decimal("12.5")
+        }
+        candidate_details = {
+            "number_of_seasons": 1, "number_of_episodes": 12
+        }
+        self.assertEqual(
+            _structure_comparison(provider_structure, candidate_details)["status"],
+            "not_available",
+        )
+
+        provider_structure = {
+            "complete": True, "season_count": 2, "episode_count": 24,
+            "seasons": [
+                {"season_number": Decimal("1.5"), "episode_count": Decimal("12.5")},
+                {"season_number": 2, "episode_count": 12},
+            ],
+        }
+        candidate_details = {
+            "number_of_seasons": 2, "number_of_episodes": 24,
+            "seasons": [
+                {"season_number": Decimal("1.5"), "episode_count": Decimal("12.5")},
+                {"season_number": 2, "episode_count": 12},
+            ],
+        }
+        result = _structure_comparison(provider_structure, candidate_details)
+        self.assertEqual(result["status"], "match")
+        self.assertEqual(result["provider"]["seasons"], {"2": 12})
+        self.assertEqual(result["tmdb"]["seasons"], {"2": 12})
+
+        provider_structure = {
+            "complete": True, "season_count": Decimal("1.0"),
+            "episode_count": Decimal("12.0"),
+            "seasons": [
+                {"season_number": Decimal("1.0"), "episode_count": Decimal("12.0")}
+            ],
+        }
+        candidate_details = {
+            "number_of_seasons": Decimal("1.0"),
+            "number_of_episodes": Decimal("12.0"),
+            "seasons": [
+                {"season_number": Decimal("1.0"), "episode_count": Decimal("12.0")}
+            ],
+        }
+        result = _structure_comparison(provider_structure, candidate_details)
+        self.assertEqual(result["status"], "match")
+        self.assertEqual(result["provider"]["seasons"], {"1": 12})
+        self.assertEqual(result["tmdb"]["seasons"], {"1": 12})
+
     def test_structure_comparison_rejects_boolean_and_fractional_season_values(self):
         provider_structure = {
             "complete": True, "season_count": 1, "episode_count": 12,

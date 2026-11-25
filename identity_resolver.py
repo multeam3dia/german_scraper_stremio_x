@@ -932,16 +932,23 @@ def _structure_comparison(
         candidate_details.get("number_of_episodes"),
         candidate_details.get("number_of_seasons"),
     ]
-    if any(isinstance(value, bool) for value in raw_counts):
+    def integral_count(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        # Numeric objects must be exactly integral; int() alone truncates
+        # Decimal/Fraction inputs even though JSON floats are checked elsewhere.
+        if not isinstance(value, str) and value != parsed:
+            return None
+        return parsed
+
+    parsed_counts = [integral_count(value) for value in raw_counts]
+    if any(value is None for value in parsed_counts):
         return {"status": "not_available", "score": None, "mismatch": False}
-    if any(isinstance(value, float) and not value.is_integer() for value in raw_counts):
-        return {"status": "not_available", "score": None, "mismatch": False}
-    try:
-        provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons = (
-            int(value) for value in raw_counts
-        )
-    except (TypeError, ValueError, OverflowError):
-        return {"status": "not_available", "score": None, "mismatch": False}
+    provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons = parsed_counts
     if min(provider_episodes, provider_seasons, tmdb_episodes, tmdb_seasons) < 1:
         return {"status": "not_available", "score": None, "mismatch": False}
 
@@ -961,18 +968,9 @@ def _structure_comparison(
             continue
         raw_season_number = season.get("season_number")
         raw_episode_count = season.get("episode_count", 0)
-        if isinstance(raw_season_number, bool) or isinstance(raw_episode_count, bool):
-            continue
-        if (
-            isinstance(raw_season_number, float) and not raw_season_number.is_integer()
-        ) or (
-            isinstance(raw_episode_count, float) and not raw_episode_count.is_integer()
-        ):
-            continue
-        try:
-            season_number = int(raw_season_number)
-            episode_count = int(raw_episode_count)
-        except (TypeError, ValueError, OverflowError):
+        season_number = integral_count(raw_season_number)
+        episode_count = integral_count(raw_episode_count)
+        if season_number is None or episode_count is None:
             continue
         if season_number > 0 and episode_count >= 0:
             key = str(season_number)
@@ -992,18 +990,9 @@ def _structure_comparison(
                 continue
             raw_season_number = season.get("season_number")
             raw_episode_count = season.get("episode_count", 0)
-            if isinstance(raw_season_number, bool) or isinstance(raw_episode_count, bool):
-                continue
-            if (
-                isinstance(raw_season_number, float) and not raw_season_number.is_integer()
-            ) or (
-                isinstance(raw_episode_count, float) and not raw_episode_count.is_integer()
-            ):
-                continue
-            try:
-                season_number = int(raw_season_number)
-                episode_count = int(raw_episode_count)
-            except (TypeError, ValueError, OverflowError):
+            season_number = integral_count(raw_season_number)
+            episode_count = integral_count(raw_episode_count)
+            if season_number is None or episode_count is None:
                 continue
             if season_number > 0 and episode_count >= 0:
                 key = str(season_number)
