@@ -2254,6 +2254,37 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(len(variants), 7)
 
+    def test_invalid_primary_title_can_find_candidate_from_alias_search(self):
+        calls = []
+        candidate = {
+            "id": 990000001,
+            "name": "Fixture Alias Rescue",
+            "original_name": "Fixture Alias Rescue",
+        }
+
+        def fake_get(path, params):
+            calls.append((path, dict(params or {})))
+            if path == "/search/tv" and params.get("query") == "Fixture Alias Rescue":
+                return {"results": [candidate]}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "fixture",
+                "media_type": "series",
+                "provider_title": "!!!",
+                "year": None,
+                "metadata": {"alternative_titles": ["Fixture Alias Rescue"]},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "identified")
+        self.assertEqual(result["tmdb_id"], 990000001)
+        self.assertTrue(any(
+            path == "/search/tv" and params.get("query") == "Fixture Alias Rescue"
+            for path, params in calls
+        ))
+
     def test_episode_title_score_is_invariant_to_german_english_variant_order(self):
         provider_structure = {
             "seasons": [{
