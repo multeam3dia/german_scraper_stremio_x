@@ -2094,13 +2094,10 @@ def resolve_unresolved_titles(
             except (TypeError, ValueError):
                 return 0.0
 
-        promising_rejected = any(
-            _diagnostic_title_score(row) >= 0.70
-            for row in candidate_rows if isinstance(row, dict)
-        )
-        uncertain = result.get("status") == "ambiguous" or (
-            result.get("status") == "no_match" and promising_rejected
-        )
+        # A no-match may result from incomplete provider evidence, not only
+        # weak TMDB title candidates. Refresh incomplete evidence for no-match
+        # records before accepting that classification.
+        uncertain = result.get("status") in {"ambiguous", "no_match"}
         if uncertain and (not has_structure or not has_episode_titles or not has_alternative_titles):
             enriched = _refresh_provider_evidence(record)
             enriched_metadata = enriched.get("metadata") if isinstance(enriched.get("metadata"), dict) else {}
