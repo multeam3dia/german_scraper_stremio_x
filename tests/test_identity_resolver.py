@@ -306,6 +306,30 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 0.94)
         self.assertEqual(result["candidate_year"], 2017)
 
+    def test_year_filtered_discovery_uses_provider_alias_within_request_budget(self):
+        calls = []
+        def fake_get(path, params):
+            if path == "/search/tv":
+                calls.append((params.get("query"), params.get("first_air_date_year")))
+                if params.get("query") == "Kanon" and params.get("first_air_date_year") == 2006:
+                    return {"results": [{
+                        "id": 77006, "name": "Kanon", "original_name": "Kanon",
+                        "first_air_date": "2006-10-05",
+                    }]}
+            if path == "/tv/77006/external_ids":
+                return {"imdb_id": "tt0850555"}
+            return {}
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Kanon (2006)",
+             "year": 2006, "alternative_titles": ["Kanon"]},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched", result)
+        self.assertEqual(result["tmdb_id"], 77006)
+        year_filtered_calls = [call for call in calls if call[1] is not None]
+        self.assertLessEqual(len(year_filtered_calls), 5)
+        self.assertIn(("Kanon", 2006), year_filtered_calls)
+
     def test_exact_year_resolves_same_title_candidates_at_margin_boundary(self):
         def fake_get(path, params):
             if path == "/search/tv":
