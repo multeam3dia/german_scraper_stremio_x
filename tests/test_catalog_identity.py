@@ -47,6 +47,12 @@ class CatalogIdentityTests(unittest.TestCase):
         self.assertEqual(by_mal["title_id"], title_id)
         self.assertTrue(by_mal["external_ids"]["mal"]["verified"])
 
+    def test_valid_imdb_external_id_is_accepted(self):
+        title_id = create_title("series", "Synthetic test title")
+        add_external_id(title_id, "imdb", "tt1234567", verified=True)
+        record = get_title_by_external_id("series", "imdb", "tt1234567")
+        self.assertEqual(record["title_id"], title_id)
+
     def test_malformed_imdb_external_ids_are_rejected(self):
         title_id = create_title("series", "Synthetic test title")
         invalid_ids = ("invalid", "tt123456", "tt12345678901", "TT1234567")
