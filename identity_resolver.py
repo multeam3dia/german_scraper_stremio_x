@@ -1312,32 +1312,49 @@ def find_tmdb_match(
             ))[:2]
             if not discovery_queries:
                 discovery_queries = [provider_title]
-            for year_offset in (0, -1, 1, -2, 2):
+            # Search the primary title across nearby years, then spend the final
+            # bounded request on an exact-year provider alias when one exists.
+            # This replaces the least useful outer year offset, preserving the
+            # previous five-request budget while improving romanized/translated hits.
+            primary_query = query_variants[0] if query_variants else provider_title
+            normalized_aliases = {_normalize(alias) for alias in provider_aliases if _normalize(alias)}
+            alias_query = next(
+                (query for query in query_variants
+                 if _normalize(query) in normalized_aliases
+                 and _normalize(query) != _normalize(primary_query)),
+                None,
+            )
+            year_discovery_plan = [(primary_query, offset) for offset in (0, -1, 1, -2)]
+            if alias_query:
+                year_discovery_plan.append((alias_query, 0))
+            else:
+                year_discovery_plan.append((primary_query, 2)
+                    if (primary_query, 2) not in year_discovery_plan else (primary_query, 0))
+            for query, year_offset in year_discovery_plan:
                 search_year = provider_year + year_offset
-                for query in discovery_queries[:1]:
-                    response = search_fn(search_path, {
-                        "query": query, year_key: search_year,
-                        "include_adult": "false", "language": "en-US",
-                    })
-                    results = response.get("results")
-                    results = results if isinstance(results, list) else []
-                    search_attempts.append({
-                        "query": query, "language": "en-US",
-                        "year_filter": search_year, "result_count": len(results),
-                    })
-                    for item in results:
-                        if not isinstance(item, dict):
-                            continue
-                        tmdb_id = item.get("id")
-                        if type(tmdb_id) is int and tmdb_id > 0:
-                            existing = raw_candidates.get(tmdb_id)
-                            if existing is None:
-                                raw_candidates[tmdb_id] = dict(item)
-                                raw_candidates[tmdb_id]["_matched_queries"] = [query]
-                            else:
-                                existing.setdefault("_matched_queries", []).append(query)
+                response = search_fn(search_path, {
+                    "query": query, year_key: search_year,
+                    "include_adult": "false", "language": "en-US",
+                })
+                results = response.get("results")
+                results = results if isinstance(results, list) else []
+                search_attempts.append({
+                    "query": query, "language": "en-US",
+                    "year_filter": search_year, "result_count": len(results),
+                })
+                for item in results:
+                    if not isinstance(item, dict):
+                        continue
+                    tmdb_id = item.get("id")
+                    if type(tmdb_id) is int and tmdb_id > 0:
+                        existing = raw_candidates.get(tmdb_id)
+                        if existing is None:
+                            raw_candidates[tmdb_id] = dict(item)
+                            raw_candidates[tmdb_id]["_matched_queries"] = [query]
                         else:
-                            anonymous_candidates.append(dict(item))
+                            existing.setdefault("_matched_queries", []).append(query)
+                    else:
+                        anonymous_candidates.append(dict(item))
     except (TMDBAPIError, TMDBConfigurationError) as exc:
         return {"status": "error", "reason": str(exc)}
     except Exception as exc:
