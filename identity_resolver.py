@@ -342,12 +342,27 @@ def _search_query_variants(
     # Only the selected query strings occupy slots at this point. We must not
     # mark weak reductions as already used before aliases are considered.
     seen = {_normalize(value) for value in query_candidates}
+    alias_candidates = []
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
         normalized_alias = _normalize(alias)
-        if alias and normalized_alias and normalized_alias not in seen and len(query_candidates) < 7:
-            query_candidates.append(alias)
+        if alias and normalized_alias and normalized_alias not in seen:
+            # Prefer informative aliases and original-script spellings over
+            # short/duplicate fragments when the provider exposes many names.
+            script_bonus = sum(
+                1 for char in alias
+                if char.isalpha() and not unicodedata.name(char, "").startswith("LATIN")
+            )
+            alias_candidates.append((alias, normalized_alias, script_bonus))
             seen.add(normalized_alias)
+    # Stable sorting: original provider order is retained when quality is equal.
+    alias_candidates.sort(
+        key=lambda entry: (entry[2], len(entry[0].strip())),
+        reverse=True,
+    )
+    for alias, normalized_alias, _ in alias_candidates:
+        if len(query_candidates) < 7:
+            query_candidates.append(alias)
     for reduction in deduplicated_candidates[2:]:
         normalized = _normalize(reduction)
         if reduction and normalized and normalized not in seen and len(query_candidates) < 7:
