@@ -450,6 +450,37 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 902)
         self.assertGreaterEqual(result["margin"], 0.08)
 
+    def test_no_match_without_promising_candidates_refreshes_missing_evidence(self):
+        catalog_db.record_unresolved_title(
+            "aniworld", "https://aniworld.to/anime/stream/no-evidence",
+            "Weak Provider Label", "series",
+        )
+        initial_no_match = {
+            "status": "no_match",
+            "diagnostics": {"candidates": [{"title_score": 0.42}]},
+        }
+        refreshed_match = {
+            "status": "matched", "tmdb_id": 23456, "imdb_id": "tt2345678",
+            "score": 0.96, "margin": 0.10,
+        }
+        refreshed_record = {
+            "provider": "aniworld",
+            "provider_url": "https://aniworld.to/anime/stream/no-evidence",
+            "provider_title": "Weak Provider Label",
+            "media_type": "series",
+            "metadata": {
+                "provider_structure": {"complete": True, "seasons": []},
+                "alternative_titles": ["Useful International Title"],
+            },
+        }
+        with patch("identity_resolver.find_tmdb_match", side_effect=[initial_no_match, refreshed_match]) as matcher, \
+             patch("identity_resolver._refresh_provider_evidence", return_value=refreshed_record) as refresh:
+            summary = resolve_unresolved_titles(provider="aniworld", apply=False)
+        self.assertEqual(refresh.call_count, 1)
+        self.assertEqual(matcher.call_count, 2)
+        self.assertEqual(summary["matched"], 1)
+        self.assertEqual(summary["results"][0]["status"], "matched")
+
     def test_alternative_titles_only_refresh_triggers_resolver_rerun(self):
         catalog_db.record_unresolved_title(
             "aniworld", "https://aniworld.to/anime/stream/alias-only",
