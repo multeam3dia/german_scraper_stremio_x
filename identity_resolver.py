@@ -566,7 +566,7 @@ def _episode_title_similarity(
                 # Numbered headings can leave meaningless short words (e.g.
                 # "Episode 1: A", "Episode 2: The", "Episode 3: Yes").
                 # Do not treat these residues as identity evidence.
-                residue = re.sub(r"[^a-z0-9]+", "", name.casefold())
+                residue = "".join(char for char in name.casefold() if char.isalnum())
                 if had_numbered_prefix and len(residue) < 4:
                     continue
                 if name and not generic_title.fullmatch(re.sub(r"\s+", "", name)):

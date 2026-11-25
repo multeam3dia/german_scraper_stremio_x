@@ -2624,6 +2624,22 @@ class IdentityResolverTests(unittest.TestCase):
         # Removing episode numbers must not turn short generic residues into
         # three perfect identity matches.
         self.assertIsNone(_episode_title_similarity(provider_structure, candidate_titles))
+    def test_numbered_prefix_with_non_latin_episode_titles_keeps_identity_evidence(self):
+        provider_titles = ["雨の朝の駅", "青い空の下", "静かな森の道"]
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"episode_number": index, "title": f"第{index}話: {title}"}
+                for index, title in enumerate(provider_titles, 1)
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"episode_number": index, "name": title}
+            for index, title in enumerate(provider_titles, 1)
+        ]}
+        # Meaningful CJK titles must not be dropped by an ASCII-only length check.
+        self.assertEqual(_episode_title_similarity(provider_structure, candidate_titles), 1.0)
+
 
     def test_numbered_episode_prefixes_are_ignored_for_title_similarity(self):
         provider_structure = {"seasons": [{
