@@ -339,6 +339,9 @@ def _search_query_variants(
     # most of the bounded budget for provider aliases (often Japanese or
     # romanized titles). Remaining reductions are fallback query hints.
     query_candidates = deduplicated_candidates[:2]
+    # Only the selected query strings occupy slots at this point. We must not
+    # mark weak reductions as already used before aliases are considered.
+    seen = {_normalize(value) for value in query_candidates}
     for alias in alternative_titles or []:
         alias = str(alias or "").strip()
         normalized_alias = _normalize(alias)
