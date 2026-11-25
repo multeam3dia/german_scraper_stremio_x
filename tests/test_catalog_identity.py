@@ -63,7 +63,9 @@ class CatalogIdentityTests(unittest.TestCase):
 
     def test_invalid_confidence_values_are_rejected(self):
         title_id = create_title("series", "Synthetic confidence test")
-        invalid_values = (True, float("nan"), float("inf"), -0.01, 1.01, "not-a-number")
+        invalid_values = (
+            True, float("nan"), float("inf"), -0.01, 1.01, "not-a-number", 10**400,
+        )
         for confidence in invalid_values:
             with self.subTest(confidence=confidence):
                 with self.assertRaises(ValueError):
