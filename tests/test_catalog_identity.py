@@ -71,6 +71,15 @@ class CatalogIdentityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     add_external_id(title_id, "tmdb", "98765", confidence=confidence)
 
+    def test_verified_flag_requires_boolean(self):
+        title_id = create_title("series", "Synthetic verified test")
+        for verified in (1, 0, "false", "true", None):
+            with self.subTest(verified=verified):
+                with self.assertRaises(ValueError):
+                    add_external_id(
+                        title_id, "tmdb", f"9876{str(verified)}", verified=verified
+                    )
+
     def test_conflicting_external_id_is_rejected(self):
         first = create_title("series", "First")
         second = create_title("series", "Second")
