@@ -17,7 +17,7 @@ from typing import Any, Iterator
 
 MEDIA_TYPES = {"movie", "series"}
 GSX_ID_RE = re.compile(r"^gsx:(movie|series):[0-9a-f]{32}$")
-IMDB_ID_RE = re.compile(r"^tt\\d{7,10}$")
+IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 EXTERNAL_ID_NAMESPACES = {
     "imdb", "tmdb", "mal", "tvdb", "trakt", "wikidata", "mdblist"
 }
