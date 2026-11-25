@@ -31,6 +31,16 @@ class IdentityResolverTests(unittest.TestCase):
             os.environ["CATALOG_DB_PATH"] = self.previous_path
         self.tmp.cleanup()
 
+    def test_resolver_retry_malformed_attempt_counters_are_treated_as_initial(self):
+        now = datetime.fromisoformat("2026-11-25T04:40:00+00:00")
+        for malformed in (True, 1.5, "not-a-number"):
+            with self.subTest(attempts=malformed):
+                record = {
+                    "resolver_attempts": malformed,
+                    "resolver_last_attempt_at": "2026-11-24T00:00:00+00:00",
+                }
+                self.assertTrue(resolver_retry_due(record, now=now))
+
     def test_resolver_retry_boundary_respects_timezone_offset(self):
         record = {
             "resolver_attempts": 1,
