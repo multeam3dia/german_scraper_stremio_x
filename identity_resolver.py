@@ -445,12 +445,13 @@ def _candidate_season_episode_titles(
         if not isinstance(season, dict):
             continue
         raw_number = season.get("season_number")
-        if isinstance(raw_number, bool) or (
-            isinstance(raw_number, float) and not raw_number.is_integer()
-        ):
+        if isinstance(raw_number, bool):
             continue
         try:
             number = int(raw_number)
+            # Reject fractional numeric types beyond float (e.g. Decimal) too.
+            if not isinstance(raw_number, str) and raw_number != number:
+                continue
         except (TypeError, ValueError, OverflowError):
             continue
         if number > 0 and isinstance(season.get("episodes"), list):

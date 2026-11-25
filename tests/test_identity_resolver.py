@@ -1607,8 +1607,10 @@ class IdentityResolverTests(unittest.TestCase):
             {"season_number": True, "episodes": []},
             {"season_number": 1.5, "episodes": []},
             {"season_number": "2.5", "episodes": []},
+            {"season_number": Decimal("1.5"), "episodes": []},
             {"season_number": 2.0, "episodes": []},
             {"season_number": "3", "episodes": []},
+            {"season_number": Decimal("4.0"), "episodes": []},
         ]}
         result = _candidate_season_episode_titles(
             {"id": 123}, provider_structure, fake_get
@@ -1616,8 +1618,9 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(calls, [
             "/tv/123/season/2",
             "/tv/123/season/3",
+            "/tv/123/season/4",
         ])
-        self.assertEqual(result, {"2": [], "3": []})
+        self.assertEqual(result, {"2": [], "3": [], "4": []})
 
     def test_verified_aniworld_movie_type_correction_is_applied_as_movie(self):
         url = "https://aniworld.to/anime/stream/animal-crossing"
