@@ -1332,12 +1332,25 @@ def find_tmdb_match(
                  and _normalize(query) != _normalize(primary_query)),
                 None,
             )
-            year_discovery_plan = [(primary_query, offset) for offset in (0, -1, 1, -2)]
-            if alias_query:
-                year_discovery_plan.append((alias_query, 0))
-            else:
-                year_discovery_plan.append((primary_query, 2)
-                    if (primary_query, 2) not in year_discovery_plan else (primary_query, 0))
+            # Spend the bounded year-search budget on distinct title identities:
+            # three nearby-year searches for the primary label, then exact-year
+            # searches for up to two provider aliases. Alias spellings (often
+            # romanized, translated, or official Japanese titles) can discover a
+            # candidate that fuzzy scoring cannot see in ordinary search results.
+            year_discovery_plan = [(primary_query, offset) for offset in (0, -1, 1)]
+            alias_year_queries = [
+                query for query in query_variants
+                if _normalize(query) in normalized_aliases
+                and _normalize(query) != _normalize(primary_query)
+            ]
+            for query in alias_year_queries[:2]:
+                year_discovery_plan.append((query, 0))
+            # If no distinct aliases are available, retain the wider year
+            # coverage rather than wasting the final slots on duplicate queries.
+            if not alias_year_queries:
+                year_discovery_plan.extend(
+                    (primary_query, offset) for offset in (-2, 2)
+            )
             for query, year_offset in year_discovery_plan:
                 search_year = provider_year + year_offset
                 response = search_fn(search_path, {
