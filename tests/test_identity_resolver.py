@@ -2345,3 +2345,31 @@ class IdentityResolverTests(unittest.TestCase):
         # Without filtering, 13/16 identical labels would exceed the 0.78 threshold.
         # The 3 meaningful titles do not match, so the filtered score must be zero.
         self.assertEqual(score, 0.0)
+
+    def test_structure_comparison_ignores_malformed_per_season_counts(self):
+        provider_structure = {
+            "complete": True,
+            "season_count": 2,
+            "episode_count": 24,
+            "seasons": [
+                {"season_number": 1, "episode_count": "bad"},
+                {"season_number": None, "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+                "not-a-season",
+            ],
+        }
+        candidate_details = {
+            "number_of_seasons": 2,
+            "number_of_episodes": 24,
+            "seasons": [
+                {"season_number": 1, "episode_count": None},
+                {"season_number": "invalid", "episode_count": 12},
+                {"season_number": 2, "episode_count": 12},
+                {"not-a-season"},
+            ],
+        }
+        result = _structure_comparison(provider_structure, candidate_details)
+        self.assertEqual(result["status"], "match")
+        self.assertFalse(result["mismatch"])
+        self.assertEqual(result["provider"]["seasons"], {"2": 12})
+        self.assertEqual(result["tmdb"]["seasons"], {"2": 12})
