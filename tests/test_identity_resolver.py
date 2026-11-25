@@ -1156,6 +1156,38 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 611)
         self.assertNotIn(("en-US", 1), calls)
 
+    def test_page_two_expands_second_query_variant_when_primary_is_weak(self):
+        page_two_queries = []
+
+        def fake_get(path, params):
+            if path != "/search/tv":
+                if path == "/tv/812/external_ids":
+                    return {"imdb_id": "tt8123456"}
+                return {}
+            query = params.get("query", "")
+            page = params.get("page", 1)
+            lang = params.get("language")
+            if lang == "de-DE" and page == 1:
+                return {"results": [{"id": 801, "name": "Unrelated Result",
+                                     "original_name": "Unrelated Result"}]}
+            if lang == "de-DE" and page == 2:
+                page_two_queries.append(query)
+                if query == "Alpha Beta":
+                    return {"results": [{"id": 812, "name": "Alpha Beta",
+                                        "original_name": "Alpha Beta",
+                                        "first_air_date": "2020-01-01"}]}
+                return {"results": []}
+            return {"results": []}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Alpha: Beta"},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 812)
+        self.assertIn("Alpha Beta", page_two_queries)
+        self.assertLessEqual(len(page_two_queries), 2)
+
     def test_english_fallback_runs_when_german_results_are_irrelevant(self):
         calls = []
 
