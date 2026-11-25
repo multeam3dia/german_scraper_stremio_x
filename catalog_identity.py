@@ -127,6 +127,10 @@ def create_title(
     title = str(title or "").strip()
     if not title:
         raise ValueError("title is required")
+    if year is not None and (isinstance(year, bool) or not isinstance(year, int)):
+        raise ValueError("year must be an integer or None")
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValueError("metadata must be a dictionary or None")
     if title_id is None:
         title_id = f"gsx:{media_type}:{uuid.uuid4().hex}"
     title_id = _validate_title_id(title_id)
