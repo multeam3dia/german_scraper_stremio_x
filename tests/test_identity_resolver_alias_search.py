@@ -97,6 +97,26 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertIn("Alias D", queries)
         self.assertNotIn("", queries)
 
+    def test_malformed_alias_values_are_ignored_without_stringification(self):
+        from identity_resolver import _search_query_variants
+
+        aliases = [
+            None, {"title": "Injected Alias"}, ["Nested Alias"],
+            123, True, "Valid Alias",
+        ]
+        queries = _search_query_variants("Primary Title: Subtitle", aliases)
+
+        # Only literal alias strings should become search queries; malformed
+        # metadata must not be stringified into plausible query terms.
+        self.assertIn("Valid Alias", queries)
+        self.assertNotIn("None", queries)
+        self.assertNotIn("{'title': 'Injected Alias'}", queries)
+        self.assertNotIn("['Nested Alias']", queries)
+        self.assertNotIn("123", queries)
+        self.assertNotIn("True", queries)
+        self.assertLessEqual(len(queries), 7)
+
+
     def test_alias_deduplication_uses_normalized_case_and_punctuation(self):
         from identity_resolver import _search_query_variants
 
