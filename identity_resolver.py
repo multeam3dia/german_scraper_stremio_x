@@ -1867,10 +1867,6 @@ def find_tmdb_match(
             max(0.0, corroboration - 0.5) * 0.20
             if corroboration is not None else 0.0
         )
-        # Structural mismatches are review-only: ranking bonuses must not lift
-        # these candidates over the confidence threshold for automatic matching.
-        if structure and structure.get("mismatch"):
-            score = min(score, MIN_CONFIDENCE - 0.01)
         structure = structure_scores.get(pair[1].get("id"))
         if structure and structure.get("status") == "match":
             score += 0.04
@@ -1888,6 +1884,10 @@ def find_tmdb_match(
         country_score = scores_for(pair[1]).get("country_score")
         if country_score is not None:
             score += country_score * 0.04
+        # Structural mismatches are review-only: ranking bonuses must not lift
+        # these candidates over the confidence threshold for automatic matching.
+        if structure and structure.get("mismatch"):
+            score = min(score, MIN_CONFIDENCE - 0.01)
         # Year is a strong, fault-tolerant ranking signal. Exact matches
         # receive the largest bonus; +/-1-2 years remain plausible for AniWorld,
         # while larger gaps progressively lose ground. It is never a hard filter.
