@@ -1617,6 +1617,8 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], candidate_id)
         self.assertEqual(result["actor_score"], 1.0)
         self.assertEqual(result["diagnostics"]["candidates"][0]["structure"]["status"], "match")
+        self.assertGreaterEqual(result["score"], 0.94)
+        self.assertLessEqual(result["score"], 1.0)
 
     def test_weak_title_can_be_rescued_by_two_independent_metadata_signals(self):
         calls = []
