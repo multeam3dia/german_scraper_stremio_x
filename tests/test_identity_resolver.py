@@ -1794,10 +1794,13 @@ class IdentityResolverTests(unittest.TestCase):
             },
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "no_match")
-        self.assertEqual(
-            result["diagnostics"]["candidates"][0]["rejection"],
-            "provider_tmdb_episode_structure_mismatch",
+        # A plausible exact-year title candidate with a structural conflict
+        # should remain visible for review, but never become an automatic match.
+        self.assertEqual(result["status"], "ambiguous")
+        self.assertEqual(result["tmdb_id"], 341826)
+        self.assertLess(result["score"], 0.94)
+        self.assertTrue(
+            result["diagnostics"]["candidates"][0]["structure"]["mismatch"]
         )
         self.assertIn("/tv/341826", calls)
 
