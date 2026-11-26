@@ -1575,27 +1575,34 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["director_score"], 1.0)
 
     def test_exact_year_cast_and_episode_structure_rescue_fuzzy_title(self):
+        # Entirely synthetic fixture: no real TMDB/IMDb identity is asserted.
+        candidate_id = 9876543210
+        candidate_title = "Synthetic Resolver Series Extra"
+
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
-                    "id": 82014, "name": "Ane Log: Big Sister Never Ending Monologue", "original_name": "姉ログ",
+                    "id": candidate_id, "name": candidate_title,
+                    "original_name": candidate_title,
                     "first_air_date": "2014-01-01",
                 }]}
-            if path == "/tv/82014/credits":
-                return {"cast": [{"name": "Known Cast Member"}], "crew": []}
-            if path == "/tv/82014":
-                return {"number_of_seasons": 1, "number_of_episodes": 3,
-                        "seasons": [{"season_number": 1, "episode_count": 3}]}
-            if path == "/tv/82014/external_ids":
-                return {"imdb_id": "tt1234567"}
+            if path == f"/tv/{candidate_id}/credits":
+                return {"cast": [{"name": "Fixture Cast Member"}], "crew": []}
+            if path == f"/tv/{candidate_id}":
+                return {
+                    "number_of_seasons": 1, "number_of_episodes": 3,
+                    "seasons": [{"season_number": 1, "episode_count": 3}],
+                }
+            if path == f"/tv/{candidate_id}/external_ids":
+                return {}
             return {}
 
         result = find_tmdb_match(
             {
                 "provider": "aniworld", "media_type": "series",
-                "provider_title": "Ane Log", "year": 2014,
+                "provider_title": "Synthetic Resolver Series", "year": 2014,
                 "metadata": {
-                    "actors": ["Known Cast Member"],
+                    "actors": ["Fixture Cast Member"],
                     "provider_structure": {
                         "complete": True, "season_count": 1, "episode_count": 3,
                         "seasons": [{"season_number": 1, "episode_count": 3}],
@@ -1604,8 +1611,10 @@ class IdentityResolverTests(unittest.TestCase):
             },
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "matched")
-        self.assertEqual(result["tmdb_id"], 82014)
+        # The candidate clears the resolver confidence checks, but without a
+        # supplied IMDb ID it remains "identified" rather than "matched".
+        self.assertEqual(result["status"], "identified")
+        self.assertEqual(result["tmdb_id"], candidate_id)
         self.assertEqual(result["actor_score"], 1.0)
         self.assertEqual(result["diagnostics"]["candidates"][0]["structure"]["status"], "match")
 
