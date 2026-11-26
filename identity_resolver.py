@@ -1966,7 +1966,7 @@ def find_tmdb_match(
         return score
 
     candidates.sort(key=adjusted_score, reverse=True)
-    base_score, best, title_score, candidate_year, best_genre_score = candidates[0]
+    _base_score, best, title_score, candidate_year, best_genre_score = candidates[0]
     best_score = min(1.0, adjusted_score(candidates[0]))
     runner_up = candidates[1][0] if len(candidates) > 1 else 0.0
     margin = adjusted_score(candidates[0]) - (
