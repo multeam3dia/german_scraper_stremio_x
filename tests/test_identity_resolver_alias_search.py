@@ -117,6 +117,23 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertLessEqual(len(queries), 7)
 
 
+    def test_malformed_alias_containers_are_ignored(self):
+        from identity_resolver import _search_query_variants
+
+        provider_title = "Primary Title: Subtitle"
+        baseline = _search_query_variants(provider_title, [])
+        malformed_containers = [
+            "Alias as a string",
+            {"title": "Alias as a mapping"},
+            None,
+        ]
+        for aliases in malformed_containers:
+            with self.subTest(aliases=aliases):
+                self.assertEqual(
+                    _search_query_variants(provider_title, aliases),
+                    baseline,
+                )
+
     def test_alias_deduplication_uses_normalized_case_and_punctuation(self):
         from identity_resolver import _search_query_variants
 
