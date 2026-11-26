@@ -1577,7 +1577,7 @@ class IdentityResolverTests(unittest.TestCase):
     def test_exact_year_cast_and_episode_structure_rescue_fuzzy_title(self):
         # Entirely synthetic fixture: no real TMDB/IMDb identity is asserted.
         candidate_id = 9876543210
-        candidate_title = "Synthetic Resolver Series Extra"
+        candidate_title = "Synthetic Resolver Series: Big Sister Never Ending Monologue"
 
         def fake_get(path, params):
             if path == "/search/tv":
