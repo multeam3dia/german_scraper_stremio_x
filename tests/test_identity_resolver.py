@@ -202,6 +202,17 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(values, [0.94, 0.91])
 
+    def test_malformed_shared_people_metadata_does_not_collapse_independent_signals(self):
+        values = _independent_corroboration_values(
+            {"actor_score": 0.9, "director_score": 0.95, "studio_score": None},
+            {
+                "actors": ["Actor A", {"name": "Injected Person"}],
+                "directors": ["Director B", {"name": "Injected Person"}],
+            },
+        )
+        # Non-string objects must not create an artificial actor/director overlap.
+        self.assertEqual(values, [0.9, 0.95])
+
     def test_missing_people_signals_are_not_counted(self):
         values = _independent_corroboration_values(
             {"actor_score": None, "director_score": None, "studio_score": None},

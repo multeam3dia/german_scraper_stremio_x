@@ -990,8 +990,14 @@ def _independent_corroboration_values(
     directors = provider_metadata.get("directors")
     actors = actors if isinstance(actors, list) else []
     directors = directors if isinstance(directors, list) else []
-    actor_names = {_normalize(name) for name in actors if _normalize(name)}
-    director_names = {_normalize(name) for name in directors if _normalize(name)}
+    actor_names = {
+        _normalize(name) for name in actors
+        if isinstance(name, str) and _normalize(name)
+    }
+    director_names = {
+        _normalize(name) for name in directors
+        if isinstance(name, str) and _normalize(name)
+    }
     shared_people = actor_names & director_names
 
     if actor_score is not None:
