@@ -1154,6 +1154,22 @@ def _is_short_ambiguous_title(value: str) -> bool:
     return len(words) == 1 and len(normalized) <= 6
 
 
+def _structure_and_metadata_rescue(
+    *, title_score: float, exact_year: bool,
+    actor_score: float | None, structure: dict[str, Any] | None,
+) -> bool:
+    """Allow strong year + cast + episode structure to rescue a fuzzy title."""
+    return (
+        title_score >= 0.70
+        and exact_year
+        and actor_score is not None
+        and actor_score >= 0.85
+        and isinstance(structure, dict)
+        and structure.get("status") == "match"
+        and not structure.get("mismatch")
+    )
+
+
 def _candidate_score(
     provider_title: str, provider_year: int | None,
     item: dict[str, Any], media_type: str,
