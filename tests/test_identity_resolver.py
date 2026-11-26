@@ -2421,6 +2421,36 @@ class IdentityResolverTests(unittest.TestCase):
         }
         self.assertEqual(queries, {"Alpha Show", "Valid Alias"})
 
+    def test_non_string_provider_title_is_rejected_without_tmdb_search(self):
+        malformed_titles = (
+            {"title": "Fixture Alias Rescue"},
+            ["Fixture Alias Rescue"],
+            123,
+            True,
+        )
+        for malformed in malformed_titles:
+            with self.subTest(provider_title=malformed):
+                calls = []
+
+                def fake_get(path, params):
+                    calls.append((path, dict(params or {})))
+                    return {}
+
+                result = find_tmdb_match(
+                    {
+                        "provider": "fixture",
+                        "media_type": "series",
+                        "provider_title": malformed,
+                        "year": 2020,
+                        "metadata": {"alternative_titles": ["Fixture Alias Rescue"]},
+                    },
+                    search_fn=fake_get,
+                )
+                self.assertEqual(result["status"], "no_match")
+                self.assertEqual(result["reason"], "Provider title is not a string")
+                self.assertEqual(calls, [])
+
+
     def test_invalid_primary_title_can_find_candidate_from_alias_search(self):
         calls = []
         candidate = {

@@ -1223,7 +1223,12 @@ def find_tmdb_match(
     if media_type not in {"movie", "series"}:
         return {"status": "invalid", "reason": "Unsupported media type"}
 
-    provider_title = str(record.get("provider_title") or "").strip()
+    raw_provider_title = record.get("provider_title")
+    if raw_provider_title is None:
+        return {"status": "no_match", "reason": "Provider title is empty"}
+    if not isinstance(raw_provider_title, str):
+        return {"status": "no_match", "reason": "Provider title is not a string"}
+    provider_title = raw_provider_title.strip()
     if not provider_title:
         return {"status": "no_match", "reason": "Provider title is empty"}
 
