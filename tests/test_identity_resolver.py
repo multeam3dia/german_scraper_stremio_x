@@ -963,6 +963,39 @@ class IdentityResolverTests(unittest.TestCase):
         ]
         self.assertEqual(_names_from_people(rows), ["Actor One", "Actor Two"])
 
+    def test_candidate_credit_payload_malformed_names_do_not_add_person_evidence(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/tv/123/credits":
+                return {
+                    "cast": [
+                        {"name": "Synthetic Actor"},
+                        {"name": {"name": "Malformed Cast"}},
+                        {"name": 99},
+                    ],
+                    "crew": [
+                        {"job": "Director", "name": {"name": "Malformed Director"}},
+                        {"job": "Director", "name": False},
+                    ],
+                }
+            return {}
+
+        scores = _metadata_signal_scores(
+            {"id": 123},
+            "series",
+            {
+                "actors": ["Synthetic Actor"],
+                "directors": ["Synthetic Director"],
+            },
+            "aniworld",
+            fake_get,
+        )
+        self.assertEqual(calls, ["/tv/123/credits"])
+        self.assertEqual(scores["actor_score"], 1.0)
+        self.assertIsNone(scores["director_score"])
+
     def test_provider_person_metadata_ignores_non_string_names(self):
         calls = []
 
