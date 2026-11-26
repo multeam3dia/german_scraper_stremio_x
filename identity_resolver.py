@@ -211,7 +211,7 @@ def _coerce_year(value: Any) -> int | None:
     # accidentally turn unrelated metadata into corroborating year evidence.
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         return None
-    match = re.search(r"\b(?:19|20)\d{2}\b(?![.,]\d), str(value or ""))
+    match = re.search(r"\b(?:19|20)\d{2}\b(?![.,]\d)", str(value or ""))
     return int(match.group(0)) if match else None
 
 
