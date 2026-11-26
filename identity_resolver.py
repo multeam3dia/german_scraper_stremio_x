@@ -1742,6 +1742,11 @@ def find_tmdb_match(
 
     # Provider year (especially AniWorld's) remains diagnostic only: it never
     # excludes a candidate. Strong metadata corroboration is provider-neutral.
+    structural_rejection = any(
+        isinstance(row, dict)
+        and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
+        for row in rejected_diagnostics
+    )
     if not candidates or structural_rejection:
         diagnostics = {
             "provider_title": provider_title, "provider_year": provider_year,
@@ -1755,11 +1760,6 @@ def find_tmdb_match(
         # feature film incorrectly exposed as a one-episode season. Probe the
         # movie endpoint only in this specific case. A type correction requires
         # exact year, a high-confidence movie match and multiple metadata signals.
-        structural_rejection = any(
-            isinstance(row, dict)
-            and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
-            for row in rejected_diagnostics
-        )
         empty_aniworld_series_search = provider == "aniworld" and not all_candidates
         if media_type == "series" and provider == "aniworld":
             # AniWorld sometimes returns a TV search result that is unrelated or
