@@ -827,11 +827,17 @@ def _episode_title_similarity(
 def _names_from_people(rows: Any, key: str = "name") -> list[str]:
     if not isinstance(rows, list):
         return []
-    return [
-        str(row.get(key) or "")
-        for row in rows
-        if isinstance(row, dict) and row.get(key)
-    ]
+    names = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        value = row.get(key)
+        if not isinstance(value, str):
+            continue
+        name = value.strip()
+        if name:
+            names.append(name)
+    return names
 
 
 def _normalize_company(value: Any) -> str:
@@ -894,16 +900,13 @@ def _metadata_signal_scores(
     provider: str, search_fn: Callable[..., dict[str, Any]],
 ) -> dict[str, float | None]:
     """Compare optional provider credits/studio against TMDB, without penalizing gaps."""
-    directors = metadata.get("directors")
-    directors = (
-        [str(value).strip() for value in directors if value is not None and str(value).strip()]
-        if isinstance(directors, list) else []
-    )
-    actors = metadata.get("actors")
-    actors = (
-        [str(value).strip() for value in actors if value is not None and str(value).strip()]
-        if isinstance(actors, list) else []
-    )
+    def valid_names(values: Any) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        return [value.strip() for value in values if isinstance(value, str) and value.strip()]
+
+    directors = valid_names(metadata.get("directors"))
+    actors = valid_names(metadata.get("actors"))
 
     # AniWorld sometimes mislabels production companies as actors (e.g. the
     # studio name is copied into the actor list). Remove exact company duplicates
@@ -912,8 +915,7 @@ def _metadata_signal_scores(
     if isinstance(studio, str) and studio.strip():
         actors = [
             actor for actor in actors
-            if not isinstance(actor, str)
-            or _normalize_company(actor) != _normalize_company(studio)
+            if _normalize_company(actor) != _normalize_company(studio)
         ]
     country = metadata.get("country")
     # AniWorld occasionally puts a country label into the studio field.
@@ -937,11 +939,11 @@ def _metadata_signal_scores(
                 actors, _names_from_people(credits.get("cast"))
             ) if actors else None
             crew = credits.get("crew")
-            director_names = [
-                str(person.get("name") or "")
-                for person in crew
+            director_rows = [
+                person for person in crew
                 if isinstance(person, dict) and person.get("job") == "Director"
             ] if isinstance(crew, list) else []
+            director_names = _names_from_people(director_rows)
             scores["director_score"] = _person_similarity(
                 directors, director_names
             ) if directors else None

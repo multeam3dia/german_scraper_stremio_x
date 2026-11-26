@@ -14,7 +14,7 @@ from identity_resolver import (
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
-    _normalize, _best_title_match, _alternative_title_values, _coerce_year,
+    _normalize, _best_title_match, _alternative_title_values, _coerce_year, _names_from_people,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -908,6 +908,42 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIsNone(result["genre_score"])
         self.assertEqual(calls, ["/search/tv", "/tv/33/external_ids"])
 
+
+    def test_credit_name_extraction_ignores_malformed_name_values(self):
+        rows = [
+            {"name": "  Actor One  "},
+            {"name": 42},
+            {"name": None},
+            {"name": {"name": "Nested Name"}},
+            {"name": "   "},
+            {"name": "Actor Two"},
+        ]
+        self.assertEqual(_names_from_people(rows), ["Actor One", "Actor Two"])
+
+    def test_provider_person_metadata_ignores_non_string_names(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            return {"cast": [], "crew": []}
+
+        scores = _metadata_signal_scores(
+            {"id": 123},
+            "series",
+            {
+                "actors": [42, {"name": "Nested Actor"}, None],
+                "directors": [False, {"name": "Nested Director"}],
+            },
+            "aniworld",
+            fake_get,
+        )
+        self.assertEqual(calls, [])
+        self.assertEqual(scores, {
+            "actor_score": None,
+            "director_score": None,
+            "studio_score": None,
+            "country_score": None,
+        })
 
     def test_optional_actor_signal_breaks_same_title_year_tie(self):
         calls = []
