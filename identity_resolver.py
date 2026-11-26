@@ -886,8 +886,10 @@ def _company_similarity(
 
 def _country_similarity(provider_country: Any, candidate_details: dict[str, Any] | None) -> float | None:
     """Compare a provider country with TMDB production-country metadata."""
+    if not isinstance(provider_country, str) or not isinstance(candidate_details, dict):
+        return None
     source = _normalize(provider_country)
-    if not source or not isinstance(candidate_details, dict):
+    if not source:
         return None
     source_code = COUNTRY_ALIASES.get(source, source)
     rows = candidate_details.get("production_countries")
@@ -897,8 +899,10 @@ def _country_similarity(provider_country: Any, candidate_details: dict[str, Any]
     for row in rows:
         if not isinstance(row, dict):
             continue
-        name = _normalize(row.get("name"))
-        code = _normalize(row.get("iso_3166_1"))
+        raw_name = row.get("name")
+        raw_code = row.get("iso_3166_1")
+        name = _normalize(raw_name) if isinstance(raw_name, str) else ""
+        code = _normalize(raw_code) if isinstance(raw_code, str) else ""
         if name:
             candidate_values.add(COUNTRY_ALIASES.get(name, name))
         if code:
