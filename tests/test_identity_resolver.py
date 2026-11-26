@@ -1574,6 +1574,41 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["actor_score"], 1.0)
         self.assertEqual(result["director_score"], 1.0)
 
+    def test_exact_year_cast_and_episode_structure_rescue_fuzzy_title(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 82014, "name": "Ane Log", "original_name": "姉ログ",
+                    "first_air_date": "2014-01-01",
+                }]}
+            if path == "/tv/82014/credits":
+                return {"cast": [{"name": "Known Cast Member"}], "crew": []}
+            if path == "/tv/82014":
+                return {"number_of_seasons": 1, "number_of_episodes": 3,
+                        "seasons": [{"season_number": 1, "episode_count": 3}]}
+            if path == "/tv/82014/external_ids":
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Ane Log", "year": 2014,
+                "metadata": {
+                    "actors": ["Known Cast Member"],
+                    "provider_structure": {
+                        "complete": True, "season_count": 1, "episode_count": 3,
+                        "seasons": [{"season_number": 1, "episode_count": 3}],
+                    },
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 82014)
+        self.assertEqual(result["actor_score"], 1.0)
+        self.assertEqual(result["diagnostics"]["candidates"][0]["structure"]["status"], "match")
+
     def test_weak_title_can_be_rescued_by_two_independent_metadata_signals(self):
         calls = []
 
