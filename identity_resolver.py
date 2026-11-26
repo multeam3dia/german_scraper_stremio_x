@@ -454,20 +454,33 @@ def _genre_similarity(
     item: dict[str, Any],
     genre_map: dict[int, str],
 ) -> float | None:
-    """Compare actual genres, excluding AniWorld audio/subtitle labels."""
-    provider_set = {
-        _normalize_genre(value)
-        for value in provider_genres
-        if _normalize_genre(value)
-        and _normalize(value) not in IGNORED_PROVIDER_GENRES
-    }
+    """Compare valid genre metadata, excluding AniWorld audio/subtitle labels."""
+    if not isinstance(item, dict) or not isinstance(genre_map, dict):
+        return None
+    provider_values = provider_genres if isinstance(provider_genres, list) else []
+    provider_set = set()
+    for value in provider_values:
+        if not isinstance(value, str):
+            continue
+        normalized = _normalize_genre(value)
+        if normalized and _normalize(value) not in IGNORED_PROVIDER_GENRES:
+            provider_set.add(normalized)
+
     candidate_set = set()
-    for raw_id in item.get("genre_ids") or []:
-        try:
-            name = genre_map.get(int(raw_id))
-        except (TypeError, ValueError):
-            name = None
-        if name:
+    raw_ids = item.get("genre_ids")
+    if isinstance(raw_ids, list):
+        for raw_id in raw_ids:
+            if type(raw_id) is int:
+                genre_id = raw_id
+            elif isinstance(raw_id, str) and raw_id.strip().isascii() and raw_id.strip().isdigit():
+                genre_id = int(raw_id.strip())
+            else:
+                continue
+            if genre_id <= 0:
+                continue
+            name = genre_map.get(genre_id)
+            if not isinstance(name, str):
+                continue
             normalized = _normalize_genre(name)
             if normalized:
                 candidate_set.add(normalized)

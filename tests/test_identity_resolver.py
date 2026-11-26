@@ -2241,6 +2241,45 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertEqual(score, 1.0)
 
+    def test_genre_similarity_rejects_malformed_ids_and_labels(self):
+        malformed_ids = [True, 18.5, {"id": 18}, [18], None, "18.5", "-18"]
+        self.assertIsNone(
+            _genre_similarity(
+                ["Drama"],
+                {"genre_ids": malformed_ids},
+                {18: "Drama"},
+            )
+        )
+        self.assertEqual(
+            _genre_similarity(
+                ["Drama"],
+                {"genre_ids": ["18"]},
+                {18: "Drama"},
+            ),
+            1.0,
+        )
+        self.assertIsNone(
+            _genre_similarity(
+                [{"name": "Drama"}, 18],
+                {"genre_ids": [18]},
+                {18: "Drama"},
+            )
+        )
+        self.assertIsNone(
+            _genre_similarity(
+                ["Drama"],
+                {"genre_ids": [18]},
+                {18: {"name": "Drama"}},
+            )
+        )
+        self.assertIsNone(
+            _genre_similarity(
+                ["Drama"],
+                {"genre_ids": "18"},
+                {18: "Drama"},
+            )
+        )
+
     def test_country_metadata_breaks_a_close_same_title_candidate_tie(self):
         def fake_get(path, params):
             if path == "/search/movie":
