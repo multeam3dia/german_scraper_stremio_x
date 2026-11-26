@@ -1669,15 +1669,25 @@ def find_tmdb_match(
                                 and (independent_average or 0) >= 0.85)
         )
         if structure.get("mismatch"):
-            rejected_diagnostics.append({
+            structural_row = {
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
                 "title_score": title_score,
                 "candidate_year": candidate_year,
                 "structure": structure,
                 "rejection": "provider_tmdb_episode_structure_mismatch",
-            })
-            continue
+            }
+            rejected_diagnostics.append(structural_row)
+            # Episode counts can be incomplete on the provider side (especially
+            # single-episode/partial pages). Preserve a plausible exact-year or
+            # independently corroborated candidate for review, but never allow
+            # structural contradictions to become an automatic identity match.
+            structure_review_candidate = (
+                title_score >= 0.70
+                and (exact_year or strong_metadata or suffix_supported or year_supported)
+            )
+            if not structure_review_candidate:
+                continue
         if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported and not year_supported:
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
@@ -1721,6 +1731,8 @@ def find_tmdb_match(
             _genre_similarity(provider_genres, item, genre_map or {})
             if provider_genres and genre_map else None
         )
+        if structure.get("mismatch"):
+            base_score = min(base_score, MIN_CONFIDENCE - 0.01)
         candidates.append((base_score, item, title_score, candidate_year, genre_score))
 
     # Provider year (especially AniWorld's) remains diagnostic only: it never
@@ -1855,6 +1867,10 @@ def find_tmdb_match(
             max(0.0, corroboration - 0.5) * 0.20
             if corroboration is not None else 0.0
         )
+        # Structural mismatches are review-only: ranking bonuses must not lift
+        # these candidates over the confidence threshold for automatic matching.
+        if structure and structure.get("mismatch"):
+            score = min(score, MIN_CONFIDENCE - 0.01)
         structure = structure_scores.get(pair[1].get("id"))
         if structure and structure.get("status") == "match":
             score += 0.04
