@@ -1682,6 +1682,12 @@ def find_tmdb_match(
             exact_year and title_score >= 0.70
             and any(value >= 0.85 for value in independent_signals)
         )
+        structure_metadata_supported = _structure_and_metadata_rescue(
+            title_score=title_score,
+            exact_year=exact_year,
+            actor_score=scores_for(item).get("actor_score"),
+            structure=structure,
+        )
         # A trailing format label is weaker evidence than a title match. Accept
         # it only when the year agrees and at least one independent metadata
         # signal corroborates it, or when two independent metadata signals do.
@@ -1714,6 +1720,7 @@ def find_tmdb_match(
             title_score < MIN_TITLE_SCORE_WITH_YEAR
             and not strong_metadata and not suffix_supported and not year_supported
             and not structure_review_candidate
+            and not structure_metadata_supported
         ):
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
@@ -1914,6 +1921,16 @@ def find_tmdb_match(
         structure = structure_scores.get(pair[1].get("id"))
         if structure and structure.get("status") == "match":
             score += 0.04
+        # Exact year + strong cast agreement + matching episode structure are
+        # three independent identity signals. Give this combination a bounded
+        # confidence boost so a fuzzy translated title can reach auto-match.
+        if _structure_and_metadata_rescue(
+            title_score=pair[2],
+            exact_year=(provider_year is not None and pair[3] == provider_year),
+            actor_score=scores_for(pair[1]).get("actor_score"),
+            structure=structure,
+        ):
+            score += 0.10
         description_score = description_scores.get(pair[1].get("id"))
         if description_score is not None:
             score += min(0.03, max(0.0, description_score - 0.25) * 0.04)
