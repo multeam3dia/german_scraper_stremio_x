@@ -1742,7 +1742,7 @@ def find_tmdb_match(
 
     # Provider year (especially AniWorld's) remains diagnostic only: it never
     # excludes a candidate. Strong metadata corroboration is provider-neutral.
-    if not candidates:
+    if not candidates or structural_rejection:
         diagnostics = {
             "provider_title": provider_title, "provider_year": provider_year,
             "provider_genres": provider_genres,
