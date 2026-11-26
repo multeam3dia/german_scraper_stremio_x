@@ -1957,7 +1957,7 @@ def find_tmdb_match(
                 2: 0.12,
                 3: 0.05,
                 4: 0.00,
-            }.get(delta, -min(0.15, (delta - 4) * 0.025))
+            }.get(delta, 0.0)
             score += year_bonus
         # Structural mismatches are review-only: ranking bonuses must not lift
         # these candidates over the confidence threshold for automatic matching.
