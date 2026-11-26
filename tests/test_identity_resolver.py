@@ -14,12 +14,31 @@ from identity_resolver import (
     _genre_similarity, _search_query_variants, _best_provider_title_match,
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
-    _normalize, _best_title_match, _alternative_title_values,
+    _normalize, _best_title_match, _alternative_title_values, _coerce_year,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
 class IdentityResolverTests(unittest.TestCase):
+    def test_coerce_year_accepts_valid_strings_and_integer_years(self):
+        valid_values = (
+            ("2006", 2006),
+            ("2006-04-12", 2006),
+            ("Kanon (2006)", 2006),
+            (2006, 2006),
+        )
+        for value, expected in valid_values:
+            with self.subTest(value=value):
+                self.assertEqual(_coerce_year(value), expected)
+
+        invalid_values = (
+            None, True, False, 2006.0, Decimal("2006.0"),
+            {"year": 2006}, [2006], "not a year", "1899", "2100",
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                self.assertIsNone(_coerce_year(value))
+
     def test_resolver_default_selection_respects_retry_cooldown(self):
         candidates = [
             {"provider": "aniworld", "provider_url": "https://a", "provider_title": "Due",
