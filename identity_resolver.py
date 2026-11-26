@@ -206,7 +206,12 @@ def _tmdb_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]
 
 
 def _coerce_year(value: Any) -> int | None:
-    match = re.search(r"\b(?:19|20)\d{2}\b", str(value or ""))
+    # Only provider year strings or integer years are meaningful. Stringifying
+    # malformed containers (e.g. {"year": 2018}) or fractional numbers can
+    # accidentally turn unrelated metadata into corroborating year evidence.
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    match = re.search(r"\\b(?:19|20)\\d{2}\\b", str(value or ""))
     return int(match.group(0)) if match else None
 
 
