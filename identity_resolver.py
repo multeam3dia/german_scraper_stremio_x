@@ -1668,6 +1668,7 @@ def find_tmdb_match(
             strong_metadata or (exact_year and strong_signal_count >= 1
                                 and (independent_average or 0) >= 0.85)
         )
+        structure_review_candidate = False
         if structure.get("mismatch"):
             structural_row = {
                 "tmdb_id": item.get("id"),
@@ -1688,7 +1689,11 @@ def find_tmdb_match(
             )
             if not structure_review_candidate:
                 continue
-        if title_score < MIN_TITLE_SCORE_WITH_YEAR and not strong_metadata and not suffix_supported and not year_supported:
+        if (
+            title_score < MIN_TITLE_SCORE_WITH_YEAR
+            and not strong_metadata and not suffix_supported and not year_supported
+            and not structure_review_candidate
+        ):
             rejected_diagnostics.append({
                 "tmdb_id": item.get("id"),
                 "title": (item.get("name") if media_type == "series" else item.get("title")) or "",
@@ -1884,10 +1889,6 @@ def find_tmdb_match(
         country_score = scores_for(pair[1]).get("country_score")
         if country_score is not None:
             score += country_score * 0.04
-        # Structural mismatches are review-only: ranking bonuses must not lift
-        # these candidates over the confidence threshold for automatic matching.
-        if structure and structure.get("mismatch"):
-            score = min(score, MIN_CONFIDENCE - 0.01)
         # Year is a strong, fault-tolerant ranking signal. Exact matches
         # receive the largest bonus; +/-1-2 years remain plausible for AniWorld,
         # while larger gaps progressively lose ground. It is never a hard filter.
@@ -1902,6 +1903,10 @@ def find_tmdb_match(
                 4: 0.00,
             }.get(delta, -min(0.15, (delta - 4) * 0.025))
             score += year_bonus
+        # Structural mismatches are review-only: ranking bonuses must not lift
+        # these candidates over the confidence threshold for automatic matching.
+        if structure and structure.get("mismatch"):
+            score = min(score, MIN_CONFIDENCE - 0.01)
         return score
 
     candidates.sort(key=adjusted_score, reverse=True)
