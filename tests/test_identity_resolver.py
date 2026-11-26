@@ -33,7 +33,7 @@ class IdentityResolverTests(unittest.TestCase):
 
         invalid_values = (
             None, True, False, 2006.0, Decimal("2006.0"),
-            {"year": 2006}, [2006], "not a year", "1899", "2100",
+            {"year": 2006}, [2006], "not a year", "2006.5", "2006,5", "1899", "2100",
         )
         for value in invalid_values:
             with self.subTest(value=value):
