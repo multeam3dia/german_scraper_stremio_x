@@ -1578,7 +1578,7 @@ class IdentityResolverTests(unittest.TestCase):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
-                    "id": 82014, "name": "Ane Log", "original_name": "姉ログ",
+                    "id": 82014, "name": "Ane Log: Big Sister Never Ending Monologue", "original_name": "姉ログ",
                     "first_air_date": "2014-01-01",
                 }]}
             if path == "/tv/82014/credits":
