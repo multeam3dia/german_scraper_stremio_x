@@ -607,11 +607,14 @@ def _episode_title_similarity(
             if not isinstance(episode, dict):
                 continue
             keys = ("title", "title_original") if provider_side else ("name", "original_name")
-            names = [
-                _normalize(episode.get(key))
-                for key in keys
-                if _normalize(episode.get(key))
-            ]
+            names = []
+            for key in keys:
+                raw_name = episode.get(key)
+                if not isinstance(raw_name, str):
+                    continue
+                normalized_name = _normalize(raw_name)
+                if normalized_name:
+                    names.append(normalized_name)
             cleaned_names = []
             for name in names:
                 if generic_title.fullmatch(re.sub(r"\s+", "", name)):

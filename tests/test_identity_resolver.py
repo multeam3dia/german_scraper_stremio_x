@@ -2909,6 +2909,26 @@ class IdentityResolverTests(unittest.TestCase):
         # The 3 meaningful titles do not match, so the filtered score must be zero.
         self.assertEqual(score, 0.0)
 
+    def test_episode_title_similarity_ignores_non_string_title_fields(self):
+        malformed_titles = [
+            {"text": "Rainfall at dawn"},
+            {"text": "Copper lanterns"},
+            {"text": "Silent orchard"},
+        ]
+        provider_structure = {"seasons": [{
+            "season_number": 1,
+            "episodes": [
+                {"episode_number": index, "title": title}
+                for index, title in enumerate(malformed_titles, 1)
+            ],
+        }]}
+        candidate_titles = {"1": [
+            {"episode_number": index, "name": title}
+            for index, title in enumerate(malformed_titles, 1)
+        ]}
+        # Stringifying malformed object titles would make these fake matches.
+        self.assertIsNone(_episode_title_similarity(provider_structure, candidate_titles))
+
     def test_structure_comparison_rejects_boolean_and_fractional_summary_counts(self):
         provider_structure = {"complete": True, "season_count": True, "episode_count": 12}
         candidate_details = {"number_of_seasons": 1, "number_of_episodes": 12}
