@@ -1861,6 +1861,24 @@ def find_tmdb_match(
                     "media_type_conflict": True,
                     "diagnostics": diagnostics,
                 }
+        if structural_rejection:
+            review_row = next((
+                row for row in rejected_diagnostics
+                if isinstance(row, dict)
+                and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
+            ), None)
+            if review_row:
+                return {
+                    "status": "ambiguous",
+                    "reason": "A plausible TMDB title has conflicting provider episode structure; manual review is required",
+                    "tmdb_id": review_row.get("tmdb_id"),
+                    "candidate_title": review_row.get("title"),
+                    "candidate_year": review_row.get("candidate_year"),
+                    "title_score": review_row.get("title_score"),
+                    "score": min(MIN_CONFIDENCE - 0.01, float(review_row.get("title_score") or 0)),
+                    "media_type_conflict": True,
+                    "diagnostics": diagnostics,
+                }
         return {"status": "no_match", "reason": "No TMDB candidate had sufficient title or independent metadata evidence",
                 "diagnostics": diagnostics}
 
