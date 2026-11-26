@@ -1291,11 +1291,16 @@ def find_tmdb_match(
         genre_endpoint = "/genre/tv/list" if media_type == "series" else "/genre/movie/list"
         try:
             genre_payload = search_fn(genre_endpoint, {"language": "de-DE"})
-            genre_map = {
-                int(item["id"]): str(item["name"])
-                for item in genre_payload.get("genres", [])
-                if isinstance(item, dict) and item.get("id") is not None and item.get("name")
-            }
+            genre_map = {}
+            genre_rows = genre_payload.get("genres")
+            if isinstance(genre_rows, list):
+                for item in genre_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    genre_id = item.get("id")
+                    name = item.get("name")
+                    if type(genre_id) is int and genre_id > 0 and isinstance(name, str) and name.strip():
+                        genre_map[genre_id] = name.strip()
         except Exception:
             # Genre metadata is supplemental; matching can still use title and year.
             genre_map = {}

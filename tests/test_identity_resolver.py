@@ -888,6 +888,38 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["genre_score"], 1.0)
         self.assertGreaterEqual(result["margin"], 0.08)
 
+    def test_genre_catalog_ignores_malformed_ids_and_names(self):
+        def fake_get(path, params):
+            if path == "/genre/tv/list":
+                return {"genres": [
+                    {"id": 1.5, "name": "Synthetic Genre"},
+                    {"id": True, "name": "Synthetic Genre"},
+                    {"id": "2", "name": "Synthetic Genre"},
+                    {"id": 2, "name": {"label": "Synthetic Genre"}},
+                ]}
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 999999999, "name": "Synthetic Genre Fixture",
+                    "original_name": "Synthetic Genre Fixture",
+                    "first_air_date": "2020-01-01", "genre_ids": [1, 2],
+                }]}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series",
+                "provider_title": "Synthetic Genre Fixture",
+                "year": 2020,
+                "metadata": {"provider_genres": ["Synthetic Genre"]},
+            },
+            search_fn=fake_get,
+        )
+        # Malformed IDs/names must not be stringified or coerced into
+        # corroborating genres for this deliberately synthetic candidate.
+        self.assertEqual(result["status"], "identified")
+        self.assertIsNone(result["genre_score"])
+
+
     def test_genre_signal_is_optional_when_provider_has_no_genres(self):
         calls = []
 
