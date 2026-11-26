@@ -181,9 +181,6 @@ class ProviderAliasSearchTests(unittest.TestCase):
         self.assertLessEqual(len(queries), 7)
         self.assertEqual(len(queries), len(set(queries)))
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_colon_subtitle_reduction_is_not_displaced_by_aliases(self):
         from identity_resolver import _search_query_variants
 
@@ -205,3 +202,6 @@ if __name__ == "__main__":
         self.assertIn("Ane Log", queries)
         self.assertIn("日本語正式題", queries)
         self.assertLessEqual(len(queries), 7)
+
+if __name__ == "__main__":
+    unittest.main()
