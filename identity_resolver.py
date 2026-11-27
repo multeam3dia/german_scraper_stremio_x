@@ -339,6 +339,9 @@ def _search_query_variants(
         subtitle_free = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
         subtitle_tail = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)
         subtitle_tail = subtitle_tail[1].strip() if len(subtitle_tail) > 1 else ""
+        subtitle_tail = re.sub(
+            r"\\s*[（(](?:19|20)\\d{2}[）)]\\s*$", "", subtitle_tail
+        ).strip()
         year_free = re.sub(
             r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
         ).strip()
