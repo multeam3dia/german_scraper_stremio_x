@@ -314,7 +314,7 @@ def _title_similarity(
 def _search_query_variants(
     provider_title: str, alternative_titles: list[str] | None = None,
 ) -> list[str]:
-    """Build a bounded search set without sacrificing strong title reductions."""
+    """Build a bounded search set prioritizing primary, meaningful reduction, then aliases."""
     valid_primary = bool(_normalize(provider_title))
 
     def unique(values):
@@ -328,7 +328,7 @@ def _search_query_variants(
         return result
 
     primary = [provider_title.strip()] if valid_primary else []
-    strong_reductions = []
+    reductions = []
     weak = []
     if valid_primary:
         format_free = re.sub(
@@ -351,34 +351,21 @@ def _search_query_variants(
         parenthetical_free = " ".join(
             re.sub(r"\s*[（(][^）)]*[）)]\s*", " ", provider_title).split()
         )
-        strong_reductions = unique([format_free, subtitle_free, year_free])
-        strong_reductions = [
-            value for value in strong_reductions
-            if _normalize(value) != _normalize(provider_title)
-        ]
-        # Search the subtitle tail only after stronger aliases are exhausted.
-        # This helps provider titles whose franchise prefix is generic or numeric.
+        reductions = unique([format_free, subtitle_free, year_free])
+        reductions = [v for v in reductions if _normalize(v) != _normalize(provider_title)]
         weak = unique([subtitle_tail, punctuation_light, parenthetical_free])
 
     selected = primary[:]
-    # Preserve the title's most useful reductions before aliases, unless they
-    # are duplicates. The budget remains seven total searches.
-    for reduction in strong_reductions:
-        if len(selected) < 7:
+    # Keep one useful derived title early; aliases have greater discovery value
+    # than multiple near-identical reductions for alias-heavy provider metadata.
+    selected_norm = {_normalize(v) for v in selected}
+    for reduction in reductions[:1]:
+        norm = _normalize(reduction)
+        if norm and norm not in selected_norm and len(selected) < 7:
             selected.append(reduction)
+            selected_norm.add(norm)
 
-    # Reserve the subtitle tail before aliases: for subtitle-heavy titles it
-    # can be the canonical TMDB search name, and a long alias list must not
-    # crowd it out of the bounded search budget.
-    weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
-    subtitle_tail_query = weak[0] if weak else None
-    if subtitle_tail_query and len(selected) < 7:
-        selected.append(subtitle_tail_query)
-
-    selected_norm = {_normalize(value) for value in selected}
     aliases = []
-    # Alias metadata is expected to be a list/tuple of strings. Ignore malformed
-    # containers and entries rather than turning them into noisy search queries.
     if not isinstance(alternative_titles, (list, tuple)):
         alternative_titles = []
     for alias in alternative_titles:
@@ -400,11 +387,17 @@ def _search_query_variants(
             break
         selected.append(alias)
 
+    # Weak punctuation/parenthetical/subtitle-tail forms are last, and are
+    # deduplicated against the primary, reductions, and aliases.
     for variant in weak:
+        norm = _normalize(variant)
         if len(selected) >= 7:
             break
-        selected.append(variant)
+        if norm and norm not in selected_norm:
+            selected.append(variant)
+            selected_norm.add(norm)
     return selected
+
 def _alternative_title_values(payload: Any) -> list[str]:
     """Read valid, deduplicated title aliases from TMDB alternative-title responses."""
     if not isinstance(payload, dict):
