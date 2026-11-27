@@ -2455,6 +2455,18 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["candidates"][1]["country"]["score"], 0.0)
 
 
+    def test_normalization_expands_latin_letters_that_nfkd_does_not_fold(self):
+        # These characters survive NFKD as distinct code points unless explicitly
+        # transliterated; they occur in localized and romanized title variants.
+        self.assertEqual(_normalize("Straße"), _normalize("Strasse"))
+        self.assertEqual(_normalize("Æther"), _normalize("Aether"))
+        self.assertEqual(_normalize("Œuvre"), _normalize("Oeuvre"))
+        self.assertEqual(_normalize("Smørrebrød"), _normalize("Smorrebrod"))
+        self.assertEqual(_normalize("Łódź"), _normalize("Lodz"))
+        self.assertEqual(_normalize("Þór"), _normalize("Thor"))
+        # This is title normalization only, not identity confirmation.
+        self.assertEqual(_title_similarity("Straße", {"name": "Strasse", "original_name": "Strasse"}, "series"), 1.0)
+
     def test_normalization_preserves_japanese_voicing_marks_but_folds_latin_accents(self):
         # Synthetic strings: voicing marks distinguish Japanese characters, while
         # Latin accent folding remains useful for alternate-title matching.
