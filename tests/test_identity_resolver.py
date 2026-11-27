@@ -2491,6 +2491,13 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIn("Eighty Six", variants)
         self.assertNotIn("Eighty Six (2021)", variants)
 
+    def test_subtitle_tail_is_reserved_before_long_alias_list(self):
+        aliases = [f"Alias {letter}" for letter in "ABCDEFGHIJ"]
+        variants = _search_query_variants("86: Eighty Six (2021)", aliases)
+        self.assertIn("Eighty Six", variants)
+        self.assertIn("Alias A", variants)
+        self.assertLessEqual(len(variants), 7)
+
     def test_search_variants_prioritize_parenthetical_year_cleanup(self):
         variants = _search_query_variants(
             "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
