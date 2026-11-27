@@ -373,7 +373,7 @@ def _search_query_variants(
     weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
     subtitle_tail_query = weak[0] if weak else None
     if subtitle_tail_query and len(selected) < 7:
-        selected.append(subtitle_tail_query
+        selected.append(subtitle_tail_query)
 
     selected_norm = {_normalize(value) for value in selected}
     aliases = []
