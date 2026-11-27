@@ -136,6 +136,13 @@ class TMDBAPIError(RuntimeError):
 @lru_cache(maxsize=16384)
 def _normalize_text(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value.casefold())
+    # NFKD does not expand several common Latin letters used in title variants.
+    # Fold them before tokenization so German/European spelling variants compare
+    # consistently without changing non-Latin script handling.
+    decomposed = decomposed.translate(str.maketrans({
+        "ß": "ss", "æ": "ae", "œ": "oe", "ø": "o", "ł": "l",
+        "đ": "d", "ð": "d", "þ": "th",
+    }))
     folded = []
     latin_base = False
     for char in decomposed:
