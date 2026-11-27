@@ -368,7 +368,7 @@ def _search_query_variants(
     # Numeric franchise prefixes (e.g. "86: Eighty Six") make the
     # subtitle tail a high-value search. Reserve it before alias metadata can
     # consume the bounded query budget.
-    numeric_prefix = bool(valid_primary and re.match(r"^\\s*\\d+\\s*[:：]", provider_title))
+    numeric_prefix = bool(valid_primary and re.match(r"^\s*\d+\s*[:：]", provider_title))
     if numeric_prefix and weak:
         subtitle_tail_query = weak[0]
         norm = _normalize(subtitle_tail_query)
