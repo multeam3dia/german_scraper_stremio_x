@@ -2465,7 +2465,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(_normalize("Łódź"), _normalize("Lodz"))
         self.assertEqual(_normalize("Þór"), _normalize("Thor"))
         # This is title normalization only, not identity confirmation.
-        self.assertEqual(_title_similarity("Straße", {"name": "Strasse", "original_name": "Strasse"}, "series"), 1.0)
+        self.assertEqual(_best_title_match("Straße", {"name": "Strasse", "original_name": "Strasse"}, "series")[0], 1.0)
 
     def test_normalization_preserves_japanese_voicing_marks_but_folds_latin_accents(self):
         # Synthetic strings: voicing marks distinguish Japanese characters, while
