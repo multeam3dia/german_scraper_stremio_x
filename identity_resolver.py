@@ -497,18 +497,14 @@ def _genre_similarity(
 
 
 def _person_similarity(provider_people: list[str], candidate_people: list[str]) -> float | None:
-    """Compare optional cast names, discounting single-person coincidences."""
+    """Compare optional cast names using overlap, tolerating incomplete lists."""
     provider_set = {_normalize(value) for value in provider_people if _normalize(value)}
     candidate_set = {_normalize(value) for value in candidate_people if _normalize(value)}
     if not provider_set or not candidate_set:
         return None
     # Provider cast lists are usually shorter than TMDB's; overlap coefficient
-    # avoids penalizing incomplete lists. However, a single shared name is weak
-    # corroboration and must not score as fully as multiple independent matches.
-    shared_count = len(provider_set & candidate_set)
-    overlap = shared_count / min(len(provider_set), len(candidate_set))
-    confidence = min(1.0, shared_count / 2.0)
-    return round(overlap * confidence, 4)
+    # avoids penalizing incomplete lists.
+    return round(len(provider_set & candidate_set) / min(len(provider_set), len(candidate_set)), 4)
 
 
 def _candidate_credits(
