@@ -2258,6 +2258,16 @@ class IdentityResolverTests(unittest.TestCase):
                 self.assertEqual(result["candidate_year"], year)
                 self.assertGreaterEqual(result["margin"], 0.08)
 
+    def test_malformed_provider_aliases_are_not_stringified_into_title_evidence(self):
+        score, matched = _best_provider_title_match(
+            "Unrelated Provider Title",
+            [{"title": "Serialized Alias"}, ["Serialized Alias"], 123],
+            {"name": "Serialized Alias", "original_name": "Serialized Alias"},
+            "series",
+        )
+        self.assertLess(score, 1.0)
+        self.assertNotEqual(matched, "Serialized Alias")
+
     def test_aniworld_parenthesized_year_is_not_counted_as_part_of_title(self):
         item = {"name": "Kanon", "original_name": "カノン"}
         score, matched = _best_provider_title_match(
