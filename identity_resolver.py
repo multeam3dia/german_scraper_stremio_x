@@ -367,6 +367,14 @@ def _search_query_variants(
         if len(selected) < 7:
             selected.append(reduction)
 
+    # Reserve the subtitle tail before aliases: for subtitle-heavy titles it
+    # can be the canonical TMDB search name, and a long alias list must not
+    # crowd it out of the bounded search budget.
+    weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
+    subtitle_tail_query = weak[0] if weak else None
+    if subtitle_tail_query and len(selected) < 7:
+        selected.append(subtitle_tail_query
+
     selected_norm = {_normalize(value) for value in selected}
     aliases = []
     # Alias metadata is expected to be a list/tuple of strings. Ignore malformed
@@ -392,7 +400,6 @@ def _search_query_variants(
             break
         selected.append(alias)
 
-    weak = [v for v in weak if _normalize(v) not in {_normalize(x) for x in selected}]
     for variant in weak:
         if len(selected) >= 7:
             break
