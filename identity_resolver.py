@@ -424,7 +424,14 @@ def _best_provider_title_match(
         r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
     ).strip()
     titles = [title_for_match or provider_title]
-    titles.extend(str(value) for value in alternative_titles if str(value or "").strip())
+    # Provider aliases must be plain strings. Coercing arbitrary metadata (dicts,
+    # lists, numbers) into strings can turn malformed input into fake title
+    # evidence and, in the worst case, an exact match against a serialized value.
+    if isinstance(alternative_titles, (list, tuple)):
+        titles.extend(
+            value.strip() for value in alternative_titles
+            if isinstance(value, str) and value.strip()
+        )
     matches = [_best_title_match(title, item, media_type) for title in titles]
     # On equal scores, prefer provider-supplied aliases over the cleaned display
     # title so the diagnostic records the strongest exact variant (e.g. Japanese).
