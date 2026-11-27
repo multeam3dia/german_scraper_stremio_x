@@ -2486,6 +2486,11 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIn("86", variants)
         self.assertIn("Eighty Six", variants)
 
+    def test_search_variants_clean_year_from_subtitle_tail(self):
+        variants = _search_query_variants("86: Eighty Six (2021)")
+        self.assertIn("Eighty Six", variants)
+        self.assertNotIn("Eighty Six (2021)", variants)
+
     def test_search_variants_prioritize_parenthetical_year_cleanup(self):
         variants = _search_query_variants(
             "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
