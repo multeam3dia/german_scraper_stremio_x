@@ -15,11 +15,21 @@ from identity_resolver import (
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
     _normalize, _best_title_match, _alternative_title_values, _coerce_year, _names_from_people,
+    _person_similarity,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
 class IdentityResolverTests(unittest.TestCase):
+    def test_single_shared_cast_member_is_discounted_as_weak_evidence(self):
+        self.assertEqual(_person_similarity(["Known Actor"], ["Known Actor"]), 0.5)
+
+    def test_two_shared_cast_members_retain_full_overlap_confidence(self):
+        self.assertEqual(
+            _person_similarity(["Actor One", "Actor Two"], ["Actor One", "Actor Two", "Actor Three"]),
+            1.0,
+        )
+
     def test_coerce_year_accepts_valid_strings_and_integer_years(self):
         valid_values = (
             ("2006", 2006),
