@@ -337,6 +337,8 @@ def _search_query_variants(
             "", provider_title, flags=re.IGNORECASE,
         ).strip()
         subtitle_free = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)[0].strip()
+        subtitle_tail = re.split(r"\s*[:：]\s*", provider_title, maxsplit=1)
+        subtitle_tail = subtitle_tail[1].strip() if len(subtitle_tail) > 1 else ""
         year_free = re.sub(
             r"\s*[（(](?:19|20)\d{2}[）)]\s*$", "", provider_title
         ).strip()
@@ -351,7 +353,9 @@ def _search_query_variants(
             value for value in strong_reductions
             if _normalize(value) != _normalize(provider_title)
         ]
-        weak = unique([punctuation_light, parenthetical_free])
+        # Search the subtitle tail only after stronger aliases are exhausted.
+        # This helps provider titles whose franchise prefix is generic or numeric.
+        weak = unique([subtitle_tail, punctuation_light, parenthetical_free])
 
     selected = primary[:]
     # Preserve the title's most useful reductions before aliases, unless they
