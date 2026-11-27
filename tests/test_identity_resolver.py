@@ -2480,6 +2480,12 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertLess(score, 1.0)
         self.assertEqual(matched, "か")
 
+    def test_search_variants_include_subtitle_tail_when_aliases_do_not_fill_budget(self):
+        variants = _search_query_variants("86: Eighty Six")
+        self.assertEqual(variants[0], "86: Eighty Six")
+        self.assertIn("86", variants)
+        self.assertIn("Eighty Six", variants)
+
     def test_search_variants_prioritize_parenthetical_year_cleanup(self):
         variants = _search_query_variants(
             "Kanon (2006)", ["カノン", "Kanon", "Kanon 2006", "Alias Four", "Alias Five"]
