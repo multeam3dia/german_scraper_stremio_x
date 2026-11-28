@@ -1746,6 +1746,10 @@ def find_tmdb_match(
                 "title_score": title_score,
                 "candidate_year": candidate_year,
                 "structure": structure,
+                "review_eligible": (
+                    title_score >= 0.70
+                    and (exact_year or strong_metadata or suffix_supported or year_supported)
+                ),
                 "rejection": "provider_tmdb_episode_structure_mismatch",
             }
             rejected_diagnostics.append(structural_row)
@@ -1816,6 +1820,7 @@ def find_tmdb_match(
     structural_rejection = any(
         isinstance(row, dict)
         and row.get("rejection") == "provider_tmdb_episode_structure_mismatch"
+        and row.get("review_eligible")
         for row in rejected_diagnostics
     )
     if not candidates or structural_rejection:
