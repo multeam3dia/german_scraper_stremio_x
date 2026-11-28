@@ -1809,7 +1809,7 @@ def find_tmdb_match(
             ),
             title_score,
         )
-        if (strong_metadata or suffix_supported or year_supported) and (
+        if (strong_metadata or suffix_supported or year_supported or structure_metadata_supported) and (
             title_score < MIN_TITLE_SCORE_WITH_YEAR or suffix_supported
         ):
             # Metadata-rescued and format-suffix candidates must clear a high
