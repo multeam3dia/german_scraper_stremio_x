@@ -1335,7 +1335,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["tmdb_id"], 326247)
         self.assertEqual(result["title_score"], 1.0)
 
-    def test_world_dai_star_exact_title_is_found:
+    def test_world_dai_star_exact_title_is_found(self):
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
