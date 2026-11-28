@@ -93,6 +93,9 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(summary["retry_due_count"], 1)
         self.assertEqual(summary["selected_pool_count"], 1)
         self.assertFalse(summary["force_retry"])
+        self.assertFalse(summary["candidate_window_exhausted"])
+        self.assertEqual(summary["selection_shortfall"], 499)
+        self.assertTrue(summary["selection_limited_by_retry_cooldown"])
 
     def test_resolver_force_retry_bypasses_cooldown_for_selected_items(self):
         candidates = [
@@ -116,6 +119,9 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(summary["retry_due_count"], 1)
         self.assertEqual(summary["selected_pool_count"], 2)
         self.assertTrue(summary["force_retry"])
+        self.assertFalse(summary["candidate_window_exhausted"])
+        self.assertEqual(summary["selection_shortfall"], 498)
+        self.assertFalse(summary["selection_limited_by_retry_cooldown"])
 
 
     def setUp(self):
