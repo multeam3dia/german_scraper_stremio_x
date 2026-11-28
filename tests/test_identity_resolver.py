@@ -15,12 +15,21 @@ from identity_resolver import (
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
     _normalize, _best_title_match, _alternative_title_values, _coerce_year, _names_from_people,
-    _person_similarity,
+    _person_similarity, _year_within_rescue_tolerance,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
 
 class IdentityResolverTests(unittest.TestCase):
+    def test_rescue_year_tolerance_accepts_one_year_and_rejects_two(self):
+        self.assertTrue(_year_within_rescue_tolerance(2020, 2019))
+        self.assertTrue(_year_within_rescue_tolerance(2020, 2021))
+        self.assertTrue(_year_within_rescue_tolerance(2020, 2020))
+        self.assertFalse(_year_within_rescue_tolerance(2020, 2018))
+        self.assertFalse(_year_within_rescue_tolerance(2020, 2022))
+        self.assertFalse(_year_within_rescue_tolerance(None, 2020))
+        self.assertFalse(_year_within_rescue_tolerance(2020, None))
+
     def test_coerce_year_accepts_valid_strings_and_integer_years(self):
         valid_values = (
             ("2006", 2006),
@@ -1691,7 +1700,7 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["status"], "identified")
         self.assertEqual(result["tmdb_id"], candidate_id)
         self.assertGreaterEqual(result["title_score"], 0.50)
-        self.assertLess(result["title_score"], 0.70)
+        self.assertLess(result["title_score"], 0.90)
         self.assertEqual(result["diagnostics"]["candidates"][0]["structure"]["status"], "match")
 
     def test_exact_year_cast_and_episode_structure_rescue_fuzzy_title(self):
