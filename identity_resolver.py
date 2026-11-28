@@ -2214,6 +2214,14 @@ def resolve_unresolved_titles(
     records = selected_pool[:max(1, int(limit))]
     cooldown_bypassed = sum(1 for record in records if not resolver_retry_due(record)) if force_retry else 0
     summary: dict[str, Any] = {
+        # Selection diagnostics make it clear whether a requested batch limit was
+        # constrained by the database candidate window or retry cooldown.
+        "requested_limit": max(1, int(limit)),
+        "candidate_fetch_limit": 5000,
+        "candidate_count": len(candidates),
+        "retry_due_count": len(due_records),
+        "selected_pool_count": len(selected_pool),
+        "force_retry": bool(force_retry),
         "scanned": len(records),
         "deferred_by_retry_cooldown": 0 if force_retry else len(candidates) - len(due_records),
         "cooldown_bypassed": cooldown_bypassed,
