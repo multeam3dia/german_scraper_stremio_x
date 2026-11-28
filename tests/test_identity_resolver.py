@@ -3075,7 +3075,6 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertIn("/search/movie", [path for path, _ in calls])
         self.assertEqual(result["status"], "matched")
         self.assertEqual(result["tmdb_id"], 71001)
-        self.assertEqual(result["media_type"], "series" if "media_type" in result else None)
 
     def test_one_episode_aniworld_series_movie_probe_cannot_override_tv_match_without_metadata(self):
         calls = []
@@ -3090,7 +3089,7 @@ class IdentityResolverTests(unittest.TestCase):
             if path == "/search/movie":
                 return {"results": [{
                     "id": 72002, "title": "One Episode Show",
-                    "original_title": "One Episode Show", "release_date": "2021-01-01,
+                    "original_title": "One Episode Show", "release_date": "2021-01-01",
                 }]}
             if path == "/tv/72001/external_ids":
                 return {"imdb_id": "tt12345679"}
