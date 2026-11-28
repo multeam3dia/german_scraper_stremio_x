@@ -1198,7 +1198,7 @@ def _structure_and_metadata_rescue(
 ) -> bool:
     """Allow strong year + cast + episode structure to rescue a fuzzy title."""
     return (
-        title_score >= 0.70
+        title_score >= 0.50
         and exact_year
         and actor_score is not None
         and actor_score >= 0.85
