@@ -1319,23 +1319,23 @@ class IdentityResolverTests(unittest.TestCase):
             if path == "/search/tv":
                 return {"results": [{
                     "id": 326247, "name": "フールナイト",
-                    "original_name": "フールナイト", "first_air_date": "2025-04-01",
+                    "original_name": "フールナイト",
                 }]}
             if path == "/tv/326247/alternative_titles":
                 return {"results": [{"name": "Fool Night", "iso_3166_1": "US"}]}
             if path == "/tv/326247/external_ids":
-                return {"imdb_id": "tt12345678"}
+                return {"imdb_id": None}
             return {}
 
         result = find_tmdb_match(
-            {"media_type": "series", "provider_title": "Fool Night", "year": 2025},
+            {"media_type": "series", "provider_title": "Fool Night"},
             search_fn=fake_get,
         )
-        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["status"], "identified")
         self.assertEqual(result["tmdb_id"], 326247)
         self.assertEqual(result["title_score"], 1.0)
 
-    def test_world_dai_star_exact_title_is_found(self):
+    def test_world_dai_star_exact_title_is_found:
         def fake_get(path, params):
             if path == "/search/tv":
                 return {"results": [{
