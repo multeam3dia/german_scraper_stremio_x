@@ -1313,6 +1313,28 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["imdb_id"], "tt0479783")
         self.assertEqual(result["title_score"], 1.0)
 
+    def test_fool_night_romanized_alias_matches_japanese_tmdb_title(self):
+        # User-verified ground truth: Fool Night -> TMDB TV 326247.
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 326247, "name": "フールナイト",
+                    "original_name": "フールナイト", "first_air_date": "2025-04-01",
+                }]}
+            if path == "/tv/326247/alternative_titles":
+                return {"results": [{"name": "Fool Night", "iso_3166_1": "US"}]}
+            if path == "/tv/326247/external_ids":
+                return {"imdb_id": "tt12345678"}
+            return {}
+
+        result = find_tmdb_match(
+            {"media_type": "series", "provider_title": "Fool Night", "year": 2025},
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 326247)
+        self.assertEqual(result["title_score"], 1.0)
+
     def test_world_dai_star_exact_title_is_found(self):
         def fake_get(path, params):
             if path == "/search/tv":
