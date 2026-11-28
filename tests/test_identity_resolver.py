@@ -15,7 +15,7 @@ from identity_resolver import (
     _episode_title_similarity, _metadata_signal_scores, _candidate_season_episode_titles,
     _independent_corroboration_values, _is_short_ambiguous_title, _company_similarity,
     _normalize, _best_title_match, _alternative_title_values, _coerce_year, _names_from_people,
-    _person_similarity, _year_within_rescue_tolerance,
+    _person_similarity, _year_within_rescue_tolerance, _structure_and_metadata_rescue,
 )
 from catalog_identity import get_title_by_provider_url, get_title_by_external_id
 
@@ -29,6 +29,28 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertFalse(_year_within_rescue_tolerance(2020, 2022))
         self.assertFalse(_year_within_rescue_tolerance(None, 2020))
         self.assertFalse(_year_within_rescue_tolerance(2020, None))
+
+    def test_structural_metadata_rescue_requires_title_year_cast_and_structure(self):
+        structure = {"status": "match", "mismatch": False}
+        self.assertTrue(_structure_and_metadata_rescue(
+            title_score=0.51, exact_year=True, actor_score=1.0, structure=structure
+        ))
+        self.assertTrue(_structure_and_metadata_rescue(
+            title_score=0.50, exact_year=True, actor_score=0.85, structure=structure
+        ))
+        self.assertFalse(_structure_and_metadata_rescue(
+            title_score=0.49, exact_year=True, actor_score=1.0, structure=structure
+        ))
+        self.assertFalse(_structure_and_metadata_rescue(
+            title_score=0.60, exact_year=False, actor_score=1.0, structure=structure
+        ))
+        self.assertFalse(_structure_and_metadata_rescue(
+            title_score=0.60, exact_year=True, actor_score=0.84, structure=structure
+        ))
+        self.assertFalse(_structure_and_metadata_rescue(
+            title_score=0.60, exact_year=True, actor_score=1.0,
+            structure={"status": "mismatch", "mismatch": True}
+        ))
 
     def test_coerce_year_accepts_valid_strings_and_integer_years(self):
         valid_values = (
