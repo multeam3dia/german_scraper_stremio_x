@@ -1651,6 +1651,49 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["actor_score"], 1.0)
         self.assertEqual(result["director_score"], 1.0)
 
+    def test_exact_year_cast_and_episode_structure_rescue_very_fuzzy_title(self):
+        # Synthetic regression: lower title similarity is accepted only with exact
+        # year, strong actor overlap, and a matching complete episode structure.
+        candidate_id = 9876543211
+
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": candidate_id, "name": "Synthetic Candidate Alpha",
+                    "original_name": "Synthetic Candidate Alpha",
+                    "first_air_date": "2015-01-01",
+                }]}
+            if path == f"/tv/{candidate_id}/credits":
+                return {"cast": [{"name": "Fixture Cast Member"}], "crew": []}
+            if path == f"/tv/{candidate_id}":
+                return {
+                    "number_of_seasons": 1, "number_of_episodes": 3,
+                    "seasons": [{"season_number": 1, "episode_count": 3}],
+                }
+            if path == f"/tv/{candidate_id}/external_ids":
+                return {}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "provider": "aniworld", "media_type": "series",
+                "provider_title": "Synthetic Candidate", "year": 2015,
+                "metadata": {
+                    "actors": ["Fixture Cast Member"],
+                    "provider_structure": {
+                        "complete": True, "season_count": 1, "episode_count": 3,
+                        "seasons": [{"season_number": 1, "episode_count": 3}],
+                    },
+                },
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "identified")
+        self.assertEqual(result["tmdb_id"], candidate_id)
+        self.assertGreaterEqual(result["title_score"], 0.50)
+        self.assertLess(result["title_score"], 0.70)
+        self.assertEqual(result["diagnostics"]["candidates"][0]["structure"]["status"], "match")
+
     def test_exact_year_cast_and_episode_structure_rescue_fuzzy_title(self):
         # Entirely synthetic fixture: no real TMDB/IMDb identity is asserted.
         candidate_id = 9876543210
