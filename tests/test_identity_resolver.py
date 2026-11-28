@@ -1927,6 +1927,39 @@ class IdentityResolverTests(unittest.TestCase):
         )
         self.assertIn("/tv/341826", calls)
 
+    def test_unrelated_structural_mismatch_does_not_block_valid_candidate(self):
+        def fake_get(path, params):
+            if path == "/search/tv":
+                return {"results": [
+                    {"id": 901, "name": "Animal Crossing Shorts",
+                     "original_name": "どうぶつの森短編", "first_air_date": "2006-01-01"},
+                    {"id": 902, "name": "Animal Crossing",
+                     "original_name": "Animal Crossing", "first_air_date": "2006-01-01"},
+                ]}
+            if path == "/tv/901":
+                return {"number_of_seasons": 1, "number_of_episodes": 12,
+                        "seasons": [{"season_number": 1, "episode_count": 12}]}
+            if path == "/tv/902":
+                return {"number_of_seasons": 1, "number_of_episodes": 1,
+                        "seasons": [{"season_number": 1, "episode_count": 1}]}
+            if path.endswith("/external_ids"):
+                return {"imdb_id": "tt1234567"}
+            return {}
+
+        result = find_tmdb_match(
+            {
+                "media_type": "series", "provider_title": "Animal Crossing",
+                "year": 2006,
+                "metadata": {"provider_structure": {
+                    "complete": True, "season_count": 1, "episode_count": 1,
+                    "seasons": [{"season_number": 1, "episode_count": 1}],
+                }},
+            },
+            search_fn=fake_get,
+        )
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 902)
+
     def test_structure_check_is_not_fetched_for_clear_exact_match(self):
         calls = []
 
