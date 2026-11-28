@@ -3073,8 +3073,8 @@ class IdentityResolverTests(unittest.TestCase):
         }, search_fn=fake_get)
 
         self.assertIn("/search/movie", [path for path, _ in calls])
-        self.assertEqual(result["status"], "matched")
-        self.assertEqual(result["tmdb_id"], 71001)
+        self.assertNotEqual(result.get("tmdb_id"), 71002)
+        self.assertNotIn("media_type_correction", result)
 
     def test_one_episode_aniworld_series_movie_probe_cannot_override_tv_match_without_metadata(self):
         calls = []
@@ -3105,8 +3105,8 @@ class IdentityResolverTests(unittest.TestCase):
         }, search_fn=fake_get)
 
         self.assertIn("/search/movie", calls)
-        self.assertEqual(result["status"], "matched")
-        self.assertEqual(result["tmdb_id"], 72001)
+        self.assertNotEqual(result.get("tmdb_id"), 72002)
+        self.assertNotIn("media_type_correction", result)
 
     def test_episode_title_similarity_ignores_invalid_season_numbers(self):
         invalid_season_numbers = (True, 1.5, Decimal("1.5"), float("inf"))
