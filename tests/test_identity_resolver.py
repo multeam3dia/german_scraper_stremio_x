@@ -3042,6 +3042,73 @@ class IdentityResolverTests(unittest.TestCase):
         self.assertEqual(result["candidate_year"], 1992)
 
 
+    def test_one_episode_aniworld_series_probes_movies_without_switching_on_episode_count(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append((path, dict(params or {})))
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 71001, "name": "Single Episode Test",
+                    "original_name": "Single Episode Test", "first_air_date": "2020-01-01",
+                }]}
+            if path == "/search/movie":
+                # A title-only movie hit is insufficient evidence to correct media type.
+                return {"results": [{
+                    "id": 71002, "title": "Single Episode Test",
+                    "original_title": "Single Episode Test", "release_date": "2020-01-01",
+                }]}
+            if path == "/tv/71001/external_ids":
+                return {"imdb_id": "tt12345678"}
+            return {}
+
+        result = find_tmdb_match({
+            "provider": "aniworld", "media_type": "series",
+            "provider_title": "Single Episode Test", "year": 2020,
+            "metadata": {"provider_structure": {
+                "complete": True, "season_count": 1, "episode_count": 1,
+                "seasons": [{"season_number": 1, "episode_count": 1,
+                             "episodes": [{"episode_number": 1, "title": "Pilot"}]}],
+            }},
+        }, search_fn=fake_get)
+
+        self.assertIn("/search/movie", [path for path, _ in calls])
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 71001)
+        self.assertEqual(result["media_type"], "series" if "media_type" in result else None)
+
+    def test_one_episode_aniworld_series_movie_probe_cannot_override_tv_match_without_metadata(self):
+        calls = []
+
+        def fake_get(path, params):
+            calls.append(path)
+            if path == "/search/tv":
+                return {"results": [{
+                    "id": 72001, "name": "One Episode Show",
+                    "original_name": "One Episode Show", "first_air_date": "2021-01-01",
+                }]}
+            if path == "/search/movie":
+                return {"results": [{
+                    "id": 72002, "title": "One Episode Show",
+                    "original_title": "One Episode Show", "release_date": "2021-01-01,
+                }]}
+            if path == "/tv/72001/external_ids":
+                return {"imdb_id": "tt12345679"}
+            return {}
+
+        result = find_tmdb_match({
+            "provider": "aniworld", "media_type": "series",
+            "provider_title": "One Episode Show", "year": 2021,
+            "metadata": {"provider_structure": {
+                "complete": True, "season_count": 1, "episode_count": 1,
+                "seasons": [{"season_number": 1, "episode_count": 1}],
+            }},
+        }, search_fn=fake_get)
+
+        self.assertIn("/search/movie", calls)
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["tmdb_id"], 72001)
+
     def test_episode_title_similarity_ignores_invalid_season_numbers(self):
         invalid_season_numbers = (True, 1.5, Decimal("1.5"), float("inf"))
         provider_structure = {
