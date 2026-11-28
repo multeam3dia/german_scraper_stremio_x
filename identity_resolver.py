@@ -1832,7 +1832,18 @@ def find_tmdb_match(
         and row.get("review_eligible")
         for row in rejected_diagnostics
     )
-    if not candidates or structural_rejection:
+    # A complete AniWorld structure with exactly one episode is a strong format
+    # hint, but not a movie identity by itself (specials/OVAs can also be one
+    # episode). Probe TMDB movies even when a plausible TV candidate exists.
+    single_episode_aniworld_series = (
+        provider == "aniworld"
+        and media_type == "series"
+        and isinstance(provider_structure, dict)
+        and provider_structure.get("complete") is True
+        and type(provider_structure.get("episode_count")) is int
+        and provider_structure.get("episode_count") == 1
+    )
+    if not candidates or structural_rejection or single_episode_aniworld_series:
         diagnostics = {
             "provider_title": provider_title, "provider_year": provider_year,
             "provider_genres": provider_genres,
@@ -1937,15 +1948,23 @@ def find_tmdb_match(
                         },
                     }
 
-                return {
-                    "status": "ambiguous",
-                    "reason": (
-                        "A possible TMDB movie exists, but the provider entry is "
-                        "classified as a series; manual media-type review is required"
-                    ),
-                    "media_type_conflict": True,
-                    "diagnostics": diagnostics,
-                }
+                # If a one-episode AniWorld series has a strong, independently
+                # verified TV candidate, an unverified movie hit must not downgrade
+                # that result to manual review. The probe is only an extra signal;
+                # it cannot override the primary series evidence without passing
+                # the strict correction gate above.
+                if single_episode_aniworld_series and candidates:
+                    diagnostics["alternate_movie_candidate"]["ignored_for_type_correction"] = True
+                else:
+                    return {
+                        "status": "ambiguous",
+                        "reason": (
+                            "A possible TMDB movie exists, but the provider entry is "
+                            "classified as a series; manual media-type review is required"
+                        ),
+                        "media_type_conflict": True,
+                        "diagnostics": diagnostics,
+                    }
         if structural_rejection:
             review_row = next((
                 row for row in rejected_diagnostics
