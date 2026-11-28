@@ -2222,6 +2222,12 @@ def resolve_unresolved_titles(
         "retry_due_count": len(due_records),
         "selected_pool_count": len(selected_pool),
         "force_retry": bool(force_retry),
+        "candidate_window_exhausted": len(candidates) >= 5000,
+        "selection_shortfall": max(0, max(1, int(limit)) - len(records)),
+        "selection_limited_by_retry_cooldown": (
+            not force_retry and len(records) < max(1, int(limit))
+            and len(due_records) < len(candidates)
+        ),
         "scanned": len(records),
         "deferred_by_retry_cooldown": 0 if force_retry else len(candidates) - len(due_records),
         "cooldown_bypassed": cooldown_bypassed,
