@@ -759,6 +759,108 @@ def fetch_popular_series():
     )
 
 
+
+def _parse_serienstream_index(page, base_url):
+    """Parse the complete alphabetical series index into normalized cards."""
+    from html.parser import HTMLParser
+    from urllib.parse import urlparse
+
+    class _IndexParser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.cards = []
+            self.current = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "a":
+                href = (attrs.get("href") or "").strip()
+                parsed = urlparse(urljoin(base_url, href))
+                match = re.match(r"^/serie/([^/?#]+)(?:/staffel-\d+)?/?$", parsed.path)
+                if match:
+                    self.current = {
+                        "slug": match.group(1),
+                        "href": href,
+                        "title": attrs.get("title") or "",
+                        "text": [],
+                        "poster_url": "",
+                    }
+            elif self.current is not None and tag == "img":
+                alt = (attrs.get("alt") or "").strip()
+                if alt and not self.current["title"]:
+                    self.current["title"] = alt
+                poster = (attrs.get("data-src") or attrs.get("data-original") or attrs.get("src") or "").strip()
+                if poster and not self.current["poster_url"]:
+                    self.current["poster_url"] = urljoin(base_url, poster)
+
+        def handle_data(self, data):
+            if self.current is not None:
+                self.current["text"].append(data)
+
+        def handle_endtag(self, tag):
+            if tag != "a" or self.current is None:
+                return
+            item = self.current
+            self.current = None
+            title = item["title"] or " ".join(" ".join(item["text"]).split())
+            if not title:
+                return
+            canonical_url = urljoin(base_url, "/serie/" + item["slug"])
+            self.cards.append({
+                "title": html_module.unescape(title).strip(),
+                "url": canonical_url,
+                "genre": "",
+                "poster_url": item["poster_url"],
+            })
+
+    parser = _IndexParser()
+    parser.feed(page)
+    parser.close()
+
+    results = []
+    seen = set()
+    for item in parser.cards:
+        slug = item["url"].rstrip("/").rsplit("/", 1)[-1]
+        if slug in seen:
+            continue
+        seen.add(slug)
+        results.append(item)
+    return results
+
+
+def fetch_all_series_index():
+    """Fetch the single-page alphabetical all-series index from serienstream.
+
+    The current index presents all entries grouped by initial letter on one
+    page; the A-Z controls are in-page navigation, not pagination. A failed
+    request or unexpected page is returned as None, never as an empty success.
+    """
+    from .models.s_to.http import sto_get, sto_host
+
+    url = "https://serienstream.to/serien"
+    try:
+        response = sto_get(url)
+        response.raise_for_status()
+    except Exception as exc:
+        logger.error(f"Failed to fetch serienstream all-series index: {exc}")
+        return None
+
+    page = response.text
+    if not re.search(r"Alle\s+Einträge", page, re.IGNORECASE):
+        logger.error("Serienstream all-series index marker was not found")
+        return None
+
+    # Keep generated series URLs on a host recognized by the existing s.to models.
+    base_url = f"https://{sto_host()}/serien"
+    results = _parse_serienstream_index(page, base_url)
+    if not results:
+        logger.error("Serienstream all-series index contained no series links")
+        return None
+
+    logger.info(f"Serienstream alphabetical index discovered {len(results)} unique entries")
+    return results
+
+
 def _curses_menu(stdscr, options):
     """Display a simple curses menu to select an option with scrolling support."""
     import curses

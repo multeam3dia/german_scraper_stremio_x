@@ -2,7 +2,7 @@ import re
 from html import unescape
 from urllib.parse import urljoin, urlparse
 
-from ...config import SERIENSTREAM_SERIES_PATTERN, logger
+from ...config import GLOBAL_SESSION, SERIENSTREAM_SERIES_PATTERN, logger
 from ..common import clean_title
 from .http import sto_get
 
@@ -42,11 +42,12 @@ class SerienstreamSeries:
         rating, mal_id, has_movies
     """
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, session=None):
         if not self.__is_valid_serienstream_series_url(url):
             raise ValueError(f"Invalid Serienstream series URL: {url}")
 
         self.url = url
+        self.__session = session or GLOBAL_SESSION
 
         self.__title = None
         self.__title_cleaned = None
@@ -167,7 +168,7 @@ class SerienstreamSeries:
     def _html(self):
         if self.__html is None:
             logger.debug(f"fetching ({self.url})...")
-            resp = sto_get(self.url)
+            resp = sto_get(self.url, session=self.__session)
             self.__html = resp.text
         return self.__html
 
