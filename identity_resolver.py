@@ -53,6 +53,7 @@ IMDB_ID_RE = re.compile(r"^tt\d{7,10}$")
 MIN_CONFIDENCE = 0.94
 MIN_MARGIN = 0.08
 MIN_TITLE_SCORE_WITH_YEAR = 0.94
+RESCUE_YEAR_TOLERANCE = 1
 
 # Persistent resolver retry delays, indexed by the number of prior resolver attempts.
 # A new item (zero attempts) is always eligible; failures back off up to 90 days.
@@ -1192,6 +1193,14 @@ def _is_short_ambiguous_title(value: str) -> bool:
     return len(words) == 1 and len(normalized) <= 6
 
 
+def _year_within_rescue_tolerance(provider_year: int | None, candidate_year: int | None) -> bool:
+    """Treat small release-year discrepancies as compatible rescue evidence."""
+    return (
+        provider_year is not None and candidate_year is not None
+        and abs(provider_year - candidate_year) <= RESCUE_YEAR_TOLERANCE
+    )
+
+
 def _structure_and_metadata_rescue(
     *, title_score: float, exact_year: bool,
     actor_score: float | None, structure: dict[str, Any] | None,
@@ -1727,7 +1736,7 @@ def find_tmdb_match(
         )
         structure_metadata_supported = _structure_and_metadata_rescue(
             title_score=title_score,
-            exact_year=exact_year,
+            exact_year=_year_within_rescue_tolerance(provider_year, candidate_year),
             actor_score=scores_for(item).get("actor_score"),
             structure=structure,
         )
@@ -1974,7 +1983,7 @@ def find_tmdb_match(
         # confidence boost so a fuzzy translated title can reach auto-match.
         if _structure_and_metadata_rescue(
             title_score=pair[2],
-            exact_year=(provider_year is not None and pair[3] == provider_year),
+            exact_year=_year_within_rescue_tolerance(provider_year, pair[3]),
             actor_score=scores_for(pair[1]).get("actor_score"),
             structure=structure,
         ):
